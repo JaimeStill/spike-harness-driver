@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
 const plainText = "Go is a statically typed, compiled programming language designed for simplicity, concurrency, and efficient performance."
 
-func open(t *testing.T, mode string) harness.Session {
+func open(t *testing.T, mode string) *harness.Session {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -23,7 +24,7 @@ func open(t *testing.T, mode string) harness.Session {
 	return s
 }
 
-func closeSession(t *testing.T, s harness.Session) {
+func closeSession(t *testing.T, s *harness.Session) {
 	t.Helper()
 	if err := s.Close(); err != nil {
 		t.Errorf("Close: %v", err)
@@ -32,7 +33,7 @@ func closeSession(t *testing.T, s harness.Session) {
 
 // drain collects an exchange's events until the channel closes. With stopAfter > 0 it calls
 // onDelta after that many text deltas.
-func drain(t *testing.T, x harness.Exchange, stopAfter int, onDelta func()) []harness.Event {
+func drain(t *testing.T, x *harness.Exchange, stopAfter int, onDelta func()) []harness.Event {
 	t.Helper()
 	var events []harness.Event
 	deltas := 0
@@ -44,7 +45,7 @@ func drain(t *testing.T, x harness.Exchange, stopAfter int, onDelta func()) []ha
 				return events
 			}
 			events = append(events, ev)
-			if ev.Kind == harness.KindTextDelta {
+			if ev.Kind == harness.EventTextDelta {
 				if deltas++; deltas == stopAfter {
 					onDelta()
 				}
@@ -56,8 +57,8 @@ func drain(t *testing.T, x harness.Exchange, stopAfter int, onDelta func()) []ha
 }
 
 // checkScoped verifies that every event carries the session and exchange IDs, that sequence
-// numbers run from 1 without gaps, and that the exchange ends with KindEnded.
-func checkScoped(t *testing.T, s harness.Session, x harness.Exchange, events []harness.Event) {
+// numbers run from 1 without gaps, and that the exchange ends with EventEnded.
+func checkScoped(t *testing.T, s *harness.Session, x *harness.Exchange, events []harness.Event) {
 	t.Helper()
 	for i, ev := range events {
 		if ev.SessionID != s.ID() || ev.ExchangeID != x.ID() || ev.Seq != i+1 {
@@ -65,12 +66,12 @@ func checkScoped(t *testing.T, s harness.Session, x harness.Exchange, events []h
 				i, ev.SessionID, ev.ExchangeID, ev.Seq, s.ID(), x.ID(), i+1)
 		}
 	}
-	if k := events[len(events)-1].Kind; k != harness.KindEnded {
+	if k := events[len(events)-1].Kind; k != harness.EventEnded {
 		t.Fatalf("last event is %s, want ended", k)
 	}
 }
 
-func has(events []harness.Event, k harness.Kind) bool {
+func has(events []harness.Event, k harness.EventKind) bool {
 	for _, ev := range events {
 		if ev.Kind == k {
 			return true
@@ -84,7 +85,7 @@ func TestTwoExchangesInOneSession(t *testing.T) {
 	if s.ID() != "fake-session" {
 		t.Fatalf("session ID = %q, want Pi's sessionId", s.ID())
 	}
-	var ids []string
+	var ids []uuid.UUID
 	for range 2 {
 		x, err := s.Send(t.Context(), harness.Request{Text: "what is Go?"})
 		if err != nil {
@@ -132,10 +133,10 @@ func TestSendWhileOpenIsBusy(t *testing.T) {
 func TestCancelMidStream(t *testing.T) {
 	tests := []struct {
 		name   string
-		cancel func(x harness.Exchange, stop context.CancelFunc)
+		cancel func(x *harness.Exchange, stop context.CancelFunc)
 	}{
-		{name: "Cancel", cancel: func(x harness.Exchange, _ context.CancelFunc) { x.Cancel() }},
-		{name: "context", cancel: func(_ harness.Exchange, stop context.CancelFunc) { stop() }},
+		{name: "Cancel", cancel: func(x *harness.Exchange, _ context.CancelFunc) { x.Cancel() }},
+		{name: "context", cancel: func(_ *harness.Exchange, stop context.CancelFunc) { stop() }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,7 +150,7 @@ func TestCancelMidStream(t *testing.T) {
 			}
 			events := drain(t, x, 3, func() { tt.cancel(x, stop) })
 			checkScoped(t, s, x, events)
-			if !has(events, harness.KindCancelled) {
+			if !has(events, harness.EventCancelled) {
 				t.Fatal("no cancelled event")
 			}
 			res, err := x.Wait()

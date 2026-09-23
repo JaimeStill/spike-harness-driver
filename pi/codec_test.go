@@ -3,6 +3,7 @@ package pi
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -15,60 +16,60 @@ func TestNormalize(t *testing.T) {
 	tests := []struct {
 		name  string
 		line  string
-		kinds []harness.Kind
+		kinds []harness.EventKind
 		text  string
 		stop  string
 		tool  string
 		err   string
 	}{
-		{name: "agent start", line: `{"type":"agent_start"}`, kinds: []harness.Kind{harness.KindStarted}},
-		{name: "agent settled", line: `{"type":"agent_settled"}`, kinds: []harness.Kind{harness.KindEnded}},
+		{name: "agent start", line: `{"type":"agent_start"}`, kinds: []harness.EventKind{harness.EventStarted}},
+		{name: "agent settled", line: `{"type":"agent_settled"}`, kinds: []harness.EventKind{harness.EventEnded}},
 		{
 			name:  "text delta",
 			line:  `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hi"}}`,
-			kinds: []harness.Kind{harness.KindTextDelta}, text: "Hi",
+			kinds: []harness.EventKind{harness.EventTextDelta}, text: "Hi",
 		},
 		{
 			name:  "thinking delta",
 			line:  `{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"hm"}}`,
-			kinds: []harness.Kind{harness.KindThinkingDelta}, text: "hm",
+			kinds: []harness.EventKind{harness.EventThinkingDelta}, text: "hm",
 		},
 		{
 			name:  "text start is harness noise",
 			line:  `{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":0}}`,
-			kinds: []harness.Kind{harness.KindHarness},
+			kinds: []harness.EventKind{harness.EventHarness},
 		},
 		{
 			name:  "tool call",
 			line:  `{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{"command":"ls"}}`,
-			kinds: []harness.Kind{harness.KindToolCall}, tool: "bash",
+			kinds: []harness.EventKind{harness.EventToolCall}, tool: "bash",
 		},
 		{
 			name:  "tool result",
 			line:  `{"type":"tool_execution_end","toolCallId":"c1","toolName":"bash","result":{"content":[]},"isError":false}`,
-			kinds: []harness.Kind{harness.KindToolResult}, tool: "bash",
+			kinds: []harness.EventKind{harness.EventToolResult}, tool: "bash",
 		},
 		{
 			name:  "assistant message end",
 			line:  `{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"Go."}],"stopReason":"stop","usage":{"input":3,"output":2}}}`,
-			kinds: []harness.Kind{harness.KindMessageEnd}, text: "Go.", stop: "stop",
+			kinds: []harness.EventKind{harness.EventMessageEnd}, text: "Go.", stop: "stop",
 		},
 		{
 			name:  "aborted message end",
 			line:  `{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"aborted","errorMessage":"Request was aborted"}}`,
-			kinds: []harness.Kind{harness.KindMessageEnd, harness.KindCancelled}, stop: "aborted",
+			kinds: []harness.EventKind{harness.EventMessageEnd, harness.EventCancelled}, stop: "aborted",
 		},
 		{
 			name:  "errored message end",
 			line:  `{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"boom"}}`,
-			kinds: []harness.Kind{harness.KindMessageEnd, harness.KindError}, stop: "error", err: "boom",
+			kinds: []harness.EventKind{harness.EventMessageEnd, harness.EventError}, stop: "error", err: "boom",
 		},
 		{
 			name:  "user message end is harness noise",
 			line:  `{"type":"message_end","message":{"role":"user","content":"hi"}}`,
-			kinds: []harness.Kind{harness.KindHarness},
+			kinds: []harness.EventKind{harness.EventHarness},
 		},
-		{name: "unknown event", line: `{"type":"something_new"}`, kinds: []harness.Kind{harness.KindHarness}},
+		{name: "unknown event", line: `{"type":"something_new"}`, kinds: []harness.EventKind{harness.EventHarness}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -131,10 +132,10 @@ func TestNormalizeTranscripts(t *testing.T) {
 				events = append(events, normalize(r, line)...)
 			}
 
-			if events[0].Kind != harness.KindStarted {
+			if events[0].Kind != harness.EventStarted {
 				t.Errorf("first kind = %s, want started", events[0].Kind)
 			}
-			if k := events[len(events)-1].Kind; k != harness.KindEnded {
+			if k := events[len(events)-1].Kind; k != harness.EventEnded {
 				t.Errorf("last kind = %s, want ended", k)
 			}
 
@@ -143,11 +144,11 @@ func TestNormalizeTranscripts(t *testing.T) {
 			cancelled := false
 			for i, ev := range events {
 				switch ev.Kind {
-				case harness.KindTextDelta:
+				case harness.EventTextDelta:
 					deltas.WriteString(ev.Text)
-				case harness.KindMessageEnd:
+				case harness.EventMessageEnd:
 					end = &events[i]
-				case harness.KindCancelled:
+				case harness.EventCancelled:
 					cancelled = true
 				}
 			}
@@ -182,10 +183,52 @@ func readLines(t *testing.T, name string) [][]byte {
 	return lines
 }
 
-func kinds(events []harness.Event) []harness.Kind {
-	out := make([]harness.Kind, len(events))
+func kinds(events []harness.Event) []harness.EventKind {
+	out := make([]harness.EventKind, len(events))
 	for i, ev := range events {
 		out[i] = ev.Kind
 	}
 	return out
+}
+
+func TestCodecResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		wantErr string
+	}{
+		{name: "success", line: `{"id":"7","type":"response","command":"get_state","success":true,"data":{"sessionId":"s"}}`},
+		{
+			name:    "failure",
+			line:    `{"id":"7","type":"response","command":"prompt","success":false,"error":"Agent is already processing."}`,
+			wantErr: "pi: prompt: Agent is already processing.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := codec{}.Decode([]byte(tt.line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Response == nil || f.Response.ID != "7" || len(f.Events) != 0 {
+				t.Fatalf("frame = %+v, want only a response with id 7", f)
+			}
+			if got := fmt.Sprint(f.Response.Err); (f.Response.Err != nil || tt.wantErr != "") && got != tt.wantErr {
+				t.Fatalf("Err = %v, want %q", f.Response.Err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCodecEncodeStampsID(t *testing.T) {
+	line, err := codec{}.Encode("42", command{Type: "abort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(line) != `{"id":"42","type":"abort"}` {
+		t.Fatalf("Encode = %s", line)
+	}
+	if _, err := (codec{}).Encode("1", "abort"); err == nil {
+		t.Fatal("Encode accepted a value that is not a command")
+	}
 }
