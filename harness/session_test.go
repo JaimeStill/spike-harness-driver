@@ -15,26 +15,53 @@ import (
 type fakeConnection struct {
 	events    chan harness.Event
 	promptErr error
-	// blockCancel makes Cancel wait until its context is done, like a harness that never
-	// answers.
-	blockCancel bool
-	cancels     chan struct{}
-	closeOnce   sync.Once
+	// promptGate, when set, holds Prompt's answer until it closes or Prompt's context ends.
+	promptGate chan struct{}
+	// cancelGate, when set, holds Cancel's answer the same way; one that never closes is a
+	// harness that never answers.
+	cancelGate chan struct{}
+	cancels    chan struct{}
+	closeOnce  sync.Once
 }
 
 func newFakeConnection() *fakeConnection {
 	return &fakeConnection{events: make(chan harness.Event), cancels: make(chan struct{}, 8)}
 }
 
-func (c *fakeConnection) Prompt(context.Context, harness.Request) error { return c.promptErr }
+func (c *fakeConnection) Prompt(ctx context.Context, _ harness.Request) error {
+	if err := gate(ctx, c.promptGate); err != nil {
+		return err
+	}
+	return c.promptErr
+}
 
 func (c *fakeConnection) Cancel(ctx context.Context) error {
 	c.cancels <- struct{}{}
-	if c.blockCancel {
-		<-ctx.Done()
+	return gate(ctx, c.cancelGate)
+}
+
+// gate waits for g to close, or for ctx to end. A nil g doesn't wait.
+func gate(ctx context.Context, g chan struct{}) error {
+	if g == nil {
+		return nil
+	}
+	select {
+	case <-g:
+		return nil
+	case <-ctx.Done():
 		return ctx.Err()
 	}
-	return nil
+}
+
+// never checks that ch receives nothing for a while, for a thing that must not happen and
+// would happen on another goroutine if it did.
+func never[T any](t *testing.T, ch <-chan T, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatal(what)
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func (c *fakeConnection) Events() <-chan harness.Event { return c.events }
@@ -193,12 +220,10 @@ func TestCancelAfterEndDoesNothing(t *testing.T) {
 	c.finish("stop", "")
 	<-events
 	send(t, s, t.Context())
-	// x has ended and another exchange is open; cancelling x must not reach the Connection, or it
-	// would stop the open exchange. The check is synchronous, so no wait is needed.
+	// x has ended and another exchange is open; cancelling x must not reach the Connection, or
+	// it would stop the open exchange.
 	x.Cancel()
-	if len(c.cancels) != 0 {
-		t.Fatal("cancelling an ended exchange cancelled the Connection")
-	}
+	never(t, c.cancels, "cancelling an ended exchange cancelled the Connection")
 }
 
 func TestConnExitEndsTheExchange(t *testing.T) {
@@ -262,7 +287,7 @@ func TestClose(t *testing.T) {
 
 func TestCloseStopsACancellationInFlight(t *testing.T) {
 	c := newFakeConnection()
-	c.blockCancel = true
+	c.cancelGate = make(chan struct{}) // never answers
 	s := harness.NewSession("s1", c)
 
 	x := send(t, s, t.Context())
@@ -279,5 +304,71 @@ func TestCloseStopsACancellationInFlight(t *testing.T) {
 	// short.
 	if _, err := x.Wait(); !errors.Is(err, harness.ErrClosed) {
 		t.Fatalf("Wait error = %v, want ErrClosed", err)
+	}
+}
+
+// TestContextEndsBeforePromptIsAccepted covers Send's ctx ending while the harness has the
+// prompt but hasn't answered. Send still waits for the answer, then cancels the run it started,
+// so no run is left without an exchange.
+func TestContextEndsBeforePromptIsAccepted(t *testing.T) {
+	c := newFakeConnection()
+	c.promptGate = make(chan struct{})
+	s := harness.NewSession("s1", c)
+	defer func() { _ = s.Close() }()
+
+	ctx, stop := context.WithCancel(t.Context())
+	sent := make(chan *harness.Exchange, 1)
+	go func() {
+		x, err := s.Send(ctx, harness.Request{})
+		if err != nil {
+			t.Error(err)
+		}
+		sent <- x
+	}()
+	stop()
+	never(t, c.cancels, "the run was cancelled before the harness accepted it")
+	close(c.promptGate)
+	x := <-sent
+	select {
+	case <-c.cancels:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the accepted run was not cancelled")
+	}
+	events := collect(t, x)
+	c.finish("aborted", "")
+	checkScoped(t, s, x, <-events)
+}
+
+// TestSendWaitsForACancellationInFlight covers an exchange that ends while its cancellation is
+// still in flight. The next Send waits for the cancellation, which would otherwise reach the
+// next exchange's run.
+func TestSendWaitsForACancellationInFlight(t *testing.T) {
+	c := newFakeConnection()
+	c.cancelGate = make(chan struct{})
+	s := harness.NewSession("s1", c)
+	defer func() { _ = s.Close() }()
+
+	x := send(t, s, t.Context())
+	events := collect(t, x)
+	x.Cancel()
+	<-c.cancels
+	c.finish("aborted", "") // x ends before the harness answers the cancellation
+	<-events
+
+	short, stop := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer stop()
+	if _, err := s.Send(short, harness.Request{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Send during the cancellation = %v, want it to wait until its ctx ends", err)
+	}
+
+	sent := make(chan error, 1)
+	go func() {
+		_, err := s.Send(t.Context(), harness.Request{})
+		sent <- err
+	}()
+	never(t, sent, "Send did not wait for the cancellation")
+	close(c.cancelGate)
+	if err := <-sent; err != nil {
+		t.Fatal(err)
 	}
 }

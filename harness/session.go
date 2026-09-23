@@ -25,6 +25,8 @@ type Session struct {
 	open    *Exchange
 	exited  bool
 	exitErr error
+	// cancelling is closed when the cancellation in flight finishes; nil when none is.
+	cancelling chan struct{}
 
 	done      chan struct{} // closed when the Connection's events have closed
 	closeOnce sync.Once
@@ -52,8 +54,24 @@ func (s *Session) ID() string { return s.id }
 // Send opens an exchange and prompts the harness with req. Cancelling ctx cancels the
 // exchange. Send returns ErrBusy while another exchange is open, ErrClosed after Close, and
 // the harness's exit error after the harness has exited.
+//
+// Send returns once the harness has accepted the prompt, however ctx ends in the meantime: a
+// prompt already written may be accepted, and only an accepted run can be cancelled. If ctx
+// has ended by then, the exchange is cancelled at once. Send also waits, for as long as ctx
+// allows, for a cancellation of the previous exchange to finish, so that cancellation can't
+// reach this exchange's run.
 func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 	s.mu.Lock()
+	for s.cancelling != nil {
+		pending := s.cancelling
+		s.mu.Unlock()
+		select {
+		case <-pending:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		s.mu.Lock()
+	}
 	switch {
 	case s.ctx.Err() != nil:
 		s.mu.Unlock()
@@ -70,7 +88,10 @@ func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 	s.open = x
 	s.mu.Unlock()
 
-	if err := s.connection.Prompt(ctx, req); err != nil {
+	if err := s.connection.Prompt(s.ctx, req); err != nil {
+		if s.ctx.Err() != nil {
+			err = context.Cause(s.ctx)
+		}
 		s.mu.Lock()
 		if s.open == x {
 			s.open = nil
@@ -94,15 +115,25 @@ func (s *Session) Close() error {
 }
 
 // cancel is every exchange's cancellation hook. It cancels only while x is open: once x has
-// ended, a cancellation would stop the next exchange's run instead.
+// ended, a cancellation would stop the next exchange's run instead. A harness may take several
+// round trips to cancel, and x may end during them, so the cancellation holds off the next
+// Send until it finishes.
 func (s *Session) cancel(x *Exchange) {
 	s.mu.Lock()
-	open := s.open == x
-	s.mu.Unlock()
-	if !open {
+	if s.open != x {
+		s.mu.Unlock()
 		return
 	}
+	done := make(chan struct{})
+	s.cancelling = done
+	s.mu.Unlock()
 	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.cancelling = nil
+			s.mu.Unlock()
+			close(done)
+		}()
 		ctx, cancel := context.WithTimeout(s.ctx, cancelTimeout)
 		defer cancel()
 		// A cancellation that Close cut short is no error of the exchange's.
