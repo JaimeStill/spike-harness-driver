@@ -6,34 +6,30 @@ import (
 	"uuid"
 )
 
-// Exchange is one request-and-response block within a session. Its events queue without bound
-// and a pump delivers them in order, so the session never waits on a slow consumer.
+// Exchange is one request-and-response block within a session. Its events pass through an
+// EventQueue, so the session never waits on a slow consumer.
 type Exchange struct {
 	id        uuid.UUID
 	sessionID string
-	cancel    func()          // the session's cancellation hook
-	released  <-chan struct{} // closed when the session closes
+	cancel    func() // the session's cancellation hook
+	events    *EventQueue
 
 	mu     sync.Mutex
-	queue  []Event
 	seq    int
 	final  bool
 	result Result
 	err    error
 
-	wake       chan struct{}
-	events     chan Event
 	ended      chan struct{}
 	cancelOnce sync.Once
 }
 
+// newExchange starts an exchange whose undelivered events are discarded when released closes.
 func newExchange(sessionID string, released <-chan struct{}) *Exchange {
 	return &Exchange{
 		id:        uuid.NewV7(),
 		sessionID: sessionID,
-		released:  released,
-		wake:      make(chan struct{}, 1),
-		events:    make(chan Event),
+		events:    NewEventQueue(released),
 		ended:     make(chan struct{}),
 	}
 }
@@ -43,7 +39,7 @@ func (x *Exchange) ID() uuid.UUID { return x.id }
 
 // Events streams the exchange's events in order. The channel closes after EventEnded, or when
 // the session closes, which discards events not yet delivered.
-func (x *Exchange) Events() <-chan Event { return x.events }
+func (x *Exchange) Events() <-chan Event { return x.events.Events() }
 
 // Cancel asks the harness to stop the exchange and returns at once. The exchange still ends
 // with EventCancelled and EventEnded. Cancelling an exchange that has ended does nothing.
@@ -64,8 +60,8 @@ func (x *Exchange) Wait() (Result, error) {
 // and queues it. Events after EventEnded are dropped.
 func (x *Exchange) push(ev Event) {
 	x.mu.Lock()
+	defer x.mu.Unlock()
 	if x.final {
-		x.mu.Unlock()
 		return
 	}
 	x.seq++
@@ -84,15 +80,11 @@ func (x *Exchange) push(ev Event) {
 		ev.StopReason = x.result.StopReason
 		x.final = true
 	}
-	x.queue = append(x.queue, ev)
-	x.mu.Unlock()
-
+	// Queued under x.mu, so events pushed from different goroutines keep Seq order.
+	x.events.Push(ev)
 	if ev.Kind == EventEnded {
+		x.events.Close()
 		close(x.ended)
-	}
-	select {
-	case x.wake <- struct{}{}:
-	default:
 	}
 }
 
@@ -100,32 +92,4 @@ func (x *Exchange) push(ev Event) {
 func (x *Exchange) fail(err error) {
 	x.push(Event{Kind: EventError, Err: err.Error()})
 	x.push(Event{Kind: EventEnded})
-}
-
-// pump delivers queued events until it delivers EventEnded or the session closes.
-func (x *Exchange) pump() {
-	defer close(x.events)
-	for {
-		x.mu.Lock()
-		batch := x.queue
-		x.queue = nil
-		x.mu.Unlock()
-		for _, ev := range batch {
-			select {
-			case x.events <- ev:
-			case <-x.released:
-				return
-			}
-			if ev.Kind == EventEnded {
-				return
-			}
-		}
-		if len(batch) == 0 {
-			select {
-			case <-x.wake:
-			case <-x.released:
-				return
-			}
-		}
-	}
 }

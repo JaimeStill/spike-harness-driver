@@ -63,7 +63,6 @@ func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 	x.cancel = func() { s.cancel(x) }
 	s.open = x
 	s.mu.Unlock()
-	go x.pump()
 
 	if err := s.connection.Prompt(ctx, req); err != nil {
 		s.mu.Lock()
@@ -116,8 +115,8 @@ func (s *Session) cancel(x *Exchange) {
 }
 
 // route hands each of the Connection's events to the open exchange, and ends that exchange when the
-// Connection's events close. An event outside any exchange, such as a harness's queue notice after a
-// cancelled run ends, is dropped.
+// Connection's events close. An event outside any exchange, such as a harness's queue notice after
+// a cancelled run ends, is dropped.
 func (s *Session) route() {
 	var last Event
 	for ev := range s.connection.Events() {

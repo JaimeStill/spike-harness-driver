@@ -10,8 +10,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// fakeConnection is a Connection the test scripts: it records prompts and cancellations, and the test
-// emits the harness's events by hand.
+// fakeConnection is a Connection the test scripts: it records prompts and cancellations, and the
+// test emits the harness's events by hand.
 type fakeConnection struct {
 	events    chan harness.Event
 	promptErr error

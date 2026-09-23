@@ -4,47 +4,34 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
 // Client runs a line-protocol harness through a Codec. It correlates each command with its
-// response by id, whatever order responses arrive in, and streams everything else as
-// normalized events.
+// response by id, and streams everything else as normalized events.
 type Client struct {
 	p     *Process
 	codec Codec
+	calls *calls
+	// Events queue without bound, so a harness that emits events while no one is reading
+	// them, as during a start-up handshake, can't stall the responses behind them.
+	events *harness.EventQueue
 
 	nextID  atomic.Int64
 	closing atomic.Bool
-
-	mu      sync.Mutex
-	pending map[string]chan Response
-	exited  bool
-	exitErr error
-
-	// Events queue without bound, so a harness that emits events while no one is reading
-	// them, as during a start-up handshake, can't stall the responses behind them.
-	qmu    sync.Mutex
-	queue  []harness.Event
-	qdone  bool
-	wake   chan struct{}
-	events chan harness.Event
 }
 
 // NewClient starts reading p through codec.
 func NewClient(p *Process, codec Codec) *Client {
 	c := &Client{
-		p:       p,
-		codec:   codec,
-		pending: map[string]chan Response{},
-		wake:    make(chan struct{}, 1),
-		events:  make(chan harness.Event),
+		p:      p,
+		codec:  codec,
+		calls:  newCalls(),
+		events: harness.NewEventQueue(nil),
 	}
 	go c.read()
-	go c.pump()
 	return c
 }
 
@@ -56,34 +43,29 @@ func (c *Client) Call(ctx context.Context, cmd any) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	ch := make(chan Response, 1)
-	c.mu.Lock()
-	if c.exited {
-		c.mu.Unlock()
-		return Response{}, c.exitErr
+	ch, err := c.calls.register(id)
+	if err != nil {
+		return Response{}, err
 	}
-	c.pending[id] = ch
-	c.mu.Unlock()
-
 	if err := c.p.WriteLine(line); err != nil {
-		c.forget(id)
+		c.calls.forget(id)
 		return Response{}, err
 	}
 	select {
 	case r, ok := <-ch:
 		if !ok {
-			return Response{}, c.exitErr
+			return Response{}, c.calls.failure()
 		}
 		return r, r.Err
 	case <-ctx.Done():
-		c.forget(id)
+		c.calls.forget(id)
 		return Response{}, ctx.Err()
 	}
 }
 
 // Events yields the harness's normalized events. When the harness exits other than through
 // Close, a final EventError carries the exit error. The channel then closes.
-func (c *Client) Events() <-chan harness.Event { return c.events }
+func (c *Client) Events() <-chan harness.Event { return c.events.Events() }
 
 // Close ends the harness.
 func (c *Client) Close() error {
@@ -91,86 +73,39 @@ func (c *Client) Close() error {
 	return c.p.Close()
 }
 
-func (c *Client) forget(id string) {
-	c.mu.Lock()
-	delete(c.pending, id)
-	c.mu.Unlock()
-}
-
+// read dispatches each line the harness writes, then shuts the client down once the harness
+// has exited.
 func (c *Client) read() {
 	for line := range c.p.Lines() {
-		f, err := c.codec.Decode(line)
-		if err != nil {
-			c.enqueue(harness.Event{Kind: harness.EventError, Err: err.Error(), Raw: line})
-			continue
-		}
-		if r := f.Response; r != nil {
-			c.mu.Lock()
-			ch, ok := c.pending[r.ID]
-			delete(c.pending, r.ID)
-			c.mu.Unlock()
-			if ok {
-				ch <- *r
-			}
-		}
-		for _, ev := range f.Events {
-			c.enqueue(ev)
-		}
+		c.dispatch(line)
 	}
+	c.shutdown()
+}
 
-	exitErr := c.p.Err()
-	unexpected := !c.closing.Load() || exitErr != nil
-	if exitErr == nil {
-		exitErr = fmt.Errorf("%s: exited", c.p.name)
+// dispatch decodes one line, resolving the call it answers or queueing the events it carries.
+func (c *Client) dispatch(line []byte) {
+	f, err := c.codec.Decode(line)
+	if err != nil {
+		c.events.Push(harness.Event{Kind: harness.EventError, Err: err.Error(), Raw: line})
+		return
 	}
-	c.mu.Lock()
-	c.exited = true
-	c.exitErr = exitErr
-	for id, ch := range c.pending {
-		close(ch)
-		delete(c.pending, id)
+	if f.Response != nil {
+		c.calls.resolve(*f.Response)
 	}
-	c.mu.Unlock()
+	c.events.Push(f.Events...)
+}
+
+// shutdown fails the open calls with the exit error, announces an exit that Close didn't ask
+// for, and closes Events.
+func (c *Client) shutdown() {
+	err := c.p.Err()
+	unexpected := err != nil || !c.closing.Load()
+	if err == nil {
+		err = fmt.Errorf("%s: exited", c.p.name)
+	}
+	c.calls.fail(err)
 	if unexpected {
-		c.enqueue(harness.Event{Kind: harness.EventError, Err: exitErr.Error()})
+		c.events.Push(harness.Event{Kind: harness.EventError, Err: err.Error()})
 	}
-	c.qmu.Lock()
-	c.qdone = true
-	c.qmu.Unlock()
-	c.signal()
-}
-
-func (c *Client) enqueue(ev harness.Event) {
-	c.qmu.Lock()
-	c.queue = append(c.queue, ev)
-	c.qmu.Unlock()
-	c.signal()
-}
-
-func (c *Client) signal() {
-	select {
-	case c.wake <- struct{}{}:
-	default:
-	}
-}
-
-// pump delivers queued events in order, and closes Events once read has finished and the
-// queue is empty.
-func (c *Client) pump() {
-	defer close(c.events)
-	for {
-		c.qmu.Lock()
-		batch, done := c.queue, c.qdone
-		c.queue = nil
-		c.qmu.Unlock()
-		for _, ev := range batch {
-			c.events <- ev
-		}
-		if len(batch) == 0 {
-			if done {
-				return
-			}
-			<-c.wake
-		}
-	}
+	c.events.Close()
 }
