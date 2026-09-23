@@ -1,6 +1,9 @@
 package harness
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // EventQueue delivers events in order through a channel. It holds any number of them, so the
 // producer never waits on the consumer: a harness's reader keeps reading while an exchange's
@@ -10,25 +13,25 @@ type EventQueue struct {
 	pending []Event
 	closed  bool
 
-	wake    chan struct{}
-	out     chan Event
-	release <-chan struct{}
+	wake chan struct{}
+	out  chan Event
+	ctx  context.Context
 }
 
-// NewEventQueue starts a queue. Closing release stops delivery at once and discards whatever
-// is queued; a nil release never does.
-func NewEventQueue(release <-chan struct{}) *EventQueue {
+// NewEventQueue starts a queue that lives as long as ctx. When ctx is done, delivery stops at
+// once and whatever is queued is discarded.
+func NewEventQueue(ctx context.Context) *EventQueue {
 	q := &EventQueue{
-		wake:    make(chan struct{}, 1),
-		out:     make(chan Event),
-		release: release,
+		wake: make(chan struct{}, 1),
+		out:  make(chan Event),
+		ctx:  ctx,
 	}
 	go q.pump()
 	return q
 }
 
 // Events yields the queued events in order. It closes after Close once every event is
-// delivered, or when release closes.
+// delivered, or when the queue's context is done.
 func (q *EventQueue) Events() <-chan Event { return q.out }
 
 // Push queues events. Events pushed after Close are dropped.
@@ -66,7 +69,7 @@ func (q *EventQueue) pump() {
 		for _, ev := range batch {
 			select {
 			case q.out <- ev:
-			case <-q.release:
+			case <-q.ctx.Done():
 				return
 			}
 		}
@@ -78,7 +81,7 @@ func (q *EventQueue) pump() {
 		}
 		select {
 		case <-q.wake:
-		case <-q.release:
+		case <-q.ctx.Done():
 			return
 		}
 	}

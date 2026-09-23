@@ -28,7 +28,7 @@ func NewClient(p *Process, codec Codec) *Client {
 		p:      p,
 		codec:  codec,
 		calls:  newCalls(),
-		events: harness.NewEventQueue(nil),
+		events: harness.NewEventQueue(context.Background()),
 	}
 	go c.read()
 	return c

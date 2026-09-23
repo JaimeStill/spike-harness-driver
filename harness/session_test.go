@@ -15,8 +15,11 @@ import (
 type fakeConnection struct {
 	events    chan harness.Event
 	promptErr error
-	cancels   chan struct{}
-	closeOnce sync.Once
+	// blockCancel makes Cancel wait until its context is done, like a harness that never
+	// answers.
+	blockCancel bool
+	cancels     chan struct{}
+	closeOnce   sync.Once
 }
 
 func newFakeConnection() *fakeConnection {
@@ -25,8 +28,12 @@ func newFakeConnection() *fakeConnection {
 
 func (c *fakeConnection) Prompt(context.Context, harness.Request) error { return c.promptErr }
 
-func (c *fakeConnection) Cancel(context.Context) error {
+func (c *fakeConnection) Cancel(ctx context.Context) error {
 	c.cancels <- struct{}{}
+	if c.blockCancel {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -250,5 +257,27 @@ func TestClose(t *testing.T) {
 	drain(t, x)
 	if _, err := s.Send(t.Context(), harness.Request{}); !errors.Is(err, harness.ErrClosed) {
 		t.Fatalf("Send after Close = %v, want ErrClosed", err)
+	}
+}
+
+func TestCloseStopsACancellationInFlight(t *testing.T) {
+	c := newFakeConnection()
+	c.blockCancel = true
+	s := harness.NewSession("s1", c)
+
+	x := send(t, s, t.Context())
+	x.Cancel()
+	<-c.cancels
+	begin := time.Now()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(begin); d > time.Second {
+		t.Fatalf("Close waited %s on the cancellation", d)
+	}
+	// The exchange ends because the session closed, not because its cancellation was cut
+	// short.
+	if _, err := x.Wait(); !errors.Is(err, harness.ErrClosed) {
+		t.Fatalf("Wait error = %v, want ErrClosed", err)
 	}
 }

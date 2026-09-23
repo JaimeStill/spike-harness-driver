@@ -1,6 +1,7 @@
 package harness_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func read(t *testing.T, q *harness.EventQueue) []harness.Event {
 }
 
 func TestEventQueueKeepsOrderWithoutAReader(t *testing.T) {
-	q := harness.NewEventQueue(nil)
+	q := harness.NewEventQueue(t.Context())
 	for i := range 1000 {
 		q.Push(harness.Event{Seq: i})
 	}
@@ -43,12 +44,13 @@ func TestEventQueueKeepsOrderWithoutAReader(t *testing.T) {
 	}
 }
 
-func TestEventQueueRelease(t *testing.T) {
-	release := make(chan struct{})
-	q := harness.NewEventQueue(release)
+func TestEventQueueEndsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	q := harness.NewEventQueue(ctx)
 	q.Push(harness.Event{}, harness.Event{})
-	close(release)
-	// Nothing read the events; releasing the queue closes Events anyway, and may discard them.
+	cancel()
+	// Nothing read the events; ending the queue's context closes Events anyway, and may
+	// discard them.
 	if n := len(read(t, q)); n > 2 {
 		t.Fatalf("got %d events after release", n)
 	}

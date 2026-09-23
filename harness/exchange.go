@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"uuid"
@@ -19,17 +20,20 @@ type Exchange struct {
 	final  bool
 	result Result
 	err    error
+	// unwatch stops cancelling the exchange with the context it was sent with.
+	unwatch func() bool
 
 	ended      chan struct{}
 	cancelOnce sync.Once
 }
 
-// newExchange starts an exchange whose undelivered events are discarded when released closes.
-func newExchange(sessionID string, released <-chan struct{}) *Exchange {
+// newExchange starts an exchange whose undelivered events are discarded when the session's
+// lifetime ends.
+func newExchange(sessionID string, session context.Context) *Exchange {
 	return &Exchange{
 		id:        uuid.NewV7(),
 		sessionID: sessionID,
-		events:    NewEventQueue(released),
+		events:    NewEventQueue(session),
 		ended:     make(chan struct{}),
 	}
 }
@@ -54,6 +58,15 @@ func (x *Exchange) Wait() (Result, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	return x.result, x.err
+}
+
+// watch cancels the exchange when ctx is done, until the exchange ends.
+func (x *Exchange) watch(ctx context.Context) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if !x.final {
+		x.unwatch = context.AfterFunc(ctx, x.Cancel)
+	}
 }
 
 // push stamps ev with the exchange's IDs and next sequence number, folds it into the result,
@@ -85,11 +98,22 @@ func (x *Exchange) push(ev Event) {
 	if ev.Kind == EventEnded {
 		x.events.Close()
 		close(x.ended)
+		if x.unwatch != nil {
+			x.unwatch()
+		}
 	}
 }
 
 // fail ends the exchange with an error.
+//
+// Wait returns err itself, not an error rebuilt from the event's text, so callers can match it
+// with errors.Is.
 func (x *Exchange) fail(err error) {
+	x.mu.Lock()
+	if x.err == nil && !x.final {
+		x.err = err
+	}
+	x.mu.Unlock()
 	x.push(Event{Kind: EventError, Err: err.Error()})
 	x.push(Event{Kind: EventEnded})
 }
