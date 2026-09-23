@@ -43,6 +43,25 @@ and decides what the workspace takes from it.
 - **Deployment**: the container image's footprint, and the managed-identity and IL6 path,
   checked on paper
 
+## Path
+
+The spike's sessions own these steps, in dependency order, and may revise them:
+
+1. **Session interface and Pi adapter.** Pi runs in `--mode rpc` against the Framework router. One
+   session carries two scoped exchanges, and one exchange is cancelled mid-stream.
+2. **Persistence and resume.** A session outlives one call and resumes by ID, and its exchange IDs
+   survive the resume.
+3. **Payloads, tool calls, and skills.** Register a tool and a skill, observe the tool-call
+   events, and interpret a structured, schema-validated response.
+4. **Native capabilities.** Establish which of vision, embeddings, and audio the harness exposes,
+   and build a thin direct model client for the rest.
+5. **Claude Code and OpenCode adapters.** A conformance suite runs the three adapters behind one
+   interface, against local and cloud targets.
+6. **Long-running workflow.** A workflow spans several sessions, with progress, event streaming to
+   SSE, a concurrency limit, cancellation, and resume after a restart. The step also records the
+   container image's footprint and checks the managed-identity and IL6 path on paper. Its
+   validation answers the question.
+
 ## Prior art
 
 `references.toml` lists the repositories this spike reads. tau's `agent` package supplies the
