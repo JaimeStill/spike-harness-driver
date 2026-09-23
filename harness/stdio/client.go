@@ -16,7 +16,8 @@ type Client struct {
 	codec Codec
 	calls *calls
 	// Events queue without bound, so a harness that emits events while no one is reading
-	// them, as during a start-up handshake, can't stall the responses behind them.
+	// them, as during a start-up handshake, can't stall the responses behind them. The queue
+	// lives as long as the process: Close discards what no one read.
 	events *harness.EventQueue
 
 	nextID atomic.Int64
@@ -28,7 +29,7 @@ func NewClient(p *Process, codec Codec) *Client {
 		p:      p,
 		codec:  codec,
 		calls:  newCalls(),
-		events: harness.NewEventQueue(context.Background()),
+		events: harness.NewEventQueue(p.ctx),
 	}
 	go c.read()
 	return c

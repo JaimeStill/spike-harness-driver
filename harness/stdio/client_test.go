@@ -112,7 +112,10 @@ func peer(mode string) int {
 			fmt.Fprintln(os.Stderr, "fatal: peer gone")
 			os.Exit(4)
 		case "orphan":
-			orphan()
+			orphan(false)
+			os.Exit(0)
+		case "escape":
+			orphan(true)
 			os.Exit(0)
 		}
 	}
@@ -120,7 +123,7 @@ func peer(mode string) int {
 	case "stubborn":
 		select {}
 	case "orphaner":
-		orphan()
+		orphan(false)
 	}
 	return 0
 }
@@ -129,11 +132,15 @@ func peer(mode string) int {
 const orphanPIDEnv = "STDIO_ORPHAN_PID"
 
 // orphan starts a child that inherits the peer's stdout and outlives the peer, as a tool
-// process a harness started might.
-func orphan() {
+// process a harness started might. A detached child leaves the peer's process group, as a
+// daemonizing process would.
+func orphan(detached bool) {
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), peerEnv+"=sleep")
 	cmd.Stdout = os.Stdout
+	if detached {
+		detach(cmd)
+	}
 	if cmd.Start() == nil {
 		_ = os.WriteFile(os.Getenv(orphanPIDEnv), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
 	}
@@ -267,5 +274,20 @@ func TestClose(t *testing.T) {
 				t.Fatalf("a clean Close reported %+v", ev)
 			}
 		})
+	}
+}
+
+// TestCloseDiscardsUnreadEvents covers a Client whose events no one reads, as after a failed
+// handshake: Close ends its event queue, so nothing is left blocked holding them.
+func TestCloseDiscardsUnreadEvents(t *testing.T) {
+	c := start(t, "echo", 0)
+	if _, err := c.Call(t.Context(), testCmd{Op: "event", Data: "unread"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if ev, ok := nextEvent(t, c); ok {
+		t.Fatalf("Close delivered %+v instead of discarding it", ev)
 	}
 }
