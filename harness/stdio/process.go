@@ -19,7 +19,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// Spec says how to start a harness process.
+// Spec says how to start a harness process. On Unix the harness runs in a process group of its
+// own, and whatever is left of the group is killed once the harness exits.
 type Spec struct {
 	Name string
 	Args []string
@@ -87,6 +88,7 @@ func Start(spec Spec) (*Process, error) {
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = &p.stderr
+	ownGroup(cmd)
 	p.cmd, p.stdin = cmd, stdin
 	if err := cmd.Start(); err != nil {
 		cancel(err)
@@ -131,12 +133,14 @@ func (p *Process) Close() error {
 	return p.exitErr
 }
 
-// wait is the only caller of cmd.Wait. Closing stdout once Wait returns ends the reader, even
-// when WaitDelay had to close the pipes a child of the harness held.
+// wait is the only caller of cmd.Wait. Once the harness has exited, it kills the processes the
+// harness left behind, and closes stdout to end the reader, even when WaitDelay had to close
+// the pipes one of those processes held.
 func (p *Process) wait(stdout *io.PipeWriter) {
 	if err := p.cmd.Wait(); err != nil {
 		p.exitErr = fmt.Errorf("%s: exited: %w: %s", p.name, err, bytes.TrimSpace(p.stderr.Bytes()))
 	}
+	killGroup(p.cmd)
 	close(p.waited)
 	_ = stdout.Close()
 }
