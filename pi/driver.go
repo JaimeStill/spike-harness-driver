@@ -50,7 +50,7 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		_ = c.Close()
 		return nil, err
 	}
-	return harness.NewSession(id, conn{c}), nil
+	return harness.NewSession(id, connection{c}), nil
 }
 
 func handshake(ctx context.Context, c *stdio.Client, opts harness.Options) (string, error) {

@@ -1,7 +1,7 @@
 // Package stdio drives a harness that speaks a line protocol over its standard input and
 // output, such as Pi's RPC mode, Claude Code's stream-json, or an ACP agent. A Process runs the
 // harness and moves lines; a Client adds a Codec, correlates requests with responses, and
-// streams the harness's normalized events. An adapter builds its harness.Conn on a Client.
+// streams the harness's normalized events. An adapter builds its harness.Connection on a Client.
 package stdio
 
 import (

@@ -1,9 +1,9 @@
 // Package harness is the harness-agnostic surface a Go program uses to drive an external agent
-// harness. A Driver opens a Session over an adapter's Conn, and each Send on the session opens
+// harness. A Driver opens a Session over an adapter's Connection, and each Send on the session opens
 // one Exchange, a request-and-response block whose events are tagged with the session and
 // exchange IDs.
 //
-// An adapter supplies only the Conn: how to prompt, how to cancel, and the harness's events
+// An adapter supplies only the Connection: how to prompt, how to cancel, and the harness's events
 // normalized to Event. Scoping events to exchanges, sequencing them, and folding them into a
 // Result are the same for every harness and live here.
 package harness

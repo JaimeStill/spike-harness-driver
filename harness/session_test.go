@@ -10,40 +10,40 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// fakeConn is a Conn the test scripts: it records prompts and cancellations, and the test
+// fakeConnection is a Connection the test scripts: it records prompts and cancellations, and the test
 // emits the harness's events by hand.
-type fakeConn struct {
+type fakeConnection struct {
 	events    chan harness.Event
 	promptErr error
 	cancels   chan struct{}
 	closeOnce sync.Once
 }
 
-func newFakeConn() *fakeConn {
-	return &fakeConn{events: make(chan harness.Event), cancels: make(chan struct{}, 8)}
+func newFakeConnection() *fakeConnection {
+	return &fakeConnection{events: make(chan harness.Event), cancels: make(chan struct{}, 8)}
 }
 
-func (c *fakeConn) Prompt(context.Context, harness.Request) error { return c.promptErr }
+func (c *fakeConnection) Prompt(context.Context, harness.Request) error { return c.promptErr }
 
-func (c *fakeConn) Cancel(context.Context) error {
+func (c *fakeConnection) Cancel(context.Context) error {
 	c.cancels <- struct{}{}
 	return nil
 }
 
-func (c *fakeConn) Events() <-chan harness.Event { return c.events }
+func (c *fakeConnection) Events() <-chan harness.Event { return c.events }
 
-func (c *fakeConn) Close() error {
+func (c *fakeConnection) Close() error {
 	c.closeOnce.Do(func() { close(c.events) })
 	return nil
 }
 
-func (c *fakeConn) emit(kinds ...harness.EventKind) {
+func (c *fakeConnection) emit(kinds ...harness.EventKind) {
 	for _, k := range kinds {
 		c.events <- harness.Event{Kind: k}
 	}
 }
 
-func (c *fakeConn) finish(stop, text string) {
+func (c *fakeConnection) finish(stop, text string) {
 	c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: stop, Text: text,
 		Usage: &harness.Usage{Input: 3, Output: 2}}
 	if stop == "aborted" {
@@ -100,7 +100,7 @@ func send(t *testing.T, s *harness.Session, ctx context.Context) *harness.Exchan
 }
 
 func TestTwoExchangesInOneSession(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	s := harness.NewSession("s1", c)
 	defer func() { _ = s.Close() }()
 
@@ -127,7 +127,7 @@ func TestTwoExchangesInOneSession(t *testing.T) {
 }
 
 func TestSendWhileOpenIsBusy(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	s := harness.NewSession("s1", c)
 	defer func() { _ = s.Close() }()
 
@@ -151,7 +151,7 @@ func TestCancel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newFakeConn()
+			c := newFakeConnection()
 			s := harness.NewSession("s1", c)
 			defer func() { _ = s.Close() }()
 			ctx, stop := context.WithCancel(t.Context())
@@ -164,7 +164,7 @@ func TestCancel(t *testing.T) {
 			select {
 			case <-c.cancels:
 			case <-time.After(5 * time.Second):
-				t.Fatal("the Conn was not cancelled")
+				t.Fatal("the Connection was not cancelled")
 			}
 			c.finish("aborted", "partial")
 			checkScoped(t, s, x, <-events)
@@ -177,7 +177,7 @@ func TestCancel(t *testing.T) {
 }
 
 func TestCancelAfterEndDoesNothing(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	s := harness.NewSession("s1", c)
 	defer func() { _ = s.Close() }()
 
@@ -186,16 +186,16 @@ func TestCancelAfterEndDoesNothing(t *testing.T) {
 	c.finish("stop", "")
 	<-events
 	send(t, s, t.Context())
-	// x has ended and another exchange is open; cancelling x must not reach the Conn, or it
+	// x has ended and another exchange is open; cancelling x must not reach the Connection, or it
 	// would stop the open exchange. The check is synchronous, so no wait is needed.
 	x.Cancel()
 	if len(c.cancels) != 0 {
-		t.Fatal("cancelling an ended exchange cancelled the Conn")
+		t.Fatal("cancelling an ended exchange cancelled the Connection")
 	}
 }
 
 func TestConnExitEndsTheExchange(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	s := harness.NewSession("s1", c)
 	defer func() { _ = s.Close() }()
 
@@ -225,7 +225,7 @@ func TestConnExitEndsTheExchange(t *testing.T) {
 }
 
 func TestPromptFailure(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	c.promptErr = errors.New("rejected")
 	s := harness.NewSession("s1", c)
 	defer func() { _ = s.Close() }()
@@ -238,7 +238,7 @@ func TestPromptFailure(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	c := newFakeConn()
+	c := newFakeConnection()
 	s := harness.NewSession("s1", c)
 
 	x := send(t, s, t.Context())

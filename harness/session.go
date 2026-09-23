@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-// cancelTimeout bounds the Conn.Cancel call a cancellation makes.
+// cancelTimeout bounds the Connection.Cancel call a cancellation makes.
 const cancelTimeout = 30 * time.Second
 
 // Session is one conversation with a harness that spans several exchanges. It carries one
-// exchange at a time and routes the Conn's events to it, from Send to EventEnded.
+// exchange at a time and routes the Connection's events to it, from Send to EventEnded.
 type Session struct {
-	id   string
-	conn Conn
+	id         string
+	connection Connection
 
 	mu      sync.Mutex
 	open    *Exchange
@@ -22,19 +22,19 @@ type Session struct {
 	exitErr error
 	closing bool
 
-	done      chan struct{} // closed when the Conn's events have closed
+	done      chan struct{} // closed when the Connection's events have closed
 	released  chan struct{} // closed by Close; releases undrained exchanges
 	closeOnce sync.Once
 	closeErr  error
 }
 
 // NewSession starts a session over c. id is the harness's own session ID.
-func NewSession(id string, c Conn) *Session {
+func NewSession(id string, c Connection) *Session {
 	s := &Session{
-		id:       id,
-		conn:     c,
-		done:     make(chan struct{}),
-		released: make(chan struct{}),
+		id:         id,
+		connection: c,
+		done:       make(chan struct{}),
+		released:   make(chan struct{}),
 	}
 	go s.route()
 	return s
@@ -65,7 +65,7 @@ func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 	s.mu.Unlock()
 	go x.pump()
 
-	if err := s.conn.Prompt(ctx, req); err != nil {
+	if err := s.connection.Prompt(ctx, req); err != nil {
 		s.mu.Lock()
 		if s.open == x {
 			s.open = nil
@@ -90,7 +90,7 @@ func (s *Session) Close() error {
 		s.mu.Lock()
 		s.closing = true
 		s.mu.Unlock()
-		s.closeErr = s.conn.Close()
+		s.closeErr = s.connection.Close()
 		<-s.done
 		close(s.released)
 	})
@@ -109,18 +109,18 @@ func (s *Session) cancel(x *Exchange) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 		defer cancel()
-		if err := s.conn.Cancel(ctx); err != nil {
+		if err := s.connection.Cancel(ctx); err != nil {
 			x.push(Event{Kind: EventError, Err: err.Error()})
 		}
 	}()
 }
 
-// route hands each of the Conn's events to the open exchange, and ends that exchange when the
-// Conn's events close. An event outside any exchange, such as a harness's queue notice after a
+// route hands each of the Connection's events to the open exchange, and ends that exchange when the
+// Connection's events close. An event outside any exchange, such as a harness's queue notice after a
 // cancelled run ends, is dropped.
 func (s *Session) route() {
 	var last Event
-	for ev := range s.conn.Events() {
+	for ev := range s.connection.Events() {
 		last = ev
 		s.mu.Lock()
 		x := s.open

@@ -2,9 +2,9 @@ package harness
 
 import "context"
 
-// Conn is an adapter's live connection to one harness session. It is the whole of what an
+// Connection is an adapter's live connection to one harness session. It is the whole of what an
 // adapter supplies; Session builds exchanges on top of it.
-type Conn interface {
+type Connection interface {
 	// Prompt submits req and returns once the harness has accepted it. The run's outcome
 	// arrives as events.
 	Prompt(ctx context.Context, req Request) error

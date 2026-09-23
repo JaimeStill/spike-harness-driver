@@ -31,7 +31,7 @@ const (
 	EventHarness EventKind = "harness"
 )
 
-// Event is one normalized event of an exchange. An adapter's Conn fills in everything but
+// Event is one normalized event of an exchange. An adapter's Connection fills in everything but
 // SessionID, ExchangeID, and Seq, which the session stamps.
 type Event struct {
 	SessionID  string
