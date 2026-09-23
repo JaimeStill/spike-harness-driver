@@ -37,7 +37,7 @@ and decides what the workspace takes from it.
   client
 - **Workflow coordination**: long-running work over sessions
 - **Adapters**: Pi (`--mode rpc` or `json`), Claude Code (`claude -p --output-format
-  stream-json`, or the Agent SDK), and OpenCode (its server API)
+  stream-json`, or the Agent SDK), and OpenCode (its server API, or `opencode acp` over stdio)
 - **Model targets**: the Framework desktop's llama.cpp router over the tailnet, Anthropic, and
   Azure AI Foundry
 - **Deployment**: the container image's footprint, and the managed-identity and IL6 path,
@@ -45,10 +45,9 @@ and decides what the workspace takes from it.
 
 ## Path
 
-The spike's sessions own these steps, in dependency order, and may revise them:
+The spike's sessions own these steps, in dependency order, and may revise them. The session
+interface and the Pi adapter (step 1) exist; `context/findings.md` records what they showed.
 
-1. **Session interface and Pi adapter.** Pi runs in `--mode rpc` against the Framework router. One
-   session carries two scoped exchanges, and one exchange is cancelled mid-stream.
 2. **Persistence and resume.** A session outlives one call and resumes by ID, and its exchange IDs
    survive the resume.
 3. **Payloads, tool calls, and skills.** Register a tool and a skill, observe the tool-call
