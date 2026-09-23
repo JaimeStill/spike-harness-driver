@@ -40,7 +40,9 @@ type Event struct {
 	Tool *ToolEvent
 	// StopReason is set on KindMessageEnd and KindEnded.
 	StopReason string
-	Err        string
+	// Usage is set on KindMessageEnd when the harness reports it.
+	Usage *Usage
+	Err   string
 	// Raw is the harness's own record the event came from, when there is one.
 	Raw json.RawMessage
 }
