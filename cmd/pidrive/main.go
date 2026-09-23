@@ -61,11 +61,11 @@ func run(ctx context.Context, provider, model string, cancelAfter int, all bool)
 		fmt.Printf("\nexchange %s: %q\n", x.ID(), e.prompt)
 		deltas := 0
 		for ev := range x.Events() {
-			if ev.Kind == harness.KindHarness && !all {
+			if ev.Kind == harness.EventHarness && !all {
 				continue
 			}
 			printEvent(ev)
-			if ev.Kind == harness.KindTextDelta {
+			if ev.Kind == harness.EventTextDelta {
 				if deltas++; deltas == e.cancelAfter {
 					fmt.Printf("-- cancelling after %d text deltas\n", deltas)
 					x.Cancel()
@@ -82,19 +82,19 @@ func run(ctx context.Context, provider, model string, cancelAfter int, all bool)
 func printEvent(ev harness.Event) {
 	detail := ev.Text
 	switch {
-	case ev.Kind == harness.KindHarness:
+	case ev.Kind == harness.EventHarness:
 		detail = string(ev.Raw)
 		if len(detail) > 80 {
 			detail = detail[:80] + "…"
 		}
-	case ev.Kind == harness.KindMessageEnd || ev.Kind == harness.KindEnded || ev.Kind == harness.KindCancelled:
+	case ev.Kind == harness.EventMessageEnd || ev.Kind == harness.EventEnded || ev.Kind == harness.EventCancelled:
 		detail = "stop=" + ev.StopReason
 	case ev.Err != "":
 		detail = ev.Err
 	case ev.Tool != nil:
 		detail = ev.Tool.Name
 	}
-	fmt.Printf("%s %s %4d %-14s %q\n", short(ev.SessionID), short(ev.ExchangeID), ev.Seq, ev.Kind, detail)
+	fmt.Printf("%s %s %4d %-14s %q\n", short(ev.SessionID), short(ev.ExchangeID.String()), ev.Seq, ev.Kind, detail)
 }
 
 // short keeps an ID's last eight characters, which differ between IDs made in the same
