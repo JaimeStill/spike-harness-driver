@@ -1,46 +1,50 @@
 package harness
 
-import "encoding/json"
-
-// Kind classifies a normalized event.
-type Kind string
-
-const (
-	// KindStarted marks the harness starting work on the exchange.
-	KindStarted Kind = "started"
-	// KindTextDelta carries a fragment of assistant text in Text.
-	KindTextDelta Kind = "text_delta"
-	// KindThinkingDelta carries a fragment of the model's reasoning in Text.
-	KindThinkingDelta Kind = "thinking_delta"
-	// KindToolCall reports that a tool began executing, in Tool.
-	KindToolCall Kind = "tool_call"
-	// KindToolResult reports a tool's result, in Tool.
-	KindToolResult Kind = "tool_result"
-	// KindMessageEnd closes one assistant message, with its StopReason.
-	KindMessageEnd Kind = "message_end"
-	// KindCancelled reports that the exchange was cancelled.
-	KindCancelled Kind = "cancelled"
-	// KindError carries a harness or process error in Err.
-	KindError Kind = "error"
-	// KindEnded is the last event of every exchange.
-	KindEnded Kind = "ended"
-	// KindHarness carries a harness event with no normalized meaning, in Raw only.
-	KindHarness Kind = "harness"
+import (
+	"encoding/json"
+	"uuid"
 )
 
-// Event is one normalized event of an exchange.
+// EventKind classifies a normalized event.
+type EventKind string
+
+const (
+	// EventStarted marks the harness starting work on the exchange.
+	EventStarted EventKind = "started"
+	// EventTextDelta carries a fragment of assistant text in Text.
+	EventTextDelta EventKind = "text_delta"
+	// EventThinkingDelta carries a fragment of the model's reasoning in Text.
+	EventThinkingDelta EventKind = "thinking_delta"
+	// EventToolCall reports that a tool began executing, in Tool.
+	EventToolCall EventKind = "tool_call"
+	// EventToolResult reports a tool's result, in Tool.
+	EventToolResult EventKind = "tool_result"
+	// EventMessageEnd closes one assistant message, with its StopReason and Text.
+	EventMessageEnd EventKind = "message_end"
+	// EventCancelled reports that the exchange was cancelled.
+	EventCancelled EventKind = "cancelled"
+	// EventError carries a harness or process error in Err.
+	EventError EventKind = "error"
+	// EventEnded is the last event of every exchange.
+	EventEnded EventKind = "ended"
+	// EventHarness carries a harness event with no normalized meaning, in Raw only.
+	EventHarness EventKind = "harness"
+)
+
+// Event is one normalized event of an exchange. An adapter's Conn fills in everything but
+// SessionID, ExchangeID, and Seq, which the session stamps.
 type Event struct {
 	SessionID  string
-	ExchangeID string
+	ExchangeID uuid.UUID
 	// Seq numbers the exchange's events from 1.
 	Seq  int
-	Kind Kind
-	// Text holds a delta for the delta kinds.
+	Kind EventKind
+	// Text holds a delta for the delta kinds, and the message text for EventMessageEnd.
 	Text string
 	Tool *ToolEvent
-	// StopReason is set on KindMessageEnd and KindEnded.
+	// StopReason is set on EventMessageEnd, EventCancelled, and EventEnded.
 	StopReason string
-	// Usage is set on KindMessageEnd when the harness reports it.
+	// Usage is set on EventMessageEnd when the harness reports it.
 	Usage *Usage
 	Err   string
 	// Raw is the harness's own record the event came from, when there is one.
