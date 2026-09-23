@@ -52,3 +52,17 @@ type usage struct {
 	Input  int `json:"input"`
 	Output int `json:"output"`
 }
+
+// command is one line written to Pi's stdin. Fields a command doesn't use stay empty.
+type command struct {
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type"`
+	Provider string `json:"provider,omitempty"`
+	ModelID  string `json:"modelId,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+// state is the data of a get_state response, as far as the driver reads it.
+type state struct {
+	SessionID string `json:"sessionId"`
+}
