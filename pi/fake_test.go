@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,17 +81,26 @@ func fakePi(mode string) int {
 			running = true
 			runMu.Unlock()
 			respond(c, "")
+			// The run is over by the time Pi reports agent_settled, so it accepts a prompt sent
+			// in response to it.
+			runEmit := func(line string) {
+				if strings.Contains(line, `"type":"agent_settled"`) {
+					runMu.Lock()
+					running = false
+					runMu.Unlock()
+				}
+				emit(line)
+			}
 			go func() {
-				defer func() { runMu.Lock(); running = false; runMu.Unlock() }()
 				switch {
 				case mode == "crash":
-					emit(`{"type":"agent_start"}`)
+					runEmit(`{"type":"agent_start"}`)
 					fmt.Fprintln(os.Stderr, "boom: model backend unreachable")
 					os.Exit(3)
 				case c.Message == longPrompt:
-					streamUntilAbort(emit, abort)
+					streamUntilAbort(runEmit, abort)
 				default:
-					replay(emit, "testdata/plain.jsonl")
+					replay(runEmit, "testdata/plain.jsonl")
 				}
 			}()
 		}
