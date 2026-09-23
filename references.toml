@@ -1,0 +1,34 @@
+# Repository references: the repositories this spike reads.
+#
+# Each key maps to the canonical remote for one repository. references.local.toml (not
+# committed) maps the same key to its directory on this machine. The keys match the
+# standards-lab references catalog.
+#
+# These repositories are read-only for this spike. Read them, and never write to them. Code
+# dependencies are published versions, never a replace directive.
+
+# tau: the organization's earlier agentic infrastructure.
+[repos.tau-protocol]
+remote = "https://github.com/tailored-agentic-units/protocol.git"
+
+[repos.tau-format]
+remote = "https://github.com/tailored-agentic-units/format.git"
+
+[repos.tau-provider]
+remote = "https://github.com/tailored-agentic-units/provider.git"
+
+# The Chat, Vision, and Embed client: the baseline for native capabilities.
+[repos.tau-agent]
+remote = "https://github.com/tailored-agentic-units/agent.git"
+
+# The state graph: prior art for workflow coordination.
+[repos.tau-orchestrate]
+remote = "https://github.com/tailored-agentic-units/orchestrate.git"
+
+# Holds archive/tau-runtime/claude-classify-docs, a workflow run by a harness alone.
+[repos.tau-platform]
+remote = "https://github.com/tailored-agentic-units/tau-platform.git"
+
+# The workload that shaped tau. Prior art only.
+[repos.herald]
+remote = "https://github.com/JaimeStill/herald.git"

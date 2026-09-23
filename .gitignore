@@ -1,0 +1,17 @@
+# Marathon session plan files.
+.claude/plans/
+
+# The branch review's report, read by the architect and deleted at closeout.
+.claude/report.md
+
+# Per-machine local directory map for references.toml.
+references.local.toml
+
+# Build and coverage artifacts.
+bin/
+*.test
+coverage.out
+
+# Local workspace files.
+go.work
+go.work.sum

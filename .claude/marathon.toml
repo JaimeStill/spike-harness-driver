@@ -1,0 +1,13 @@
+# Project kind: this repository holds Go spike source with a build-and-test loop.
+[project]
+kind = "code"
+
+# Remote platform and the command that publishes a finished branch.
+[remote]
+platform = "github"
+publish = "gh pr create"
+
+# This repository is an experiment. It serves the standards-lab workspace coordinator, which
+# reads its result.
+[experiment]
+serves = "standards-lab"
