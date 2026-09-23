@@ -19,8 +19,7 @@ type Client struct {
 	// them, as during a start-up handshake, can't stall the responses behind them.
 	events *harness.EventQueue
 
-	nextID  atomic.Int64
-	closing atomic.Bool
+	nextID atomic.Int64
 }
 
 // NewClient starts reading p through codec.
@@ -68,10 +67,7 @@ func (c *Client) Call(ctx context.Context, cmd any) (Response, error) {
 func (c *Client) Events() <-chan harness.Event { return c.events.Events() }
 
 // Close ends the harness.
-func (c *Client) Close() error {
-	c.closing.Store(true)
-	return c.p.Close()
-}
+func (c *Client) Close() error { return c.p.Close() }
 
 // read dispatches each line the harness writes, then shuts the client down once the harness
 // has exited.
@@ -95,11 +91,11 @@ func (c *Client) dispatch(line []byte) {
 	c.events.Push(f.Events...)
 }
 
-// shutdown fails the open calls with the exit error, announces an exit that Close didn't ask
-// for, and closes Events.
+// shutdown fails the open calls with the exit error, announces an exit no one asked for, and
+// closes Events.
 func (c *Client) shutdown() {
 	err := c.p.Err()
-	unexpected := err != nil || !c.closing.Load()
+	unexpected := err != nil || c.p.Cause() == nil
 	if err == nil {
 		err = fmt.Errorf("%s: exited", c.p.name)
 	}

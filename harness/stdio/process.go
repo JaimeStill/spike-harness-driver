@@ -7,6 +7,7 @@ package stdio
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
 // Spec says how to start a harness process.
@@ -24,59 +27,73 @@ type Spec struct {
 	Dir string
 	// Env adds variables to the inherited environment.
 	Env []string
-	// CloseTimeout bounds how long Close waits for the process to exit before killing it.
-	// Zero means five seconds.
-	CloseTimeout time.Duration
+	// WaitDelay is the grace period after Close, or after the harness exits: a harness still
+	// running is then killed, and pipes a child of the harness still holds are closed. Zero
+	// means five seconds.
+	WaitDelay time.Duration
 }
 
-// Process is a running harness. One goroutine reads its stdout, and it is the only caller of
-// cmd.Wait.
+// Process is a running harness. Its lifetime is a context the process owns: Close cancels it,
+// and exec turns the cancellation into the harness's shutdown.
 type Process struct {
-	name         string
-	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	stderr       bytes.Buffer // written by cmd, read only after cmd.Wait
-	closeTimeout time.Duration
+	name   string
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stderr bytes.Buffer // written by cmd, read only after cmd.Wait
+	ctx    context.Context
+	cancel context.CancelCauseFunc
 
 	writeMu sync.Mutex
 	lines   chan []byte
-	done    chan struct{} // closed once the process has exited
+	waited  chan struct{} // closed once cmd.Wait has returned
+	done    chan struct{} // closed once the process has exited and Lines has closed
 	exitErr error
-
-	closeOnce sync.Once
-	closeErr  error
 }
 
-// Start starts the process. It takes no context: the process lives until Close or until it
-// exits on its own.
+// Start starts the process. It takes no context: like a network connection, the process lives
+// until Close or until it exits on its own, however long its start-up took.
 func Start(spec Spec) (*Process, error) {
-	cmd := exec.Command(spec.Name, spec.Args...)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	p := &Process{
+		name:   spec.Name,
+		ctx:    ctx,
+		cancel: cancel,
+		lines:  make(chan []byte),
+		waited: make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+	cmd := exec.CommandContext(ctx, spec.Name, spec.Args...)
 	cmd.Dir = spec.Dir
 	cmd.Env = append(os.Environ(), spec.Env...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		cancel(err)
 		return nil, fmt.Errorf("%s: stdin: %w", spec.Name, err)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("%s: stdout: %w", spec.Name, err)
+	// A line-protocol harness shuts down at the end of its input, so cancelling closes stdin
+	// rather than killing. ErrProcessDone has Wait report the exit status as it is, so a clean
+	// exit after Close is no error.
+	cmd.Cancel = func() error {
+		_ = stdin.Close()
+		return os.ErrProcessDone
 	}
-	p := &Process{
-		name:         spec.Name,
-		cmd:          cmd,
-		stdin:        stdin,
-		closeTimeout: spec.CloseTimeout,
-		lines:        make(chan []byte),
-		done:         make(chan struct{}),
+	cmd.WaitDelay = spec.WaitDelay
+	if cmd.WaitDelay == 0 {
+		cmd.WaitDelay = 5 * time.Second
 	}
-	if p.closeTimeout == 0 {
-		p.closeTimeout = 5 * time.Second
-	}
+	// Stdout goes through an io.Pipe, not StdoutPipe, so that Wait may run beside the reader:
+	// otherwise a child of the harness holding stdout open would keep the reader from EOF and
+	// Wait, and so WaitDelay, from ever starting.
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
 	cmd.Stderr = &p.stderr
+	p.cmd, p.stdin = cmd, stdin
 	if err := cmd.Start(); err != nil {
+		cancel(err)
 		return nil, fmt.Errorf("start %s: %w", spec.Name, err)
 	}
-	go p.read(stdout)
+	go p.wait(pw)
+	go p.read(pr)
 	return p, nil
 }
 
@@ -91,6 +108,11 @@ func (p *Process) Err() error {
 	return p.exitErr
 }
 
+// Cause reports why the process was asked to stop: harness.ErrClosed after Close, or the error
+// that failed its output. It is nil if the process was never asked, so an exit with a nil Cause
+// was the harness's own.
+func (p *Process) Cause() error { return context.Cause(p.ctx) }
+
 // WriteLine writes line and a line feed to the process's stdin.
 func (p *Process) WriteLine(line []byte) error {
 	p.writeMu.Lock()
@@ -101,21 +123,22 @@ func (p *Process) WriteLine(line []byte) error {
 	return nil
 }
 
-// Close closes the process's stdin, which a line-protocol harness takes as the signal to shut
-// down, and kills the process if it hasn't exited within the close timeout.
+// Close asks the harness to exit, waits for it, and returns its exit error. A harness that
+// hasn't exited within WaitDelay is killed.
 func (p *Process) Close() error {
-	p.closeOnce.Do(func() {
-		_ = p.stdin.Close()
-		select {
-		case <-p.done:
-			p.closeErr = p.exitErr
-		case <-time.After(p.closeTimeout):
-			_ = p.cmd.Process.Kill()
-			<-p.done
-			p.closeErr = fmt.Errorf("%s: killed after %s: %w", p.name, p.closeTimeout, p.exitErr)
-		}
-	})
-	return p.closeErr
+	p.cancel(harness.ErrClosed)
+	<-p.done
+	return p.exitErr
+}
+
+// wait is the only caller of cmd.Wait. Closing stdout once Wait returns ends the reader, even
+// when WaitDelay had to close the pipes a child of the harness held.
+func (p *Process) wait(stdout *io.PipeWriter) {
+	if err := p.cmd.Wait(); err != nil {
+		p.exitErr = fmt.Errorf("%s: exited: %w: %s", p.name, err, bytes.TrimSpace(p.stderr.Bytes()))
+	}
+	close(p.waited)
+	_ = stdout.Close()
 }
 
 func (p *Process) read(stdout io.Reader) {
@@ -129,14 +152,12 @@ func (p *Process) read(stdout io.Reader) {
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				_ = p.cmd.Process.Kill()
+				p.cancel(fmt.Errorf("%s: read: %w", p.name, err))
 			}
 			break
 		}
 	}
-	if err := p.cmd.Wait(); err != nil {
-		p.exitErr = fmt.Errorf("%s: exited: %w: %s", p.name, err, bytes.TrimSpace(p.stderr.Bytes()))
-	}
+	<-p.waited
 	close(p.lines)
 	close(p.done)
 }

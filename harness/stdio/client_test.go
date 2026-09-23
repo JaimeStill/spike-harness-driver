@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -17,10 +18,15 @@ import (
 )
 
 // peerEnv turns the test binary into a line-protocol peer, and selects its behavior: "echo"
-// answers commands, and "stubborn" also ignores the end of its input.
+// answers commands, "stubborn" also ignores the end of its input, "orphaner" leaves a child
+// holding its stdout when its input ends, and "sleep" is that child.
 const peerEnv = "STDIO_PEER"
 
 func TestMain(m *testing.M) {
+	if os.Getenv(peerEnv) == "sleep" {
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	}
 	if mode := os.Getenv(peerEnv); mode != "" {
 		os.Exit(peer(mode))
 	}
@@ -104,21 +110,36 @@ func peer(mode string) int {
 		case "die":
 			fmt.Fprintln(os.Stderr, "fatal: peer gone")
 			os.Exit(4)
+		case "orphan":
+			orphan()
+			os.Exit(0)
 		}
 	}
-	if mode == "stubborn" {
+	switch mode {
+	case "stubborn":
 		select {}
+	case "orphaner":
+		orphan()
 	}
 	return 0
 }
 
-func start(t *testing.T, mode string, timeout time.Duration) *stdio.Client {
+// orphan starts a child that inherits the peer's stdout and outlives the peer, as a tool
+// process a harness started might.
+func orphan() {
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), peerEnv+"=sleep")
+	cmd.Stdout = os.Stdout
+	_ = cmd.Start()
+}
+
+func start(t *testing.T, mode string, waitDelay time.Duration) *stdio.Client {
 	t.Helper()
 	p, err := stdio.Start(stdio.Spec{
 		Name: os.Args[0],
 		// A race-enabled binary sleeps a second at exit unless told not to.
-		Env:          []string{peerEnv + "=" + mode, "GORACE=atexit_sleep_ms=0"},
-		CloseTimeout: timeout,
+		Env:       []string{peerEnv + "=" + mode, "GORACE=atexit_sleep_ms=0"},
+		WaitDelay: waitDelay,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -217,23 +238,50 @@ func TestPeerExit(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	tests := []struct {
-		name    string
-		mode    string
-		wantErr bool
+		name string
+		mode string
+		// wantErr is nil when Close may return either way.
+		wantErr *bool
 	}{
-		{name: "exits on end of input", mode: "echo"},
-		{name: "killed after the timeout", mode: "stubborn", wantErr: true},
+		{name: "exits on end of input", mode: "echo", wantErr: new(false)},
+		{name: "killed after the wait delay", mode: "stubborn", wantErr: new(true)},
+		{name: "a child holds stdout", mode: "orphaner"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := start(t, tt.mode, 200*time.Millisecond)
-			if err := c.Close(); (err != nil) != tt.wantErr {
-				t.Fatalf("Close = %v, want error %v", err, tt.wantErr)
+			begin := time.Now()
+			err := c.Close()
+			if d := time.Since(begin); d > 3*time.Second {
+				t.Fatalf("Close took %s", d)
+			}
+			if tt.wantErr != nil && (err != nil) != *tt.wantErr {
+				t.Fatalf("Close = %v, want error %v", err, *tt.wantErr)
 			}
 			ev, ok := nextEvent(t, c)
-			if ok && !tt.wantErr {
+			if ok && tt.wantErr != nil && !*tt.wantErr {
 				t.Fatalf("a clean Close reported %+v", ev)
 			}
 		})
+	}
+}
+
+// TestExitWithChildHoldingStdout covers a harness that exits on its own while a child still
+// holds its stdout: the wait delay closes the pipe, so the exit is still seen.
+func TestExitWithChildHoldingStdout(t *testing.T) {
+	c := start(t, "echo", 200*time.Millisecond)
+	begin := time.Now()
+	if _, err := c.Call(t.Context(), testCmd{Op: "orphan"}); err == nil {
+		t.Fatal("Call to a peer that exited succeeded")
+	}
+	if d := time.Since(begin); d > 3*time.Second {
+		t.Fatalf("the exit took %s to be seen", d)
+	}
+	ev, _ := nextEvent(t, c)
+	if ev.Kind != harness.EventError {
+		t.Fatalf("event = %+v, want EventError", ev)
+	}
+	if _, ok := nextEvent(t, c); ok {
+		t.Fatal("Events did not close after the exit")
 	}
 }

@@ -21,9 +21,9 @@ type Driver struct {
 	Command string
 	// Env adds variables to Pi's environment, such as LLAMA_BASE_URL.
 	Env []string
-	// CloseTimeout bounds how long Close waits for Pi to exit before killing it. Zero means
-	// five seconds.
-	CloseTimeout time.Duration
+	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
+	// seconds.
+	WaitDelay time.Duration
 }
 
 var _ harness.Driver = Driver{}
@@ -39,7 +39,7 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		name = "pi"
 	}
 	p, err := stdio.Start(stdio.Spec{
-		Name: name, Args: rpcArgs, Dir: opts.Dir, Env: d.Env, CloseTimeout: d.CloseTimeout,
+		Name: name, Args: rpcArgs, Dir: opts.Dir, Env: d.Env, WaitDelay: d.WaitDelay,
 	})
 	if err != nil {
 		return nil, err
