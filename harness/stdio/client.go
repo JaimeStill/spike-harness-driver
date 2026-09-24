@@ -2,19 +2,28 @@ package stdio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
 // Client runs a line-protocol harness through a Codec. It correlates each command with its
-// response by id, and streams everything else as normalized events.
+// response by id, answers the harness's requests through a Handler, and streams everything
+// else as normalized events.
 type Client struct {
-	p     *Process
-	codec Codec
-	calls *calls
+	p      *Process
+	codec  Codec
+	handle Handler
+	calls  *calls
+	// answering counts the requests being answered, which shutdown waits for once it has
+	// ended their context, answers.
+	answering sync.WaitGroup
+	answers   context.Context
+	stop      context.CancelFunc
 	// Events queue without bound, so a harness that emits events while no one is reading
 	// them, as during a start-up handshake, can't stall the responses behind them. The queue
 	// lives as long as the process: Close discards what no one read.
@@ -23,14 +32,18 @@ type Client struct {
 	nextID atomic.Int64
 }
 
-// NewClient starts reading p through codec.
-func NewClient(p *Process, codec Codec) *Client {
+// NewClient starts reading p through codec, answering the harness's requests with handle. A
+// harness waits on its requests, so a codec that decodes any needs a handle; with a nil
+// handle, a request goes unanswered and surfaces as an EventError.
+func NewClient(p *Process, codec Codec, handle Handler) *Client {
 	c := &Client{
 		p:      p,
 		codec:  codec,
+		handle: handle,
 		calls:  newCalls(),
 		events: harness.NewEventQueue(p.ctx),
 	}
+	c.answers, c.stop = context.WithCancel(p.ctx)
 	go c.read()
 	return c
 }
@@ -63,9 +76,26 @@ func (c *Client) Call(ctx context.Context, cmd any) (Response, error) {
 	}
 }
 
-// Events yields the harness's normalized events. When the harness exits other than through
-// Close, a final EventError carries the exit error. The channel then closes.
+// Events yields the harness's normalized events, and closes once the harness has exited.
 func (c *Client) Events() <-chan harness.Event { return c.events.Events() }
+
+// Err reports why the harness exited, once Events has closed: nil when Close ended it, and
+// otherwise the exit error, which carries the end of the harness's stderr. It waits for the
+// harness to exit.
+func (c *Client) Err() error {
+	err := c.p.Err()
+	cause := c.p.Cause()
+	switch {
+	case errors.Is(cause, harness.ErrClosed):
+		return nil
+	case err != nil:
+		return err
+	case cause != nil:
+		return cause
+	default:
+		return fmt.Errorf("%s: exited", c.p.name)
+	}
+}
 
 // Close ends the harness.
 func (c *Client) Close() error { return c.p.Close() }
@@ -89,20 +119,44 @@ func (c *Client) dispatch(line []byte) {
 	if f.Response != nil {
 		c.calls.resolve(*f.Response)
 	}
+	if f.Request != nil {
+		c.answer(*f.Request)
+	}
 	c.events.Push(f.Events...)
 }
 
-// shutdown fails the open calls with the exit error, announces an exit no one asked for, and
-// closes Events.
+// answer has the handler answer req on a goroutine of its own, and writes the answer back. An
+// answer the harness can no longer take, because it has exited, is dropped.
+func (c *Client) answer(req Request) {
+	if c.handle == nil {
+		c.events.Push(harness.Event{
+			Kind: harness.EventError,
+			Err:  fmt.Errorf("%s: request %s: no handler to answer it", c.p.name, req.ID),
+		})
+		return
+	}
+	c.answering.Go(func() {
+		line, err := c.codec.Reply(req, c.handle(c.answers, req))
+		if err == nil {
+			err = c.p.WriteLine(line)
+		}
+		if err != nil && c.answers.Err() == nil {
+			c.events.Push(harness.Event{
+				Kind: harness.EventError, Err: fmt.Errorf("%s: answer request %s: %w", c.p.name, req.ID, err),
+			})
+		}
+	})
+}
+
+// shutdown fails the open calls with the exit error, waits for the answers in progress, and
+// closes Events. Err reports the exit to whoever reads Events.
 func (c *Client) shutdown() {
 	err := c.p.Err()
-	unexpected := err != nil || c.p.Cause() == nil
 	if err == nil {
 		err = fmt.Errorf("%s: exited", c.p.name)
 	}
 	c.calls.fail(err)
-	if unexpected {
-		c.events.Push(harness.Event{Kind: harness.EventError, Err: err})
-	}
+	c.stop()
+	c.answering.Wait()
 	c.events.Close()
 }

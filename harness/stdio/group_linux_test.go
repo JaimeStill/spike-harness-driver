@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
@@ -109,7 +108,7 @@ func TestExitWithEscapedChild(t *testing.T) {
 }
 
 // checkExitSeen sends op, which makes the peer exit, and checks that the exit fails the call
-// within the given time, then arrives as an EventError, and then closes Events.
+// within the given time, then closes Events, with Err reporting it.
 func checkExitSeen(t *testing.T, c *stdio.Client, op string, within time.Duration) {
 	t.Helper()
 	begin := time.Now()
@@ -119,11 +118,10 @@ func checkExitSeen(t *testing.T, c *stdio.Client, op string, within time.Duratio
 	if d := time.Since(begin); d > within {
 		t.Fatalf("the exit took %s to be seen", d)
 	}
-	ev, _ := nextEvent(t, c)
-	if ev.Kind != harness.EventError {
-		t.Fatalf("event = %+v, want EventError", ev)
+	if ev, ok := nextEvent(t, c); ok {
+		t.Fatalf("Events delivered %+v instead of closing after the exit", ev)
 	}
-	if _, ok := nextEvent(t, c); ok {
-		t.Fatal("Events did not close after the exit")
+	if c.Err() == nil {
+		t.Fatal("Err = nil after an exit Close didn't ask for")
 	}
 }

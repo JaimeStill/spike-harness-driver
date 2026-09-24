@@ -3,6 +3,7 @@ package stdio_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,11 +43,13 @@ type testCmd struct {
 }
 
 type testLine struct {
-	ID    string  `json:"id"`
-	OK    bool    `json:"ok"`
-	Error string  `json:"error"`
-	Data  string  `json:"data"`
-	Event *string `json:"event"`
+	ID string `json:"id"`
+	// Request, when set, makes the line a request of the driver, with Data as its body.
+	Request string  `json:"request,omitempty"`
+	OK      bool    `json:"ok"`
+	Error   string  `json:"error"`
+	Data    string  `json:"data"`
+	Event   *string `json:"event"`
 }
 
 type testCodec struct{}
@@ -62,6 +65,9 @@ func (testCodec) Decode(line []byte) (stdio.Frame, error) {
 	if err := json.Unmarshal(line, &l); err != nil {
 		return stdio.Frame{}, err
 	}
+	if l.Request != "" {
+		return stdio.Frame{Request: &stdio.Request{ID: l.Request, Body: l.Data}}, nil
+	}
 	if l.Event != nil {
 		return stdio.Frame{Events: []harness.Event{{Kind: harness.EventTextDelta, Text: *l.Event}}}, nil
 	}
@@ -70,6 +76,10 @@ func (testCodec) Decode(line []byte) (stdio.Frame, error) {
 		r.Err = errors.New(l.Error)
 	}
 	return stdio.Frame{Response: r}, nil
+}
+
+func (testCodec) Reply(req stdio.Request, answer any) ([]byte, error) {
+	return json.Marshal(testCmd{ID: req.ID, Op: "reply", Data: answer.(string)})
 }
 
 // peer answers each command on its own goroutine, after a delay that reverses their order, so
@@ -86,6 +96,9 @@ func peer(mode string) int {
 	}
 	event := func(s string) { emit(testLine{Event: &s}) }
 
+	// asked maps each request the peer made of the driver to the command that made it, which
+	// the driver's answer then answers.
+	asked := map[string]string{}
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
 		var c testCmd
@@ -102,6 +115,11 @@ func peer(mode string) int {
 			}()
 		case "fail":
 			emit(testLine{ID: c.ID, Error: "nope"})
+		case "ask":
+			asked["q"+c.ID] = c.ID
+			emit(testLine{Request: "q" + c.ID, Data: c.Data})
+		case "reply":
+			emit(testLine{ID: asked[c.ID], OK: true, Data: c.Data})
 		case "event":
 			event(c.Data)
 			emit(testLine{ID: c.ID, OK: true})
@@ -148,6 +166,12 @@ func orphan(detached bool) {
 
 func start(t *testing.T, mode string, waitDelay time.Duration, env ...string) *stdio.Client {
 	t.Helper()
+	return startAnswering(t, mode, waitDelay, nil, env...)
+}
+
+// startAnswering starts the peer with handle answering its requests.
+func startAnswering(t *testing.T, mode string, waitDelay time.Duration, handle stdio.Handler, env ...string) *stdio.Client {
+	t.Helper()
 	p, err := stdio.Start(stdio.Spec{
 		Name: os.Args[0],
 		// A race-enabled binary sleeps a second at exit unless told not to.
@@ -157,7 +181,7 @@ func start(t *testing.T, mode string, waitDelay time.Duration, env ...string) *s
 	if err != nil {
 		t.Fatal(err)
 	}
-	return stdio.NewClient(p, testCodec{})
+	return stdio.NewClient(p, testCodec{}, handle)
 }
 
 func nextEvent(t *testing.T, c *stdio.Client) (harness.Event, bool) {
@@ -234,18 +258,91 @@ func TestPeerExit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "fatal: peer gone") {
 		t.Fatalf("pending Call = %v, want the exit error with stderr", err)
 	}
-	ev, _ := nextEvent(t, c)
-	if ev.Kind != harness.EventError || ev.Err == nil || !strings.Contains(ev.Err.Error(), "fatal: peer gone") {
-		t.Fatalf("event = %+v, want EventError with stderr", ev)
+	// The exit is Err's to report, not an event's.
+	if ev, ok := nextEvent(t, c); ok {
+		t.Fatalf("Events delivered %+v instead of closing after the exit", ev)
 	}
-	if _, ok := nextEvent(t, c); ok {
-		t.Fatal("Events did not close after the exit")
+	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "fatal: peer gone") {
+		t.Fatalf("Err = %v, want the exit error with stderr", err)
 	}
 	if _, err := c.Call(t.Context(), testCmd{Op: "echo", Data: "1"}); err == nil {
 		t.Fatal("Call after exit succeeded")
 	}
 	if err := c.Close(); err == nil {
 		t.Fatal("Close after a failed exit returned nil")
+	}
+}
+
+func TestRequestsAreAnswered(t *testing.T) {
+	// Each answer waits for the one before it to be asked, so the requests are answered
+	// only if they are answered concurrently.
+	const n = 10
+	var asked sync.WaitGroup
+	asked.Add(n)
+	c := startAnswering(t, "echo", 0, func(ctx context.Context, req stdio.Request) any {
+		asked.Done()
+		asked.Wait()
+		return strings.ToUpper(req.Body.(string))
+	})
+	defer func() { _ = c.Close() }()
+
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			q := fmt.Sprintf("question %d", i)
+			r, err := c.Call(t.Context(), testCmd{Op: "ask", Data: q})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			var got string
+			_ = json.Unmarshal(r.Data, &got)
+			if got != strings.ToUpper(q) {
+				t.Errorf("asked %q, got %q", q, got)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+func TestARequestWithNoHandlerIsAnError(t *testing.T) {
+	c := start(t, "echo", 0)
+	defer func() { _ = c.Close() }()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := c.Call(ctx, testCmd{Op: "ask", Data: "anyone?"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Call = %v, want no answer", err)
+	}
+	ev, _ := nextEvent(t, c)
+	if ev.Kind != harness.EventError || ev.Err == nil || !strings.Contains(ev.Err.Error(), "no handler") {
+		t.Fatalf("event = %+v, want EventError for the unanswered request", ev)
+	}
+}
+
+// An answer in progress when the harness goes away has its context ended, and the Client
+// shuts down once it returns.
+func TestCloseEndsAnAnswerInProgress(t *testing.T) {
+	answering := make(chan struct{})
+	ended := make(chan struct{})
+	c := startAnswering(t, "echo", 0, func(ctx context.Context, _ stdio.Request) any {
+		close(answering)
+		<-ctx.Done()
+		close(ended)
+		return ""
+	})
+	go func() { _, _ = c.Call(context.Background(), testCmd{Op: "ask", Data: "slow"}) }()
+	<-answering
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the answer's context did not end")
+	}
+	if _, ok := nextEvent(t, c); ok {
+		t.Fatal("Events did not close")
 	}
 }
 
@@ -269,9 +366,12 @@ func TestClose(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Close = %v, want error %v", err, tt.wantErr)
 			}
-			ev, ok := nextEvent(t, c)
-			if ok && !tt.wantErr {
-				t.Fatalf("a clean Close reported %+v", ev)
+			if ev, ok := nextEvent(t, c); ok {
+				t.Fatalf("Close reported %+v", ev)
+			}
+			// Close ended the harness, however it went, so Err has no exit to report.
+			if err := c.Err(); err != nil {
+				t.Fatalf("Err after Close = %v", err)
 			}
 		})
 	}
