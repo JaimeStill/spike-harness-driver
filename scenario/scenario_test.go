@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/JaimeStill/spike-harness-driver/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/internal/harnesstest"
 	"github.com/JaimeStill/spike-harness-driver/output"
 	"github.com/JaimeStill/spike-harness-driver/scenario"
 )
@@ -64,7 +64,7 @@ func TestRunStopsAtAFailedNeed(t *testing.T) {
 
 func TestScenariosOverAStubHarness(t *testing.T) {
 	svc := session.New(
-		func() (harness.Driver, error) { return stubDriver{}, nil },
+		func() (harness.Driver, error) { return harnesstest.Driver{Stream: "essay"}, nil },
 		func() harness.Options { return harness.Options{} },
 	)
 	scenarios := scenario.Scenarios(svc, nil)
@@ -76,7 +76,7 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 			if err := cmd.ExecuteContext(t.Context()); err != nil {
 				t.Fatalf("%v\n%s", err, out.String())
 			}
-			if !strings.Contains(out.String(), "session stub-session") || !strings.Contains(out.String(), "result: stop=") {
+			if !strings.Contains(out.String(), "session "+harnesstest.SessionID) || !strings.Contains(out.String(), "result: stop=") {
 				t.Errorf("narration:\n%s", out.String())
 			}
 		})
@@ -89,51 +89,4 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 			t.Errorf("listing lacks %s:\n%s", name, listing.String())
 		}
 	}
-}
-
-// stubDriver opens sessions whose harness streams text deltas until the prompt is short
-// enough to answer, or until it is cancelled.
-type stubDriver struct{}
-
-func (stubDriver) Open(context.Context, harness.Options) (*harness.Session, error) {
-	c := &stubConnection{events: make(chan harness.Event, 64), cancel: make(chan struct{})}
-	return harness.NewSession("stub-session", c), nil
-}
-
-type stubConnection struct {
-	events    chan harness.Event
-	cancel    chan struct{}
-	closeOnce sync.Once
-}
-
-func (c *stubConnection) Prompt(_ context.Context, req harness.Request) error {
-	long := strings.Contains(req.Text, "essay")
-	go func() {
-		c.events <- harness.Event{Kind: harness.EventStarted}
-		for i := 0; !long && i < 3 || long; i++ {
-			select {
-			case <-c.cancel:
-				c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: "aborted"}
-				c.events <- harness.Event{Kind: harness.EventCancelled, StopReason: "aborted"}
-				c.events <- harness.Event{Kind: harness.EventEnded}
-				return
-			case c.events <- harness.Event{Kind: harness.EventTextDelta, Text: "."}:
-			}
-		}
-		c.events <- harness.Event{Kind: harness.EventMessageEnd, Text: "...", StopReason: "stop"}
-		c.events <- harness.Event{Kind: harness.EventEnded}
-	}()
-	return nil
-}
-
-func (c *stubConnection) Cancel(context.Context) error {
-	close(c.cancel)
-	return nil
-}
-
-func (c *stubConnection) Events() <-chan harness.Event { return c.events }
-
-func (c *stubConnection) Close() error {
-	c.closeOnce.Do(func() { close(c.events) })
-	return nil
 }
