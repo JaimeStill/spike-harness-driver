@@ -19,6 +19,7 @@ func Scenarios(svc *session.Service, needs []Need) []Scenario {
 		resumeScenario(svc, needs),
 		toolScenario(svc, needs),
 		skillScenario(svc, needs),
+		structuredScenario(svc, needs),
 	}
 }
 

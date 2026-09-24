@@ -1,9 +1,13 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"uuid"
 
 	"github.com/spf13/cobra"
@@ -27,6 +31,7 @@ func sendCommand(svc *Service, out *output.Output) *cobra.Command {
 	var (
 		id          string
 		cancelAfter int
+		schema      string
 	)
 	cmd := &cobra.Command{
 		Use:   "send <prompt>",
@@ -35,15 +40,54 @@ func sendCommand(svc *Service, out *output.Output) *cobra.Command {
 			"normalized event tagged with its session and exchange IDs, and prints the result.\n" +
 			"--session resumes that session instead of opening a new one; the harness scopes\n" +
 			"session IDs to the working directory, so resume from the same directory.\n" +
-			"--cancel-after cancels the exchange after that many text deltas.",
+			"--cancel-after cancels the exchange after that many text deltas.\n" +
+			"--schema asks for a structured response: the model answers by calling a respond tool\n" +
+			"whose arguments the harness validates against the schema, and the result prints them\n" +
+			"as structured. The value is an object schema, inline JSON or a path to a JSON file.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return send(cmd.Context(), svc, out, id, Exchange{Prompt: args[0], CancelAfter: cancelAfter})
+			s, err := parseSchema(schema)
+			if err != nil {
+				return fmt.Errorf("--schema: %w", err)
+			}
+			return send(cmd.Context(), svc, out, id, Exchange{Prompt: args[0], Schema: s, CancelAfter: cancelAfter})
 		},
 	}
 	cmd.Flags().StringVar(&id, "session", "", "resume the session with this ID")
 	cmd.Flags().IntVar(&cancelAfter, "cancel-after", 0, "cancel after this many text deltas (0 never cancels)")
+	cmd.Flags().StringVar(&schema, "schema", "", "ask for a structured response matching this object schema: inline JSON, or a path to a JSON file")
 	return cmd
+}
+
+// parseSchema reads --schema's value: inline JSON when it starts with "{", otherwise the path
+// of a JSON file. The schema must be an object schema, the only kind a structured response
+// takes. An empty value asks for none.
+func parseSchema(value string) (json.RawMessage, error) {
+	if value == "" {
+		return nil, nil
+	}
+	raw := []byte(value)
+	if !strings.HasPrefix(strings.TrimSpace(value), "{") {
+		b, err := os.ReadFile(value)
+		if err != nil {
+			return nil, err
+		}
+		raw = b
+	}
+	raw = bytes.TrimSpace(raw)
+	var s struct {
+		Type json.RawMessage `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("not a JSON object: %w", err)
+	}
+	switch t := string(bytes.TrimSpace(s.Type)); {
+	case t == "":
+		return nil, errors.New(`the schema declares no type, want "object"`)
+	case t != `"object"`:
+		return nil, fmt.Errorf(`the schema's type is %s, want "object"`, t)
+	}
+	return raw, nil
 }
 
 func send(ctx context.Context, svc *Service, out *output.Output, id string, e Exchange) (err error) {

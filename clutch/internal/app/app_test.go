@@ -23,7 +23,7 @@ func TestListNamesEveryScenario(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "needs the harness executable"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "structured", "needs the harness executable"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("list lacks %q:\n%s", name, out)
 		}

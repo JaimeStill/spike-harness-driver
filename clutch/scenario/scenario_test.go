@@ -3,7 +3,9 @@ package scenario_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,11 +74,13 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 		},
 		func() harness.Options { return harness.Options{Store: store} },
 	)
-	// The stub harness replies with the same text whatever it is asked and calls no tools, so
-	// the scenarios that check the model's reply fail at their first check.
+	// The stub harness replies with the same text whatever it is asked, calls no tools, and
+	// gives no structured response, so the scenarios that check the model's reply fail at
+	// their first check.
 	fails := map[string]string{
-		"tool":  "step 2: the model never called the lookup_code tool",
-		"skill": "step 1: the reply lacks the motto",
+		"tool":       "step 2: the model never called the lookup_code tool",
+		"skill":      "step 1: the reply lacks the motto",
+		"structured": "step 2: exchange ended in error: " + harness.ErrNoStructuredResponse.Error(),
 	}
 	scenarios := scenario.Scenarios(svc, nil)
 	for _, s := range scenarios {
@@ -108,13 +112,27 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 				if len(first.Skills) != 1 || first.Skills[0].Name != "clutch-motto" || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
 					t.Errorf("opened with skills %+v, harness tools %#v", first.Skills, first.HarnessTools)
 				}
+			case "structured":
+				if len(first.Tools) != 0 || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
+					t.Errorf("opened with tools %+v, harness tools %#v", first.Tools, first.HarnessTools)
+				}
+				// The store records each exchange's request, so it shows the schema was sent.
+				recs, err := store.Records(t.Context(), harnesstest.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !slices.ContainsFunc(recs, func(r harness.Record) bool {
+					return json.Valid(r.Request.Schema) && strings.Contains(string(r.Request.Schema), `"city"`)
+				}) {
+					t.Errorf("no recorded request carries the capital schema: %+v", recs)
+				}
 			}
 		})
 	}
 
 	var listing bytes.Buffer
 	scenario.WriteListing(&listing, scenarios)
-	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "structured"} {
 		if !strings.Contains(listing.String(), name) {
 			t.Errorf("listing lacks %s:\n%s", name, listing.String())
 		}

@@ -3,6 +3,8 @@ package session_test
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -210,5 +212,65 @@ func TestSendResumesAndExchangesLists(t *testing.T) {
 	}
 	if got := execute("exchanges", "unknown"); !strings.Contains(got, "no exchanges recorded") {
 		t.Errorf("exchanges of an unknown session:\n%s", got)
+	}
+}
+
+func TestSendSchema(t *testing.T) {
+	const schema = `{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`
+	file := filepath.Join(t.TempDir(), "schema.json")
+	array := filepath.Join(t.TempDir(), "array.json")
+	for path, content := range map[string]string{file: schema + "\n", array: `["type"]`} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, value, err string
+	}{
+		{name: "inline", value: schema},
+		{name: "file", value: file},
+		{name: "invalid JSON", value: `{"type":`, err: "--schema: not a JSON object"},
+		{name: "not an object", value: array, err: "--schema: not a JSON object"},
+		{name: "not an object schema", value: `{"type":"array"}`, err: `--schema: the schema's type is "array", want "object"`},
+		{name: "no type", value: `{}`, err: "--schema: the schema declares no type"},
+		{name: "missing file", value: filepath.Join(t.TempDir(), "none.json"), err: "--schema: open"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opened := false
+			store := filestore.New(t.TempDir())
+			svc := session.New(
+				func() (harness.Driver, error) {
+					return harnesstest.Driver{Opened: func(harness.Options) { opened = true }}, nil
+				},
+				func() harness.Options { return harness.Options{Store: store} },
+			)
+			var out bytes.Buffer
+			cmd := session.Commands(svc, output.New(&out, &out, nil))
+			cmd.SetArgs([]string{"send", "--schema", tc.value, "hi"})
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			err := cmd.ExecuteContext(t.Context())
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("send = %v, want an error containing %q", err, tc.err)
+				}
+				if opened {
+					t.Error("a harness started for a bad schema")
+				}
+				return
+			}
+			// The stub harness gives no structured response, so the exchange ends in
+			// ErrNoStructuredResponse, which shows the schema reached the harness.
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), harness.ErrNoStructuredResponse.Error()) {
+				t.Errorf("output lacks the unanswered schema:\n%s", out.String())
+			}
+			recs, err := store.Records(t.Context(), harnesstest.SessionID)
+			if err != nil || len(recs) != 1 || string(recs[0].Request.Schema) != schema {
+				t.Errorf("recorded %+v, %v", recs, err)
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -28,6 +29,10 @@ func New(driver func() (harness.Driver, error), options func() harness.Options) 
 // Exchange describes one exchange to run.
 type Exchange struct {
 	Prompt string
+	// Schema, when set, is the JSON Schema of the structured response the exchange must
+	// produce, an object schema, as harness.Request.Schema is. The Outcome's Result carries the
+	// response in Structured, or its Err is harness.ErrNoStructuredResponse.
+	Schema json.RawMessage
 	// CancelAfter cancels the exchange after that many text deltas. Zero runs it to its end.
 	CancelAfter int
 }
@@ -123,7 +128,7 @@ func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs [
 // Run sends e on sess and follows it to its end. The error is non-nil only when the harness
 // didn't accept the prompt; how the exchange itself ended is in the Outcome.
 func (s *Service) Run(ctx context.Context, sess *harness.Session, e Exchange, obs Observer) (Outcome, error) {
-	x, err := sess.Send(ctx, harness.Request{Text: e.Prompt})
+	x, err := sess.Send(ctx, harness.Request{Text: e.Prompt, Schema: e.Schema})
 	if err != nil {
 		return Outcome{}, err
 	}
