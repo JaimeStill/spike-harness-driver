@@ -1,0 +1,6 @@
+{
+  "name": "fail",
+  "description": "Always fails.",
+  "inputSchema": {"type": "object"},
+  "command": ["./run.sh"]
+}
