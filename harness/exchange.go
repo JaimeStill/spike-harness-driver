@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 	"uuid"
 )
 
@@ -14,6 +15,8 @@ type Exchange struct {
 	sessionID string
 	cancel    func() // the session's cancellation hook
 	events    *EventQueue
+	request   Request
+	started   time.Time
 
 	mu     sync.Mutex
 	seq    int
@@ -27,13 +30,15 @@ type Exchange struct {
 	cancelOnce sync.Once
 }
 
-// newExchange starts an exchange whose undelivered events are discarded when the session's
-// lifetime ends.
-func newExchange(sessionID string, session context.Context) *Exchange {
+// newExchange starts an exchange for req whose undelivered events are discarded when the
+// session's lifetime ends.
+func newExchange(sessionID string, session context.Context, req Request) *Exchange {
 	return &Exchange{
 		id:        uuid.NewV7(),
 		sessionID: sessionID,
 		events:    NewEventQueue(session),
+		request:   req,
+		started:   time.Now(),
 		ended:     make(chan struct{}),
 	}
 }
@@ -58,6 +63,29 @@ func (x *Exchange) Wait() (Result, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	return x.result, x.err
+}
+
+// record returns the exchange's record as it stands, bound to entries. err stands in for the
+// exchange's error when it has none of its own.
+func (x *Exchange) record(entries []string, err error) Record {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.err != nil {
+		err = x.err
+	}
+	rec := Record{
+		SessionID:  x.sessionID,
+		ExchangeID: x.id,
+		Request:    x.request,
+		Result:     x.result,
+		Entries:    entries,
+		Started:    x.started,
+		Ended:      time.Now(),
+	}
+	if err != nil {
+		rec.Err = err.Error()
+	}
+	return rec
 }
 
 // watch cancels the exchange when ctx is done, until the exchange ends.

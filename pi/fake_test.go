@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,11 +33,121 @@ func fakeDriver(mode string) Driver {
 	return Driver{Command: os.Args[0], Env: []string{fakeEnv + "=" + mode, "GORACE=atexit_sleep_ms=0"}}
 }
 
+// fakeJournal is the fake Pi's session: its entries in append order, shaped as the capture in
+// testdata/entries.jsonl shows Pi's. Setting the model on a new session appends three
+// entries (model_change, thinking_level_change, model_change), and on a resumed one appends
+// one; a session's first run appends a system message before the user message.
+//
+// With --session-dir it persists the entries to <dir>/<session-id>.entries, one "id kind"
+// line each, so a later fake process resumes the session, and deleting the file loses it, as
+// losing Pi's session file would.
+type fakeJournal struct {
+	mu      sync.Mutex
+	id      string
+	path    string
+	entries []string // IDs
+	kinds   []string // each entry's kind, as the fake names it
+	next    int
+}
+
+func newFakeJournal(args []string) *fakeJournal {
+	j := &fakeJournal{id: "fake-session"}
+	dir := ""
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--session-id":
+			j.id = args[i+1]
+		case "--session-dir":
+			dir = args[i+1]
+		}
+	}
+	if dir == "" {
+		return j
+	}
+	j.path = filepath.Join(dir, j.id+".entries")
+	if data, err := os.ReadFile(j.path); err == nil {
+		for line := range strings.Lines(string(data)) {
+			if id, kind, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+				j.entries, j.kinds = append(j.entries, id), append(j.kinds, kind)
+			}
+		}
+	}
+	return j
+}
+
+// setModel appends the entries Pi appends when the model is set.
+func (j *fakeJournal) setModel() {
+	if j.empty() {
+		j.append("model_change")
+		j.append("thinking_level_change")
+	}
+	j.append("model_change")
+}
+
+// startRun appends the entries Pi appends as a run starts.
+func (j *fakeJournal) startRun() {
+	j.mu.Lock()
+	system := !slices.Contains(j.kinds, "system")
+	j.mu.Unlock()
+	if system {
+		j.append("system")
+	}
+	j.append("user")
+}
+
+func (j *fakeJournal) empty() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return len(j.entries) == 0
+}
+
+// append adds one entry of kind. IDs are unique within the session, across processes.
+func (j *fakeJournal) append(kind string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.next++
+	id := fmt.Sprintf("%04d%04d", len(j.entries), j.next)
+	j.entries, j.kinds = append(j.entries, id), append(j.kinds, kind)
+	if j.path == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(j.path), 0o755)
+	f, err := os.OpenFile(j.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		panic(err)
+	}
+	_, _ = f.WriteString(id + " " + kind + "\n")
+	_ = f.Close()
+}
+
+// since renders a get_entries response's data, or false when since names no entry.
+func (j *fakeJournal) since(since string) (string, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	from := 0
+	if since != "" {
+		i := slices.Index(j.entries, since)
+		if i < 0 {
+			return "", false
+		}
+		from = i + 1
+	}
+	var b strings.Builder
+	for i, id := range j.entries[from:] {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"type":"message","id":%q}`, id)
+	}
+	return `{"entries":[` + b.String() + `]}`, true
+}
+
 // fakePi speaks Pi's RPC protocol on stdin and stdout. A normal prompt replays the events of
 // the captured plain.jsonl transcript. The long prompt streams deltas until an abort arrives,
 // then ends the way the captured aborted.jsonl transcript does, including answering the abort
 // only after agent_settled.
 func fakePi(mode string) int {
+	journal := newFakeJournal(os.Args[1:])
 	var mu sync.Mutex
 	out := bufio.NewWriter(os.Stdout)
 	emit := func(line string) {
@@ -60,10 +172,20 @@ func fakePi(mode string) int {
 			return 2
 		}
 		switch c.Type {
-		case "set_model", "clear_queue":
+		case "set_model":
+			journal.setModel()
+			respond(c, "")
+		case "clear_queue":
 			respond(c, "")
 		case "get_state":
-			respond(c, `,"data":{"sessionId":"fake-session"}`)
+			respond(c, fmt.Sprintf(`,"data":{"sessionId":%q}`, journal.id))
+		case "get_entries":
+			data, ok := journal.since(c.Since)
+			if !ok {
+				emit(fmt.Sprintf(`{"id":%q,"type":"response","command":"get_entries","success":false,"error":"Entry not found: %s"}`, c.ID, c.Since))
+				continue
+			}
+			respond(c, `,"data":`+data)
 		case "abort":
 			done := make(chan struct{})
 			abort <- done
@@ -81,9 +203,14 @@ func fakePi(mode string) int {
 			running = true
 			runMu.Unlock()
 			respond(c, "")
-			// The run is over by the time Pi reports agent_settled, so it accepts a prompt sent
-			// in response to it.
+			// Pi appends the user message (and a session's first system message) as the run
+			// starts, and the assistant message as it ends. The run is over by the time Pi reports agent_settled, so it accepts a prompt
+			// sent in response to it.
+			journal.startRun()
 			runEmit := func(line string) {
+				if strings.Contains(line, `"type":"message_end"`) && strings.Contains(line, `"role":"assistant"`) {
+					journal.append("assistant")
+				}
 				if strings.Contains(line, `"type":"agent_settled"`) {
 					runMu.Lock()
 					running = false
