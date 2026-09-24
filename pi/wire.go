@@ -60,9 +60,18 @@ type command struct {
 	Provider string `json:"provider,omitempty"`
 	ModelID  string `json:"modelId,omitempty"`
 	Message  string `json:"message,omitempty"`
+	Since    string `json:"since,omitempty"`
 }
 
 // state is the data of a get_state response, as far as the driver reads it.
 type state struct {
 	SessionID string `json:"sessionId"`
+}
+
+// entries is the data of a get_entries response, as far as the driver reads it: each
+// session entry's stable ID, in append order.
+type entries struct {
+	Entries []struct {
+		ID string `json:"id"`
+	} `json:"entries"`
 }

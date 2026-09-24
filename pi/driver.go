@@ -4,21 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// rpcArgs start Pi in RPC mode with an in-memory session, and without the user's extensions,
-// skills, and context files, which would otherwise change the prompt or send extension UI
-// requests.
-var rpcArgs = []string{"--mode", "rpc", "--no-session", "-ne", "-ns", "-nc"}
+// rpcArgs start Pi in RPC mode without the user's extensions, skills, and context files, which
+// would otherwise change the prompt or send extension UI requests. Pi persists the session.
+var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
-// Driver starts one Pi process per session.
+// Driver starts one Pi process per session. Pi persists each session, so a later process
+// resumes it by ID.
+//
+// Pi scopes a session ID to the working directory: resuming a session from another directory
+// finds nothing, and Pi starts a fresh session under the same ID. The session's exchange
+// records then name entries Pi doesn't hold, and Open fails with harness.ErrJournalMismatch.
 type Driver struct {
 	// Command is the Pi executable. Empty means "pi" on the PATH.
 	Command string
+	// SessionDir is where Pi stores sessions. Empty means Pi's own default.
+	SessionDir string
 	// Env adds variables to Pi's environment, such as LLAMA_BASE_URL.
 	Env []string
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
@@ -28,8 +35,10 @@ type Driver struct {
 
 var _ harness.Driver = Driver{}
 
-// Open starts Pi, selects the model when opts names one, and takes Pi's session ID. ctx bounds
-// the start-up handshake only; the session lives until Close.
+// Open starts Pi on the session opts.SessionID names, creating it if Pi has none, or on a new
+// session when it names none. It selects the model when opts names one, takes Pi's session
+// ID, and binds the session to Pi's entries through the harness.Journal the connection keeps.
+// ctx bounds the start-up handshake only; the session lives until Close.
 //
 // The model is set over RPC rather than with --model, which would read a model ID's
 // ":Q4_K_M" suffix as a thinking level.
@@ -38,8 +47,15 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if name == "" {
 		name = "pi"
 	}
+	args := slices.Clone(rpcArgs)
+	if opts.SessionID != "" {
+		args = append(args, "--session-id", opts.SessionID)
+	}
+	if d.SessionDir != "" {
+		args = append(args, "--session-dir", d.SessionDir)
+	}
 	p, err := stdio.Start(stdio.Spec{
-		Name: name, Args: rpcArgs, Dir: opts.Dir, Env: d.Env, WaitDelay: d.WaitDelay,
+		Name: name, Args: args, Dir: opts.Dir, Env: d.Env, WaitDelay: d.WaitDelay,
 	})
 	if err != nil {
 		return nil, err

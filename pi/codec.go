@@ -2,7 +2,6 @@ package pi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -35,12 +34,20 @@ func (codec) Decode(line []byte) (stdio.Frame, error) {
 	if r.Type == "response" {
 		resp := &stdio.Response{ID: r.ID, Data: r.Data}
 		if !r.Success {
-			resp.Err = errors.New("pi: " + r.Command + ": " + r.Error)
+			resp.Err = &commandError{Command: r.Command, Message: r.Error}
 		}
 		return stdio.Frame{Response: resp}, nil
 	}
 	return stdio.Frame{Events: normalize(r, line)}, nil
 }
+
+// commandError is Pi's answer that a command failed, as distinct from a transport failure.
+type commandError struct {
+	Command string
+	Message string
+}
+
+func (e *commandError) Error() string { return "pi: " + e.Command + ": " + e.Message }
 
 // decode parses one stdout line.
 func decode(line []byte) (record, error) {
