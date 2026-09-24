@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
 func TestNormalize(t *testing.T) {
@@ -69,6 +70,21 @@ func TestNormalize(t *testing.T) {
 			line:  `{"type":"message_end","message":{"role":"user","content":"hi"}}`,
 			kinds: []harness.EventKind{harness.EventHarness},
 		},
+		{
+			name:  "respond result is the structured response",
+			line:  `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[],"details":{"a":1},"terminate":true},"isError":false}`,
+			kinds: []harness.EventKind{harness.EventToolResult, harness.EventStructured}, tool: "respond",
+		},
+		{
+			name:  "a failed respond call is no structured response",
+			line:  `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[]},"isError":true}`,
+			kinds: []harness.EventKind{harness.EventToolResult}, tool: "respond",
+		},
+		{
+			name:  "extension error",
+			line:  `{"type":"extension_error","extensionPath":"/x/bridge.ts","event":"before_agent_start","error":"no answer"}`,
+			kinds: []harness.EventKind{harness.EventError}, err: "pi: extension /x/bridge.ts: before_agent_start: no answer",
+		},
 		{name: "unknown event", line: `{"type":"something_new"}`, kinds: []harness.EventKind{harness.EventHarness}},
 	}
 	for _, tt := range tests {
@@ -91,13 +107,81 @@ func TestNormalize(t *testing.T) {
 			if tt.tool != "" && (first.Tool == nil || first.Tool.Name != tt.tool) {
 				t.Errorf("Tool = %+v, want name %q", first.Tool, tt.tool)
 			}
-			if last.Err != tt.err {
-				t.Errorf("Err = %q, want %q", last.Err, tt.err)
+			if got := errText(last.Err); got != tt.err {
+				t.Errorf("Err = %q, want %q", got, tt.err)
 			}
 			if string(first.Raw) != tt.line {
 				t.Errorf("Raw = %s, want the input line", first.Raw)
 			}
 		})
+	}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func TestUsageCountsTheCache(t *testing.T) {
+	line := `{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"stop","usage":{"input":37,"output":10,"cacheRead":745,"cacheWrite":3}}}`
+	r, _ := decode([]byte(line))
+	u := normalize(r, []byte(line))[0].Usage
+	if u == nil || *u != (harness.Usage{Input: 37, Output: 10, CacheRead: 745, CacheWrite: 3}) {
+		t.Fatalf("Usage = %+v", u)
+	}
+}
+
+func TestStructuredResponse(t *testing.T) {
+	line := `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[],"details":{"a":1}},"isError":false}`
+	r, _ := decode([]byte(line))
+	ev := normalize(r, []byte(line))[1]
+	if string(ev.Structured) != `{"a":1}` {
+		t.Fatalf("Structured = %s", ev.Structured)
+	}
+}
+
+func TestDialogs(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		request bool
+	}{
+		{name: "input", line: `{"type":"extension_ui_request","id":"u1","method":"input","title":"pi-driver:call","placeholder":"{}"}`, request: true},
+		{name: "confirm", line: `{"type":"extension_ui_request","id":"u2","method":"confirm","title":"Sure?","message":"m"}`, request: true},
+		{name: "notify is fire-and-forget", line: `{"type":"extension_ui_request","id":"u3","method":"notify","message":"hi"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := codec{}.Decode([]byte(tt.line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (f.Request != nil) != tt.request {
+				t.Fatalf("Request = %+v, want a request %v", f.Request, tt.request)
+			}
+			if len(f.Events) != 1 || f.Events[0].Kind != harness.EventHarness {
+				t.Fatalf("Events = %+v, want the line as an EventHarness", f.Events)
+			}
+		})
+	}
+
+	req := stdio.Request{ID: "u1"}
+	for _, tt := range []struct {
+		answer any
+		want   string
+	}{
+		{answer: `{"result":"ok"}`, want: `{"type":"extension_ui_response","id":"u1","value":"{\"result\":\"ok\"}"}`},
+		{answer: nil, want: `{"type":"extension_ui_response","id":"u1","cancelled":true}`},
+	} {
+		line, err := codec{}.Reply(req, tt.answer)
+		if err != nil || string(line) != tt.want {
+			t.Errorf("Reply(%v) = %s, %v; want %s", tt.answer, line, err, tt.want)
+		}
+	}
+	if _, err := (codec{}).Reply(req, 42); err == nil {
+		t.Error("Reply accepted an answer that isn't a dialog's")
 	}
 }
 
