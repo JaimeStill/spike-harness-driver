@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -64,6 +66,38 @@ func Skills(fsys fs.FS) ([]harness.Skill, error) {
 	}
 	// ReadDir returns the entries sorted by name, and each skill's name is its entry's, so the
 	// skills are sorted already.
+	return skills, nil
+}
+
+// SkillDir loads the skill whose directory on disk is dir, as Skill does over os.DirFS, and
+// keeps the directory's absolute path in the skill's Dir.
+func SkillDir(dir string) (harness.Skill, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return harness.Skill{}, fmt.Errorf("catalog: %w", err)
+	}
+	s, err := Skill(os.DirFS(abs))
+	if err != nil {
+		return harness.Skill{}, err
+	}
+	s.Dir = abs
+	return s, nil
+}
+
+// SkillsDir loads every skill directly under the directory dir on disk, as Skills does over
+// os.DirFS, and keeps each skill directory's absolute path in its Dir.
+func SkillsDir(dir string) ([]harness.Skill, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	skills, err := Skills(os.DirFS(abs))
+	if err != nil {
+		return nil, err
+	}
+	for i := range skills {
+		skills[i].Dir = filepath.Join(abs, skills[i].Name)
+	}
 	return skills, nil
 }
 

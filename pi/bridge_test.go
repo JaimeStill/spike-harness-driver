@@ -19,8 +19,16 @@ import (
 // openWith opens a fake Pi session with opts, recording its launch in the returned file.
 func openWith(t *testing.T, opts harness.Options) (*harness.Session, string) {
 	t.Helper()
+	return openCached(t, opts, "")
+}
+
+// openCached opens a fake Pi session with opts and the driver cache in cache, recording its
+// launch in the returned file.
+func openCached(t *testing.T, opts harness.Options, cache string) (*harness.Session, string) {
+	t.Helper()
 	file := filepath.Join(t.TempDir(), "launch.json")
 	d := fakeDriver("ok")
+	d.CacheDir = cache
 	d.Env = append(d.Env, launchEnv+"="+file)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -149,13 +157,13 @@ func TestTheLaunchLoadsTheBridgeToolsAndSkills(t *testing.T) {
 	if err := json.Unmarshal(l.Tools, &specs); err != nil || len(specs) != 1 || specs[0].Name != "lookup" {
 		t.Errorf("tool spec = %s", l.Tools)
 	}
-	files := l.Skills["greet"]
+	files := l.Skills[arg(l.Args, "--skill")]
 	slices.Sort(files)
 	if !slices.Equal(files, []string{"SKILL.md", filepath.Join("refs", "phrases.md")}) {
 		t.Errorf("skill files = %v", files)
 	}
 
-	ext := l.Args[slices.Index(l.Args, "-e")+1]
+	ext := arg(l.Args, "-e")
 	closeSession(t, s)
 	if _, err := os.Stat(filepath.Dir(ext)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the bridge's files outlived Close: %v", err)
@@ -202,7 +210,7 @@ func TestCancelEndsAToolCall(t *testing.T) {
 			<-ctx.Done()
 			return "", ctx.Err()
 		},
-	}}})
+	}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,6 +232,81 @@ func TestCancelEndsAToolCall(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the tool call didn't end")
+	}
+}
+
+// readLaunch reads what the fake recorded of its launch.
+func readLaunch(t *testing.T, file string) launch {
+	t.Helper()
+	var l launch
+	data, err := os.ReadFile(file)
+	if err == nil {
+		err = json.Unmarshal(data, &l)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+// arg returns the value that follows flag in args, or "" without one.
+func arg(args []string, flag string) string {
+	if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
+		return args[i+1]
+	}
+	return ""
+}
+
+func greetSkill(text string) harness.Skill {
+	return harness.Skill{Name: "greet", FS: fstest.MapFS{
+		"SKILL.md": {Data: []byte("---\nname: greet\ndescription: Greets.\n---\n" + text + "\n")},
+	}}
+}
+
+// With a cache, the extension and a skill that isn't on disk get paths their content decides:
+// the same across sessions, kept after Close, and new when the content changes.
+func TestTheCacheGivesStablePaths(t *testing.T) {
+	cache := t.TempDir()
+	launchOf := func(skill harness.Skill) launch {
+		s, file := openCached(t, harness.Options{Skills: []harness.Skill{skill}}, cache)
+		closeSession(t, s)
+		return readLaunch(t, file)
+	}
+	first, second := launchOf(greetSkill("Say hi.")), launchOf(greetSkill("Say hi."))
+	for _, flag := range []string{"-e", "--skill"} {
+		a, b := arg(first.Args, flag), arg(second.Args, flag)
+		if a != b || !strings.HasPrefix(a, cache) {
+			t.Errorf("%s: %s then %s, want one path under the cache", flag, a, b)
+		}
+		if _, err := os.Stat(a); err != nil {
+			t.Errorf("%s: %s didn't outlive Close: %v", flag, a, err)
+		}
+	}
+	if !strings.HasPrefix(filepath.Base(arg(first.Args, "--skill")), "greet-") {
+		t.Errorf("skill directory %s isn't named for the skill", arg(first.Args, "--skill"))
+	}
+	changed := launchOf(greetSkill("Say hello."))
+	if arg(changed.Args, "--skill") == arg(first.Args, "--skill") {
+		t.Error("changed skill content kept the same path")
+	}
+}
+
+// A skill already on disk is loaded where it lives, not copied.
+func TestASkillOnDiskIsLoadedInPlace(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "greet")
+	if err := os.CopyFS(dir, greetSkill("Say hi.").FS); err != nil {
+		t.Fatal(err)
+	}
+	cache := t.TempDir()
+	skill := greetSkill("Say hi.")
+	skill.FS, skill.Dir = os.DirFS(dir), dir
+	s, file := openCached(t, harness.Options{Skills: []harness.Skill{skill}}, cache)
+	closeSession(t, s)
+	if got := arg(readLaunch(t, file).Args, "--skill"); got != dir {
+		t.Fatalf("--skill %s, want the skill's own directory %s", got, dir)
+	}
+	if _, err := os.Stat(filepath.Join(cache, "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the skill was copied into the cache: %v", err)
 	}
 }
 

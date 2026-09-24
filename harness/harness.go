@@ -95,6 +95,10 @@ type Skill struct {
 	// Name is the skill's name, as its SKILL.md frontmatter gives it.
 	Name string
 	FS   fs.FS
+	// Dir, when set, is the directory on disk FS reads. An adapter whose harness reads skills
+	// from disk passes it as it is, so the model sees the skill where it lives; without it,
+	// the adapter writes FS out somewhere of its own.
+	Dir string
 }
 
 // Request is the payload of one exchange.

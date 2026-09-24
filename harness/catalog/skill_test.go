@@ -2,6 +2,8 @@ package catalog_test
 
 import (
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -96,5 +98,37 @@ func TestSkillsInvalid(t *testing.T) {
 				t.Fatalf("err = %v, want it to contain %q", err, c.want)
 			}
 		})
+	}
+}
+
+// SkillsDir and SkillDir keep each skill's absolute directory, which an adapter hands the
+// harness as it is; a skill loaded from an fs.FS has none.
+func TestSkillsDirKeepsTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"review", "deploy"} {
+		fsys := fstest.MapFS{"SKILL.md": skillMD("name: " + name + "\ndescription: Does it.\n")}
+		if err := os.CopyFS(filepath.Join(root, name), fsys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skills, err := catalog.SkillsDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range skills {
+		if want := filepath.Join(root, s.Name); s.Dir != want {
+			t.Errorf("%s: Dir = %q, want %q", s.Name, s.Dir, want)
+		}
+	}
+
+	t.Chdir(root)
+	s, err := catalog.SkillDir("review")
+	if err != nil || s.Dir != filepath.Join(root, "review") || !filepath.IsAbs(s.Dir) {
+		t.Fatalf("SkillDir = %+v, %v; want the absolute directory", s, err)
+	}
+
+	fromFS, err := catalog.Skills(os.DirFS(root))
+	if err != nil || fromFS[0].Dir != "" {
+		t.Fatalf("Skills over an FS = %+v, %v; want no Dir", fromFS, err)
 	}
 }

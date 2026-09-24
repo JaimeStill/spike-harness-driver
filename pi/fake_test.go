@@ -39,7 +39,7 @@ type launch struct {
 	Args      []string            `json:"args"`
 	Extension bool                `json:"extension"` // the -e file exists
 	Tools     json.RawMessage     `json:"tools"`
-	Skills    map[string][]string `json:"skills"` // each --skill directory's files
+	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
 }
 
 func recordLaunch(args []string) {
@@ -58,7 +58,7 @@ func recordLaunch(args []string) {
 			_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 				if err == nil && !d.IsDir() {
 					rel, _ := filepath.Rel(dir, p)
-					l.Skills[filepath.Base(dir)] = append(l.Skills[filepath.Base(dir)], rel)
+					l.Skills[dir] = append(l.Skills[dir], rel)
 				}
 				return nil
 			})

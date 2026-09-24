@@ -6,6 +6,8 @@
 // Agent Skills layout Pi reads. Skill loads one such directory and Skills loads every one
 // directly under a root. Both take an fs.FS, so a skill tree may be an os.DirFS or an fs.Sub of
 // an embed.FS, and the harness.Skill keeps that FS for the adapter to hand to the harness.
+// SkillDir and SkillsDir load from a directory on disk and also keep its path, so an adapter
+// whose harness reads skills from disk can point it at the skill where it lives.
 //
 // A command tool is a directory holding a tool.json manifest and the executable it names. The
 // manifest's inputSchema field takes MCP's name for the argument schema, so a manifest can map

@@ -55,7 +55,8 @@ func loadSkills(dirs []string) ([]harness.Skill, error) {
 	var all []harness.Skill
 	where := map[string]string{}
 	for _, dir := range dirs {
-		skills, err := catalog.Skills(os.DirFS(dir))
+		// Loaded with their directories, so the harness reads each skill where it lives.
+		skills, err := catalog.SkillsDir(dir)
 		if err != nil {
 			return nil, fmt.Errorf("--skills %s: %w", dir, err)
 		}
@@ -100,7 +101,11 @@ func loadTools(dirs []string) ([]harness.Tool, error) {
 func (i *Infrastructure) Driver() (harness.Driver, error) {
 	switch i.cfg.Harness {
 	case "pi":
-		return pi.Driver{SessionDir: filepath.Join(i.cfg.State, "pi")}, nil
+		return pi.Driver{
+			SessionDir: filepath.Join(i.cfg.State, "pi"),
+			// Beside Pi's sessions, so the files a session's history names last as long.
+			CacheDir: filepath.Join(i.cfg.State, "cache"),
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown harness %q (known: pi)", i.cfg.Harness)
 	}

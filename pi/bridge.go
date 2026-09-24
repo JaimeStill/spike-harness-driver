@@ -2,10 +2,13 @@ package pi
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -56,20 +59,22 @@ type answer struct {
 var emptySchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
 // bridge is what one session's Pi loads beyond itself: the bridge extension, the spec of the
-// session's tools, and its skills, all in a directory of the session's own that Close
-// removes.
+// session's tools, and its skills. The tool spec is the session's own, in a temporary
+// directory that Close removes. The extension and the skills are written once into the
+// driver's cache, when it has one, under names their content decides, so every session loads
+// them from the same paths, and a resumed session's history still names files that exist.
 type bridge struct {
-	dir    string
 	tools  map[string]harness.Tool
 	args   []string
 	env    []string
 	remove func() error
 }
 
-// newBridge writes the bridge, the tool spec, and the skills under a new temporary directory,
-// and returns the arguments and environment that load them into Pi. Tool names must be
-// unique and must not be respond, which the bridge keeps for structured responses.
-func newBridge(opts harness.Options) (*bridge, error) {
+// newBridge writes the bridge's files and returns the arguments and environment that load them
+// into Pi. cache is the driver's cache directory; empty keeps everything in the session's
+// temporary directory. Tool names must be unique and must not be respond, which the bridge
+// keeps for structured responses.
+func newBridge(opts harness.Options, cache string) (*bridge, error) {
 	tools := map[string]harness.Tool{}
 	specs := []toolSpec{}
 	for _, t := range opts.Tools {
@@ -94,39 +99,48 @@ func newBridge(opts harness.Options) (*bridge, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pi: bridge: %w", err)
 	}
-	b := &bridge{dir: dir, tools: tools, remove: func() error { return os.RemoveAll(dir) }}
-	if err := b.write(opts, specs); err != nil {
+	if cache == "" {
+		cache = dir
+	}
+	b := &bridge{tools: tools, remove: func() error { return os.RemoveAll(dir) }}
+	if err := b.write(opts, specs, dir, cache); err != nil {
 		_ = b.remove()
 		return nil, fmt.Errorf("pi: bridge: %w", err)
 	}
 	return b, nil
 }
 
-// write writes the bridge's files and builds the arguments that load them.
-func (b *bridge) write(opts harness.Options, specs []toolSpec) error {
-	ext := filepath.Join(b.dir, "bridge.ts")
-	if err := os.WriteFile(ext, bridgeSource, 0o600); err != nil {
+// write writes the tool spec to dir and the extension and skills to cache, and builds the
+// arguments that load them.
+func (b *bridge) write(opts harness.Options, specs []toolSpec, dir, cache string) error {
+	ext, err := cached(cache, "bridge", digest(bridgeSource), func(d string) error {
+		return os.WriteFile(filepath.Join(d, "bridge.ts"), bridgeSource, 0o600)
+	})
+	if err != nil {
 		return err
 	}
 	spec, err := json.Marshal(specs)
 	if err != nil {
 		return err
 	}
-	specFile := filepath.Join(b.dir, "tools.json")
+	specFile := filepath.Join(dir, "tools.json")
 	if err := os.WriteFile(specFile, spec, 0o600); err != nil {
 		return err
 	}
-	b.args = []string{"-e", ext}
+	b.args = []string{"-e", filepath.Join(ext, "bridge.ts")}
 	b.env = []string{toolsEnv + "=" + specFile}
 
-	// Pi reads skills from disk, so each one's FS is written out under its name.
+	// Pi reads skills from disk. A skill already there is loaded where it lives; any other is
+	// written into the cache under its name.
 	for _, s := range opts.Skills {
 		if s.Name == "" || strings.ContainsAny(s.Name, `/\`) || s.Name == "." || s.Name == ".." {
 			return fmt.Errorf("skill %q: not a directory name", s.Name)
 		}
-		skillDir := filepath.Join(b.dir, "skills", s.Name)
-		if err := os.CopyFS(skillDir, s.FS); err != nil {
-			return fmt.Errorf("skill %s: %w", s.Name, err)
+		skillDir := s.Dir
+		if skillDir == "" {
+			if skillDir, err = cachedFS(filepath.Join(cache, "skills"), s.Name, s.FS); err != nil {
+				return fmt.Errorf("skill %s: %w", s.Name, err)
+			}
 		}
 		b.args = append(b.args, "--skill", skillDir)
 	}
@@ -142,6 +156,70 @@ func (b *bridge) write(opts harness.Options, specs []toolSpec) error {
 		b.args = append(b.args, "-t", strings.Join(allow, ","))
 	}
 	return nil
+}
+
+// cachedFS returns the directory under root that holds fsys's files, named by name and a
+// digest of every file's path and content.
+func cachedFS(root, name string, fsys fs.FS) (string, error) {
+	h := sha256.New()
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		// Length-prefixed, so no two trees hash alike by moving bytes between files.
+		_, _ = fmt.Fprintf(h, "%s\x00%d\x00", p, len(data))
+		_, _ = h.Write(data)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return cached(root, name, hex.EncodeToString(h.Sum(nil))[:12], func(d string) error {
+		return os.CopyFS(d, fsys)
+	})
+}
+
+// digest is the first 12 hex digits of data's SHA-256.
+func digest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:6])
+}
+
+// cached returns the directory root/name-digest, which write fills the first time. It writes
+// to a temporary name it then renames, so a concurrent writer of the same content never sees
+// the directory half written. The same content always gets the same directory, and changed
+// content a new one, so no session's files change under it.
+func cached(root, name, digest string, write func(dir string) error) (string, error) {
+	dir := filepath.Join(root, name+"-"+digest)
+	if _, err := os.Stat(dir); err == nil {
+		return dir, nil
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp(root, ".write-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	staged := filepath.Join(tmp, "d")
+	if err := os.Mkdir(staged, 0o755); err != nil {
+		return "", err
+	}
+	if err := write(staged); err != nil {
+		return "", err
+	}
+	// Losing the race to another writer of the same content leaves the directory it wrote.
+	if err := os.Rename(staged, dir); err != nil {
+		if _, statErr := os.Stat(dir); statErr != nil {
+			return "", err
+		}
+	}
+	return dir, nil
 }
 
 // answerCall runs the tool body names and renders the answer. A tool error, an unknown tool, or
