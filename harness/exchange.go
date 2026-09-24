@@ -2,7 +2,6 @@ package harness
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 	"uuid"
@@ -18,11 +17,12 @@ type Exchange struct {
 	request   Request
 	started   time.Time
 
-	mu     sync.Mutex
-	seq    int
-	final  bool
-	result Result
-	err    error
+	mu        sync.Mutex
+	seq       int
+	final     bool
+	cancelled bool
+	result    Result
+	err       error
 	// unwatch stops cancelling the exchange with the context it was sent with.
 	unwatch func() bool
 
@@ -113,9 +113,13 @@ func (x *Exchange) push(ev Event) {
 		if ev.Usage != nil {
 			x.result.Usage = *ev.Usage
 		}
+	case EventStructured:
+		x.result.Structured = ev.Structured
+	case EventCancelled:
+		x.cancelled = true
 	case EventError:
 		if x.err == nil {
-			x.err = errors.New(ev.Err)
+			x.err = ev.Err
 		}
 	case EventEnded:
 		ev.StopReason = x.result.StopReason
@@ -132,16 +136,23 @@ func (x *Exchange) push(ev Event) {
 	}
 }
 
-// fail ends the exchange with an error.
-//
-// Wait returns err itself, not an error rebuilt from the event's text, so callers can match it
-// with errors.Is.
-func (x *Exchange) fail(err error) {
+// markCancelled records that the session cancelled the exchange's run.
+func (x *Exchange) markCancelled() {
 	x.mu.Lock()
-	if x.err == nil && !x.final {
-		x.err = err
-	}
+	x.cancelled = true
 	x.mu.Unlock()
-	x.push(Event{Kind: EventError, Err: err.Error()})
+}
+
+// unanswered reports whether the exchange's request carried a schema and its run ended, other
+// than by cancellation or in an error, without a structured response.
+func (x *Exchange) unanswered() bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return len(x.request.Schema) > 0 && len(x.result.Structured) == 0 && !x.cancelled && x.err == nil
+}
+
+// fail ends the exchange with an error.
+func (x *Exchange) fail(err error) {
+	x.push(Event{Kind: EventError, Err: err})
 	x.push(Event{Kind: EventEnded})
 }

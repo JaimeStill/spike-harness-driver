@@ -21,8 +21,28 @@ Planned for step 6, where a service runs workflows over many sessions in a conta
     the next `Send`.
   - Pi's `Head` reads every entry of the session on each open, so a long-running session needs
     bounded journal reads.
-  - `clutch`'s `--state` defaults to a temporary directory, which a service replaces with its
-    own storage.
+  - `clutch`'s `--state` defaults to the user's cache directory, which a service replaces
+    with storage of its own. It must be private to the service, because the harness runs code
+    from the cache in it.
 - **Unread exchanges.** An exchange whose events no one reads keeps them, and a goroutine, until
   its session closes. A long-running coordinator may need a way to drop an exchange it only
   Waits on.
+- **Tool and skill sources.**
+  - A database as a registry: it chooses tools and skills per tenant or per workflow, and
+    versions them. A skill source is an `fs.FS` over its rows, which `harness/catalog` reads
+    unchanged. A stored tool definition names code that lives elsewhere, an executable on disk
+    or an MCP server (`adapters.md`).
+  - Layered skill search paths with precedence, such as user, workspace, and project, where a
+    nearer skill of the same name overrides a farther one, as Pi's own discovery does. `--skills`
+    is repeatable today but treats a shared name as an error.
+  - Command tools inherit the service's whole environment, provider keys included, and need an
+    allowlist.
+  - `HarnessTools: nil` keeps the harness's default tools, which for Pi follow the user's
+    `defaultTools` setting, so a service should always name its allowlist.
+  - A crash while the cache writes can leave a `.write-*` directory behind, which needs a sweep.
+- **Model and provider failures.**
+  - A model the router loads on demand can take minutes to its first token. `Send` has no
+    deadline of its own, which suits long agent work, so a service needs progress or a heartbeat
+    to tell a loading model from a hung one.
+  - A provider error, such as llama.cpp rejecting a malformed tool call, ends the exchange with
+    `stopReason: "error"`, and Pi doesn't retry it. A service decides which of these to retry.

@@ -2,6 +2,7 @@ package harness_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -21,7 +22,9 @@ type fakeConnection struct {
 	// harness that never answers.
 	cancelGate chan struct{}
 	cancels    chan struct{}
-	closeOnce  sync.Once
+	// exitErr is what Err reports: why the harness exited.
+	exitErr   error
+	closeOnce sync.Once
 }
 
 func newFakeConnection() *fakeConnection {
@@ -65,6 +68,7 @@ func never[T any](t *testing.T, ch <-chan T, what string) {
 }
 
 func (c *fakeConnection) Events() <-chan harness.Event { return c.events }
+func (c *fakeConnection) Err() error                   { return c.exitErr }
 
 func (c *fakeConnection) Close() error {
 	c.closeOnce.Do(func() { close(c.events) })
@@ -243,8 +247,9 @@ func TestConnExitEndsTheExchange(t *testing.T) {
 
 	x := send(t, s, t.Context())
 	events := collect(t, x)
+	boom := errors.New("harness exited: boom")
 	c.emit(harness.EventStarted)
-	c.events <- harness.Event{Kind: harness.EventError, Err: "harness exited: boom"}
+	c.exitErr = boom
 	_ = c.Close()
 
 	all := <-events
@@ -258,11 +263,100 @@ func TestConnExitEndsTheExchange(t *testing.T) {
 	if errs != 1 {
 		t.Errorf("got %d error events, want 1", errs)
 	}
-	if _, err := x.Wait(); err == nil || err.Error() != "harness exited: boom" {
+	if _, err := x.Wait(); !errors.Is(err, boom) {
 		t.Fatalf("Wait error = %v, want the exit error", err)
 	}
-	if _, err := s.Send(t.Context(), harness.Request{}); err == nil || err.Error() != "harness exited: boom" {
+	if _, err := s.Send(t.Context(), harness.Request{}); !errors.Is(err, boom) {
 		t.Fatalf("Send after exit = %v, want the exit error", err)
+	}
+}
+
+// A run that ends in an error is the run's error; the harness's exit later is the
+// Connection's to report, not the last error event's.
+func TestARunsErrorIsNotTheExitError(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	failed := errors.New("model unreachable")
+	x := send(t, s, t.Context())
+	events := collect(t, x)
+	c.emit(harness.EventStarted)
+	c.events <- harness.Event{Kind: harness.EventError, Err: failed}
+	c.emit(harness.EventEnded)
+	<-events
+	if _, err := x.Wait(); !errors.Is(err, failed) {
+		t.Fatalf("Wait error = %v, want the run's error", err)
+	}
+
+	// The harness exits during the next exchange, which ends in the exit error alone.
+	exited := errors.New("harness exited")
+	x = send(t, s, t.Context())
+	c.exitErr = exited
+	_ = c.Close()
+	drain(t, x)
+	if _, err := x.Wait(); !errors.Is(err, exited) || errors.Is(err, failed) {
+		t.Fatalf("Wait error = %v, want the exit error", err)
+	}
+	if _, err := s.Send(t.Context(), harness.Request{}); !errors.Is(err, exited) {
+		t.Fatalf("Send after exit = %v, want the exit error", err)
+	}
+}
+
+// structured runs one exchange with schema, emitting the structured response when there is
+// one, and ending the run with stop. It returns the exchange and its events.
+func structured(t *testing.T, c *fakeConnection, s *harness.Session, schema, response, stop string) (*harness.Exchange, []harness.Event) {
+	t.Helper()
+	x, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(schema)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collect(t, x)
+	c.emit(harness.EventStarted)
+	if response != "" {
+		c.events <- harness.Event{Kind: harness.EventStructured, Structured: json.RawMessage(response)}
+	}
+	c.finish(stop, "")
+	return x, <-events
+}
+
+func TestAStructuredResponseFoldsIntoTheResult(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	x, _ := structured(t, c, s, `{"type":"object"}`, `{"answer":42}`, "stop")
+	res, err := x.Wait()
+	if err != nil || string(res.Structured) != `{"answer":42}` {
+		t.Fatalf("Wait = %s, %v", res.Structured, err)
+	}
+}
+
+func TestAnUnansweredSchemaIsTheExchangesError(t *testing.T) {
+	c := newFakeConnection()
+	store := newMemStore()
+	s := newSession(t, c, store)
+	defer func() { _ = s.Close() }()
+
+	x, all := structured(t, c, s, `{"type":"object"}`, "", "stop")
+	if _, err := x.Wait(); !errors.Is(err, harness.ErrNoStructuredResponse) {
+		t.Fatalf("Wait error = %v, want ErrNoStructuredResponse", err)
+	}
+	checkScoped(t, s, x, all)
+	recs, _ := s.Exchanges(t.Context())
+	if len(recs) != 1 || recs[0].Err != harness.ErrNoStructuredResponse.Error() {
+		t.Fatalf("records = %+v", recs)
+	}
+
+	// A cancelled exchange owes no structured response, and neither does one without a schema.
+	for _, tc := range []struct{ name, schema, stop string }{
+		{"cancelled", `{"type":"object"}`, "aborted"},
+		{"no schema", "", "stop"},
+	} {
+		x, _ := structured(t, c, s, tc.schema, "", tc.stop)
+		if _, err := x.Wait(); err != nil {
+			t.Fatalf("%s: Wait error = %v", tc.name, err)
+		}
 	}
 }
 
@@ -380,5 +474,58 @@ func TestSendWaitsForACancellationInFlight(t *testing.T) {
 	close(c.cancelGate)
 	if err := <-sent; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A cancelled exchange owes no structured response even when the harness ends the run without
+// reporting the cancellation, as when the cancel lands during a tool call.
+func TestACancelWithoutACancelledEventOwesNoResponse(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	x, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(`{"type":"object"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collect(t, x)
+	c.emit(harness.EventStarted)
+	x.Cancel()
+	<-c.cancels
+	c.finish("toolUse", "")
+	<-events
+	if _, err := x.Wait(); err != nil {
+		t.Fatalf("Wait error = %v, want none for a cancelled exchange", err)
+	}
+}
+
+func TestSendRefusesAnInvalidSchema(t *testing.T) {
+	s := newSession(t, newFakeConnection(), nil)
+	defer func() { _ = s.Close() }()
+	for _, schema := range []string{`{`, `[]`, `{}`, `{"type":"array"}`} {
+		if _, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(schema)}); !errors.Is(err, harness.ErrInvalidSchema) {
+			t.Errorf("schema %s: Send = %v, want ErrInvalidSchema", schema, err)
+		}
+	}
+	// A refused request opens no exchange.
+	send(t, s, t.Context())
+}
+
+func TestToolValidate(t *testing.T) {
+	handler := func(context.Context, json.RawMessage) (string, error) { return "", nil }
+	for _, tc := range []struct {
+		tool harness.Tool
+		ok   bool
+	}{
+		{harness.Tool{Name: "lookup_code", Handler: handler}, true},
+		{harness.Tool{Name: "a-b", Handler: handler, Schema: json.RawMessage(`{"type":"object"}`)}, true},
+		{harness.Tool{Name: "", Handler: handler}, false},
+		{harness.Tool{Name: "a,b", Handler: handler}, false},
+		{harness.Tool{Name: "ok"}, false},
+		{harness.Tool{Name: "ok", Handler: handler, Schema: json.RawMessage(`{"type":"string"}`)}, false},
+	} {
+		if err := tc.tool.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%+v: Validate = %v, want ok %v", tc.tool.Name, err, tc.ok)
+		}
 	}
 }

@@ -1,0 +1,6 @@
+{
+  "name": "echo",
+  "description": "Returns its arguments.",
+  "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}},
+  "command": ["./run.sh"]
+}

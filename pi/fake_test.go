@@ -20,6 +20,84 @@ const fakeEnv = "PI_FAKE"
 // longPrompt makes the fake stream text deltas until it is aborted.
 const longPrompt = "long"
 
+// The prompts that play the bridge's part. A toolPrompt calls the tool named after its colon
+// with {"q":"<rest>"} and ends the run with the tool's result as the text; structuredPrompt
+// calls respond, when the exchange has a schema; dialogPrompt raises a confirm dialog the
+// driver must dismiss before the run goes on.
+const (
+	toolPrompt       = "tool:"
+	structuredPrompt = "structured"
+	dialogPrompt     = "dialog"
+)
+
+// launchEnv names the file where the fake records how it was launched: its arguments, the
+// tool spec the bridge would read, and the files of each skill it was given.
+const launchEnv = "PI_FAKE_LAUNCH"
+
+// launch is what the fake records of its launch.
+type launch struct {
+	Args      []string            `json:"args"`
+	Extension bool                `json:"extension"` // the -e file exists
+	Tools     json.RawMessage     `json:"tools"`
+	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
+}
+
+func recordLaunch(args []string) {
+	file := os.Getenv(launchEnv)
+	if file == "" {
+		return
+	}
+	l := launch{Args: args, Skills: map[string][]string{}}
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "-e":
+			_, err := os.Stat(args[i+1])
+			l.Extension = err == nil
+		case "--skill":
+			dir := args[i+1]
+			_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+				if err == nil && !d.IsDir() {
+					rel, _ := filepath.Rel(dir, p)
+					l.Skills[dir] = append(l.Skills[dir], rel)
+				}
+				return nil
+			})
+		}
+	}
+	l.Tools, _ = os.ReadFile(os.Getenv(toolsEnv))
+	b, _ := json.Marshal(l)
+	_ = os.WriteFile(file, b, 0o600)
+}
+
+// dialogs routes the driver's answers to the fake's dialogs, by the dialog's id.
+type fakeDialogs struct {
+	mu      sync.Mutex
+	next    int
+	waiting map[string]chan dialogAnswer
+}
+
+// ask emits a dialog and waits for the driver's answer.
+func (d *fakeDialogs) ask(emit func(string), method, title, placeholder string) dialogAnswer {
+	d.mu.Lock()
+	d.next++
+	id := fmt.Sprintf("ui-%d", d.next)
+	ch := make(chan dialogAnswer, 1)
+	d.waiting[id] = ch
+	d.mu.Unlock()
+	emit(fmt.Sprintf(`{"type":"extension_ui_request","id":%q,"method":%q,"title":%q,"placeholder":%q}`, id, method, title, placeholder))
+	return <-ch
+}
+
+func (d *fakeDialogs) answer(a dialogAnswer) {
+	d.mu.Lock()
+	ch := d.waiting[a.ID]
+	delete(d.waiting, a.ID)
+	d.mu.Unlock()
+	if ch != nil {
+		ch <- a
+	}
+}
+
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(fakeEnv); mode != "" {
 		os.Exit(fakePi(mode))
@@ -147,7 +225,9 @@ func (j *fakeJournal) since(since string) (string, bool) {
 // then ends the way the captured aborted.jsonl transcript does, including answering the abort
 // only after agent_settled.
 func fakePi(mode string) int {
+	recordLaunch(os.Args[1:])
 	journal := newFakeJournal(os.Args[1:])
+	dialogs := &fakeDialogs{waiting: map[string]chan dialogAnswer{}}
 	var mu sync.Mutex
 	out := bufio.NewWriter(os.Stdout)
 	emit := func(line string) {
@@ -172,6 +252,12 @@ func fakePi(mode string) int {
 			return 2
 		}
 		switch c.Type {
+		case "extension_ui_response":
+			var a dialogAnswer
+			if err := json.Unmarshal(in.Bytes(), &a); err != nil {
+				return 2
+			}
+			dialogs.answer(a)
 		case "set_model":
 			journal.setModel()
 			respond(c, "")
@@ -219,7 +305,22 @@ func fakePi(mode string) int {
 				emit(line)
 			}
 			go func() {
+				// The bridge asks for the exchange's schema as the prompt arrives.
+				var ex answer
+				a := dialogs.ask(emit, "input", exchangeTitle, "{}")
+				if a.Value == nil || json.Unmarshal([]byte(*a.Value), &ex) != nil {
+					emit(`{"type":"extension_error","extensionPath":"bridge.ts","event":"before_agent_start","error":"no answer"}`)
+				}
 				switch {
+				case strings.HasPrefix(c.Message, toolPrompt):
+					callTool(runEmit, dialogs, strings.TrimPrefix(c.Message, toolPrompt))
+				case c.Message == structuredPrompt && ex.Schema != nil:
+					respondStructured(runEmit)
+				case c.Message == dialogPrompt:
+					if a := dialogs.ask(emit, "confirm", "Proceed?", ""); !a.Cancelled {
+						emit(`{"type":"extension_error","extensionPath":"other.ts","event":"tool_call","error":"the confirm dialog was answered, not dismissed"}`)
+					}
+					replay(runEmit, "testdata/plain.jsonl")
 				case mode == "crash":
 					runEmit(`{"type":"agent_start"}`)
 					fmt.Fprintln(os.Stderr, "boom: model backend unreachable")
@@ -233,6 +334,46 @@ func fakePi(mode string) int {
 		}
 	}
 	return 0
+}
+
+// callTool runs one bridge tool call: name is the tool and q its argument. The run's text is
+// the tool's result, or its error.
+func callTool(emit func(string), dialogs *fakeDialogs, spec string) {
+	name, q, _ := strings.Cut(spec, " ")
+	args, _ := json.Marshal(map[string]string{"q": q})
+	body, _ := json.Marshal(call{Tool: name, CallID: "call-1", Args: args})
+	emit(`{"type":"agent_start"}`)
+	emit(fmt.Sprintf(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":%q,"args":%s}`, name, args))
+	a := dialogs.ask(emit, "input", callTitle, string(body))
+	var ans answer
+	text, isError := "", false
+	switch {
+	case a.Value == nil || json.Unmarshal([]byte(*a.Value), &ans) != nil:
+		text, isError = "no answer", true
+	case ans.Error != nil:
+		text, isError = *ans.Error, true
+	case ans.Result != nil:
+		text = *ans.Result
+	}
+	result, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": text}}})
+	emit(fmt.Sprintf(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":%q,"result":%s,"isError":%t}`, name, result, isError))
+	msg, _ := json.Marshal(map[string]any{
+		"role": "assistant", "content": []map[string]string{{"type": "text", "text": text}},
+		"stopReason": "stop", "usage": map[string]int{"input": 5, "output": 2, "cacheRead": 700},
+	})
+	emit(`{"type":"message_end","message":` + string(msg) + `}`)
+	emit(`{"type":"agent_end","messages":[],"willRetry":false}`)
+	emit(`{"type":"agent_settled"}`)
+}
+
+// respondStructured ends a run on the respond tool, as the bridge's terminating tool does.
+func respondStructured(emit func(string)) {
+	emit(`{"type":"agent_start"}`)
+	emit(`{"type":"tool_execution_start","toolCallId":"call-r","toolName":"respond","args":{"answer":42}}`)
+	emit(`{"type":"tool_execution_end","toolCallId":"call-r","toolName":"respond","result":{"content":[{"type":"text","text":"Recorded."}],"details":{"answer":42},"terminate":true},"isError":false}`)
+	emit(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-r","name":"respond","arguments":{"answer":42}}],"stopReason":"toolUse"}}`)
+	emit(`{"type":"agent_end","messages":[],"willRetry":false}`)
+	emit(`{"type":"agent_settled"}`)
 }
 
 func replay(emit func(string), file string) {

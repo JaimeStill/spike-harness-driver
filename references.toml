@@ -17,7 +17,7 @@ remote = "https://github.com/tailored-agentic-units/format.git"
 [repos.tau-provider]
 remote = "https://github.com/tailored-agentic-units/provider.git"
 
-# The Chat, Vision, and Embed client: the baseline for native capabilities.
+# The Chat, Vision, and Embed client: prior art for native capabilities, not a baseline.
 [repos.tau-agent]
 remote = "https://github.com/tailored-agentic-units/agent.git"
 

@@ -1,0 +1,6 @@
+{
+  "name": "slow",
+  "description": "Never finishes.",
+  "inputSchema": {"type": "object"},
+  "command": ["./run.sh"]
+}

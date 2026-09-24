@@ -23,6 +23,9 @@ const (
 	EventMessageEnd EventKind = "message_end"
 	// EventCancelled reports that the exchange was cancelled.
 	EventCancelled EventKind = "cancelled"
+	// EventStructured carries the exchange's structured response in Structured: the value
+	// the harness validated against the request's schema.
+	EventStructured EventKind = "structured"
 	// EventError carries a harness or process error in Err.
 	EventError EventKind = "error"
 	// EventEnded is the last event of every exchange.
@@ -46,7 +49,11 @@ type Event struct {
 	StopReason string
 	// Usage is set on EventMessageEnd when the harness reports it.
 	Usage *Usage
-	Err   string
+	// Structured is set on EventStructured.
+	Structured json.RawMessage
+	// Err is set on EventError. It is the error itself, so callers can match it with
+	// errors.Is, and an Event therefore doesn't serialize directly.
+	Err error
 	// Raw is the harness's own record the event came from, when there is one.
 	Raw json.RawMessage
 }

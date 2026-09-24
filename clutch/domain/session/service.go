@@ -1,0 +1,155 @@
+package session
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"slices"
+	"time"
+	"uuid"
+
+	"github.com/JaimeStill/spike-harness-driver/harness"
+)
+
+// openTimeout bounds a harness's start-up handshake.
+const openTimeout = 30 * time.Second
+
+// Service runs exchanges on one harness.
+type Service struct {
+	driver  func() (harness.Driver, error)
+	options func() harness.Options
+}
+
+// New returns a Service over the driver and session options the two functions resolve. Both
+// are called at each Open, so they can follow flags parsed after the Service is built.
+func New(driver func() (harness.Driver, error), options func() harness.Options) *Service {
+	return &Service{driver: driver, options: options}
+}
+
+// Exchange describes one exchange to run.
+type Exchange struct {
+	Prompt string
+	// Schema, when set, is the JSON Schema of the structured response the exchange must
+	// produce, an object schema, as harness.Request.Schema is. The Outcome's Result carries the
+	// response in Structured, or its Err is harness.ErrNoStructuredResponse.
+	Schema json.RawMessage
+	// CancelAfter cancels the exchange after that many text deltas. Zero runs it to its end.
+	CancelAfter int
+}
+
+// Observer receives what an exchange does as it happens. A nil field ignores it.
+type Observer struct {
+	// Sent is called once the harness accepts the prompt, with the exchange's ID.
+	Sent  func(exchangeID uuid.UUID)
+	Event func(harness.Event)
+	// Cancelling is called when the exchange is cancelled, with the text deltas seen so far.
+	Cancelling func(deltas int)
+}
+
+// Outcome is how an exchange ended.
+type Outcome struct {
+	ExchangeID uuid.UUID
+	Result     harness.Result
+	// Err is the error the exchange ended in, if any, rather than a stop or a cancellation.
+	Err error
+}
+
+// Setup is what one session offers the model beyond what every session the Service opens
+// does, such as a scenario's own tools and skills.
+type Setup struct {
+	// Tools and Skills are added after the ones every session offers. A name offered twice
+	// fails the Open.
+	Tools  []harness.Tool
+	Skills []harness.Skill
+	// HarnessTools, when not nil, replaces the harness's own tools every session enables, as
+	// harness.Options.HarnessTools does: empty enables none.
+	HarnessTools []string
+}
+
+// Open opens the session id names on the harness, creating it if the harness has none, or a
+// new session when id is empty. Resuming a session checks its recorded exchanges against the
+// harness's journal. The start-up handshake is bounded by ctx and by openTimeout; the session
+// lives until the caller closes it.
+func (s *Service) Open(ctx context.Context, id string) (*harness.Session, error) {
+	return s.OpenWith(ctx, id, Setup{})
+}
+
+// OpenWith opens the session id names as Open does, offering setup's tools and skills beside
+// the ones every session offers.
+func (s *Service) OpenWith(ctx context.Context, id string, setup Setup) (*harness.Session, error) {
+	d, err := s.driver()
+	if err != nil {
+		return nil, err
+	}
+	opts := s.options()
+	opts.SessionID = id
+	// Concat copies, so the options function's slices are never appended to in place.
+	opts.Tools = slices.Concat(opts.Tools, setup.Tools)
+	opts.Skills = slices.Concat(opts.Skills, setup.Skills)
+	if setup.HarnessTools != nil {
+		opts.HarnessTools = setup.HarnessTools
+	}
+	ctx, cancel := context.WithTimeout(ctx, openTimeout)
+	defer cancel()
+	return d.Open(ctx, opts)
+}
+
+// Tools returns the tools every session the Service opens offers.
+func (s *Service) Tools() []harness.Tool { return s.options().Tools }
+
+// Skills returns the skills every session the Service opens offers.
+func (s *Service) Skills() []harness.Skill { return s.options().Skills }
+
+// Exchanges returns the exchanges recorded for session id, from the store alone. With verify,
+// it opens the session on the harness instead, and closes it again: opening checks that the
+// harness's journal still holds the last recorded entry. checked reports whether that check
+// ran, which needs a harness that keeps a journal.
+//
+// Opening is not read-only: the harness starts on the session, creating it if it has none,
+// and may append entries of its own, as Pi does when the model is set.
+func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs []harness.Record, checked bool, err error) {
+	if !verify {
+		store := s.options().Store
+		if store == nil {
+			return nil, false, nil
+		}
+		recs, err := store.Records(ctx, id)
+		return recs, false, err
+	}
+	sess, err := s.Open(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { err = errors.Join(err, sess.Close()) }()
+	recs, err = sess.Exchanges(ctx)
+	return recs, sess.Journaled(), err
+}
+
+// Run sends e on sess and follows it to its end. The error is non-nil only when the harness
+// didn't accept the prompt; how the exchange itself ended is in the Outcome.
+func (s *Service) Run(ctx context.Context, sess *harness.Session, e Exchange, obs Observer) (Outcome, error) {
+	x, err := sess.Send(ctx, harness.Request{Text: e.Prompt, Schema: e.Schema})
+	if err != nil {
+		return Outcome{}, err
+	}
+	if obs.Sent != nil {
+		obs.Sent(x.ID())
+	}
+	deltas := 0
+	for ev := range x.Events() {
+		if obs.Event != nil {
+			obs.Event(ev)
+		}
+		if ev.Kind != harness.EventTextDelta {
+			continue
+		}
+		if deltas++; deltas == e.CancelAfter {
+			if obs.Cancelling != nil {
+				obs.Cancelling(deltas)
+			}
+			x.Cancel()
+		}
+	}
+	res, err := x.Wait()
+	return Outcome{ExchangeID: x.ID(), Result: res, Err: err}, nil
+}

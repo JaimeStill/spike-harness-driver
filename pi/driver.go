@@ -11,8 +11,10 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// rpcArgs start Pi in RPC mode without the user's extensions, skills, and context files, which
-// would otherwise change the prompt or send extension UI requests. Pi persists the session.
+// rpcArgs start Pi in RPC mode without discovering the user's extensions, skills, and context
+// files, which would otherwise change the prompt or send dialogs no one answers. Explicit -e
+// and --skill paths still load, which is how the bridge and the session's skills arrive. Pi
+// persists the session.
 var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
 // Driver starts one Pi process per session. Pi persists each session, so a later process
@@ -26,6 +28,13 @@ type Driver struct {
 	Command string
 	// SessionDir is where Pi stores sessions. Empty means Pi's own default.
 	SessionDir string
+	// CacheDir is where the driver keeps what it loads into Pi from files: the bridge
+	// extension, and the skills that aren't on disk already. They are written once, under names
+	// their content decides, so sessions share them and a resumed session finds the files its
+	// history names. Pi runs the bridge as code, so the directory must belong to the current
+	// user and be writable by no one else; Open fails otherwise. Empty writes them into each
+	// session's temporary directory, which Close removes.
+	CacheDir string
 	// Env adds variables to Pi's environment, such as LLAMA_BASE_URL.
 	Env []string
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
@@ -36,8 +45,10 @@ type Driver struct {
 var _ harness.Driver = Driver{}
 
 // Open starts Pi on the session opts.SessionID names, creating it if Pi has none, or on a new
-// session when it names none. It selects the model when opts names one, takes Pi's session
-// ID, and binds the session to Pi's entries through the harness.Journal the connection keeps.
+// session when it names none, with the bridge, opts.Tools, and opts.Skills loaded, and
+// opts.HarnessTools, when set, as Pi's tool allowlist. It selects the model when opts names
+// one, takes Pi's session ID, and binds the session to Pi's entries through the
+// harness.Journal the connection keeps.
 // ctx bounds the start-up handshake only; the session lives until Close.
 //
 // The model is set over RPC rather than with --model, which would read a model ID's
@@ -47,7 +58,11 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if name == "" {
 		name = "pi"
 	}
-	args := slices.Clone(rpcArgs)
+	b, err := newBridge(opts, d.CacheDir)
+	if err != nil {
+		return nil, err
+	}
+	args := slices.Concat(rpcArgs, b.args)
 	if opts.SessionID != "" {
 		args = append(args, "--session-id", opts.SessionID)
 	}
@@ -55,20 +70,22 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		args = append(args, "--session-dir", d.SessionDir)
 	}
 	p, err := stdio.Start(stdio.Spec{
-		Name: name, Args: args, Dir: opts.Dir, Env: d.Env, WaitDelay: d.WaitDelay,
+		Name: name, Args: args, Dir: opts.Dir, Env: slices.Concat(d.Env, b.env), WaitDelay: d.WaitDelay,
 	})
 	if err != nil {
+		_ = b.remove()
 		return nil, err
 	}
-	c := stdio.NewClient(p, codec{})
-	id, err := handshake(ctx, c, opts)
+	conn := newConnection(b)
+	conn.client = stdio.NewClient(p, codec{}, conn.answer)
+	id, err := handshake(ctx, conn.client, opts)
 	if err != nil {
-		_ = c.Close()
+		_ = conn.Close()
 		return nil, err
 	}
-	s, err := harness.NewSession(ctx, id, connection{c}, opts.Store)
+	s, err := harness.NewSession(ctx, id, conn, opts.Store)
 	if err != nil {
-		_ = c.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return s, nil

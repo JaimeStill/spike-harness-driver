@@ -13,8 +13,12 @@ type Connection interface {
 	Cancel(ctx context.Context) error
 	// Events yields the harness's normalized events, without SessionID, ExchangeID, or Seq,
 	// ending each run with EventEnded. It must be drained promptly and closes when the harness
-	// exits; an unexpected exit is announced by a final EventError.
+	// exits.
 	Events() <-chan Event
+	// Err reports why the harness exited, once Events has closed: nil when Close ended it,
+	// and the exit error otherwise. An error event a run reported before the exit is the
+	// run's, not the harness's.
+	Err() error
 	// Close ends the harness, which closes Events.
 	Close() error
 }
