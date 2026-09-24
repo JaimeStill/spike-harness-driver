@@ -24,11 +24,11 @@ type Driver struct {
 
 var _ harness.Driver = Driver{}
 
-func (d Driver) Open(_ context.Context, opts harness.Options) (*harness.Session, error) {
+func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Session, error) {
 	if d.Opened != nil {
 		d.Opened(opts)
 	}
-	return harness.NewSession(SessionID, NewConnection(d.Stream)), nil
+	return harness.NewSession(ctx, SessionID, NewConnection(d.Stream), opts.Store)
 }
 
 // Connection is a scripted harness.Connection.

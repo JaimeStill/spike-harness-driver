@@ -124,6 +124,16 @@ func checkScoped(t *testing.T, s *harness.Session, x *harness.Exchange, events [
 	}
 }
 
+// newSession starts a session over c, recording in store, which may be nil.
+func newSession(t *testing.T, c harness.Connection, store harness.Store) *harness.Session {
+	t.Helper()
+	s, err := harness.NewSession(t.Context(), "s1", c, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func send(t *testing.T, s *harness.Session, ctx context.Context) *harness.Exchange {
 	t.Helper()
 	x, err := s.Send(ctx, harness.Request{Text: "hi"})
@@ -135,7 +145,7 @@ func send(t *testing.T, s *harness.Session, ctx context.Context) *harness.Exchan
 
 func TestTwoExchangesInOneSession(t *testing.T) {
 	c := newFakeConnection()
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	var xs []*harness.Exchange
@@ -162,7 +172,7 @@ func TestTwoExchangesInOneSession(t *testing.T) {
 
 func TestSendWhileOpenIsBusy(t *testing.T) {
 	c := newFakeConnection()
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	x := send(t, s, t.Context())
@@ -186,7 +196,7 @@ func TestCancel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newFakeConnection()
-			s := harness.NewSession("s1", c)
+			s := newSession(t, c, nil)
 			defer func() { _ = s.Close() }()
 			ctx, stop := context.WithCancel(t.Context())
 			defer stop()
@@ -212,7 +222,7 @@ func TestCancel(t *testing.T) {
 
 func TestCancelAfterEndDoesNothing(t *testing.T) {
 	c := newFakeConnection()
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	x := send(t, s, t.Context())
@@ -228,7 +238,7 @@ func TestCancelAfterEndDoesNothing(t *testing.T) {
 
 func TestConnExitEndsTheExchange(t *testing.T) {
 	c := newFakeConnection()
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	x := send(t, s, t.Context())
@@ -259,7 +269,7 @@ func TestConnExitEndsTheExchange(t *testing.T) {
 func TestPromptFailure(t *testing.T) {
 	c := newFakeConnection()
 	c.promptErr = errors.New("rejected")
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	if _, err := s.Send(t.Context(), harness.Request{}); err == nil {
@@ -271,7 +281,7 @@ func TestPromptFailure(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	c := newFakeConnection()
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 
 	x := send(t, s, t.Context())
 	c.emit(harness.EventStarted, harness.EventTextDelta, harness.EventTextDelta)
@@ -288,7 +298,7 @@ func TestClose(t *testing.T) {
 func TestCloseStopsACancellationInFlight(t *testing.T) {
 	c := newFakeConnection()
 	c.cancelGate = make(chan struct{}) // never answers
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 
 	x := send(t, s, t.Context())
 	x.Cancel()
@@ -313,7 +323,7 @@ func TestCloseStopsACancellationInFlight(t *testing.T) {
 func TestContextEndsBeforePromptIsAccepted(t *testing.T) {
 	c := newFakeConnection()
 	c.promptGate = make(chan struct{})
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	ctx, stop := context.WithCancel(t.Context())
@@ -345,7 +355,7 @@ func TestContextEndsBeforePromptIsAccepted(t *testing.T) {
 func TestSendWaitsForACancellationInFlight(t *testing.T) {
 	c := newFakeConnection()
 	c.cancelGate = make(chan struct{})
-	s := harness.NewSession("s1", c)
+	s := newSession(t, c, nil)
 	defer func() { _ = s.Close() }()
 
 	x := send(t, s, t.Context())

@@ -18,3 +18,14 @@ type Connection interface {
 	// Close ends the harness, which closes Events.
 	Close() error
 }
+
+// Journal is the harness's durable record of a session: an append-only log of entries with
+// stable IDs that outlive the harness process. A Connection implements it when its harness
+// keeps one, and the session binds each exchange to the entries it appended.
+type Journal interface {
+	// Head returns the ID of the session's last entry, or "" for a session with none.
+	Head(ctx context.Context) (string, error)
+	// Since returns the IDs of the entries after id in append order, or every entry's ID when
+	// id is "". It fails with ErrUnknownEntry when the harness holds no entry id.
+	Since(ctx context.Context, id string) ([]string, error)
+}
