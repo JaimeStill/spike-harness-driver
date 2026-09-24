@@ -83,7 +83,7 @@ func (c *Client) read() {
 func (c *Client) dispatch(line []byte) {
 	f, err := c.codec.Decode(line)
 	if err != nil {
-		c.events.Push(harness.Event{Kind: harness.EventError, Err: err.Error(), Raw: line})
+		c.events.Push(harness.Event{Kind: harness.EventError, Err: err, Raw: line})
 		return
 	}
 	if f.Response != nil {
@@ -102,7 +102,7 @@ func (c *Client) shutdown() {
 	}
 	c.calls.fail(err)
 	if unexpected {
-		c.events.Push(harness.Event{Kind: harness.EventError, Err: err.Error()})
+		c.events.Push(harness.Event{Kind: harness.EventError, Err: err})
 	}
 	c.events.Close()
 }

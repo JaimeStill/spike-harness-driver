@@ -342,7 +342,7 @@ func TestAnExitRecordsNoEntries(t *testing.T) {
 	events := collect(t, x)
 	c.emit(harness.EventStarted)
 	c.append("u1")
-	c.events <- harness.Event{Kind: harness.EventError, Err: "boom"}
+	c.exitErr = errors.New("boom")
 	_ = c.Close()
 	<-events
 

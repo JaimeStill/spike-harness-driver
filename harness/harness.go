@@ -17,7 +17,9 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io/fs"
 )
 
 // ErrBusy is returned by Send while an earlier exchange on the same session is still open.
@@ -37,6 +39,10 @@ var ErrUnknownEntry = errors.New("harness: unknown entry")
 // fresh one under the same ID.
 var ErrJournalMismatch = errors.New("harness: the harness no longer holds the session's recorded entries")
 
+// ErrNoStructuredResponse is an exchange's error when its request carried a schema and the
+// exchange ended, other than by cancellation, without a structured response.
+var ErrNoStructuredResponse = errors.New("harness: the exchange ended without a structured response")
+
 // Driver opens sessions on one harness.
 type Driver interface {
 	Open(ctx context.Context, opts Options) (*Session, error)
@@ -55,11 +61,49 @@ type Options struct {
 	Model string
 	// Dir is the harness's working directory. Empty means the current directory.
 	Dir string
+	// Tools are the tools the session offers the model beyond the harness's own. The harness
+	// calls each one back in this process.
+	Tools []Tool
+	// Skills are the skills the session makes available to the model.
+	Skills []Skill
+	// HarnessTools names the harness's own tools the session enables, such as "read". Nil
+	// keeps the harness's default set; empty enables none.
+	HarnessTools []string
+}
+
+// ToolHandler runs one call of a tool with the model's arguments, which the harness has
+// validated against the tool's schema. Its result is the text the model receives. An error
+// reaches the model as a failed tool call; the exchange carries on.
+type ToolHandler func(ctx context.Context, args json.RawMessage) (string, error)
+
+// Tool is a tool the program defines and runs. It may come from a Go library that packages
+// it, or from an external source such as a command tool (harness/catalog).
+type Tool struct {
+	// Name is how the model calls the tool.
+	Name string
+	// Description tells the model what the tool does and when to call it.
+	Description string
+	// Schema is the JSON Schema of the tool's arguments, an object schema.
+	Schema  json.RawMessage
+	Handler ToolHandler
+}
+
+// Skill is a skill: a directory holding a SKILL.md, whose frontmatter names and describes it,
+// and any files the skill refers to. FS is rooted at that directory, so a skill may live on
+// disk (os.DirFS) or be embedded in a Go library (fs.Sub of an embed.FS).
+type Skill struct {
+	// Name is the skill's name, as its SKILL.md frontmatter gives it.
+	Name string
+	FS   fs.FS
 }
 
 // Request is the payload of one exchange.
 type Request struct {
 	Text string `json:"text"`
+	// Schema, when set, is the JSON Schema of the structured response the exchange must
+	// produce, an object schema. The harness validates the response against it, and the
+	// Result carries it in Structured.
+	Schema json.RawMessage `json:"schema,omitempty"`
 }
 
 // Result summarizes a finished exchange.
@@ -68,12 +112,18 @@ type Result struct {
 	// "aborted", or "error".
 	StopReason string `json:"stopReason,omitempty"`
 	// Text is the concatenated text of the last assistant message.
-	Text  string `json:"text,omitempty"`
-	Usage Usage  `json:"usage"`
+	Text string `json:"text,omitempty"`
+	// Structured is the structured response, for a request that carried a schema.
+	Structured json.RawMessage `json:"structured,omitempty"`
+	Usage      Usage           `json:"usage"`
 }
 
-// Usage counts the tokens an exchange used.
+// Usage counts the tokens an exchange's last assistant message used. Input excludes tokens
+// read from or written to the provider's prompt cache, which CacheRead and CacheWrite count,
+// so with a warm cache Input alone understates the prompt.
 type Usage struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cacheRead,omitempty"`
+	CacheWrite int `json:"cacheWrite,omitempty"`
 }

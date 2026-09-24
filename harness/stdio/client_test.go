@@ -235,7 +235,7 @@ func TestPeerExit(t *testing.T) {
 		t.Fatalf("pending Call = %v, want the exit error with stderr", err)
 	}
 	ev, _ := nextEvent(t, c)
-	if ev.Kind != harness.EventError || !strings.Contains(ev.Err, "fatal: peer gone") {
+	if ev.Kind != harness.EventError || ev.Err == nil || !strings.Contains(ev.Err.Error(), "fatal: peer gone") {
 		t.Fatalf("event = %+v, want EventError with stderr", ev)
 	}
 	if _, ok := nextEvent(t, c); ok {

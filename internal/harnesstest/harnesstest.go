@@ -118,6 +118,9 @@ func (c *Connection) Cancel(context.Context) error {
 
 func (c *Connection) Events() <-chan harness.Event { return c.events }
 
+// Err is nil: the scripted harness only ever ends through Close.
+func (c *Connection) Err() error { return nil }
+
 func (c *Connection) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)

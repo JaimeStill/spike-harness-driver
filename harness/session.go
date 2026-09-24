@@ -230,7 +230,7 @@ func (s *Session) cancel(x *Exchange) {
 		defer cancel()
 		// A cancellation that Close cut short is no error of the exchange's.
 		if err := s.connection.Cancel(ctx); err != nil && s.ctx.Err() == nil {
-			x.push(Event{Kind: EventError, Err: err.Error()})
+			x.push(Event{Kind: EventError, Err: err})
 		}
 	}()
 }
@@ -240,12 +240,11 @@ func (s *Session) cancel(x *Exchange) {
 // notice after a cancelled run ends, is dropped.
 //
 // An exchange is recorded when its EventEnded arrives, while it is still the open exchange,
-// so no Send can start another run that would append to its entries. A failure to record
-// becomes the exchange's error.
+// so no Send can start another run that would append to its entries. An exchange whose schema
+// went unanswered gets ErrNoStructuredResponse first, so the record carries it. A failure to
+// record becomes the exchange's error.
 func (s *Session) route() {
-	var last Event
 	for ev := range s.connection.Events() {
-		last = ev
 		s.mu.Lock()
 		x := s.open
 		if x != nil && ev.Kind == EventEnded {
@@ -253,8 +252,11 @@ func (s *Session) route() {
 		}
 		s.mu.Unlock()
 		if x != nil && ev.Kind == EventEnded {
+			if x.unanswered() {
+				x.push(Event{Kind: EventError, Err: ErrNoStructuredResponse})
+			}
 			if err := s.record(x); err != nil {
-				x.push(Event{Kind: EventError, Err: err.Error()})
+				x.push(Event{Kind: EventError, Err: err})
 			}
 			s.mu.Lock()
 			if s.open == x {
@@ -268,9 +270,9 @@ func (s *Session) route() {
 		}
 	}
 
-	exitErr := ErrClosed
-	if last.Kind == EventError {
-		exitErr = errors.New(last.Err)
+	exitErr := s.connection.Err()
+	if exitErr == nil {
+		exitErr = ErrClosed
 	}
 	s.mu.Lock()
 	s.exited = true
@@ -281,15 +283,8 @@ func (s *Session) route() {
 	if x != nil {
 		// The harness is gone, so the exchange is recorded without entries.
 		if err := s.put(x.record(nil, exitErr)); err != nil {
-			x.push(Event{Kind: EventError, Err: err.Error()})
+			x.push(Event{Kind: EventError, Err: err})
 		}
-	}
-	switch {
-	case x == nil:
-	case last.Kind == EventError:
-		// The exit error has already reached x.
-		x.push(Event{Kind: EventEnded})
-	default:
 		x.fail(exitErr)
 	}
 	close(s.done)
