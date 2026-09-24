@@ -14,9 +14,10 @@ import (
 const (
 	capitalPrompt = "What is the capital of France?"
 	colorsPrompt  = "List the three primary colors of pigment (red, yellow, blue)."
-	// plainPrompt asks the model not to answer through respond, to show the contract when the
-	// model may not comply.
-	plainPrompt = "Reply in plain text only, without calling any tool: say hello."
+	// greetingPrompt asks for the greeting as a structured response outright. A prompt that
+	// asked for plain text instead contradicted the instruction the harness adds for a schema,
+	// and gpt-oss on llama.cpp then failed about half its runs with a malformed tool call.
+	greetingPrompt = "Provide the following greeting directly as a structured response: say hello."
 
 	// respondTool is the tool the Pi adapter's bridge offers for an exchange with a schema;
 	// its validated arguments are the structured response. The harness surface has no
@@ -59,8 +60,8 @@ type (
 
 // structuredScenario asks for structured responses on one session with no harness tools: each
 // exchange carries its own schema, so the respond tool the harness offers takes a new shape
-// each time. The last exchange asks the model not to answer through respond, and checks the
-// contract whichever way the model goes.
+// each time. The last exchange also checks the contract whichever way the model goes: a
+// structured response that decodes, or ErrNoStructuredResponse.
 func structuredScenario(svc *session.Service, needs []Need) Scenario {
 	return Scenario{
 		Name:    "structured",
@@ -119,11 +120,11 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 					},
 				},
 				{
-					Intent: "Ask for plain text with a schema set, and check the contract whichever way the model goes",
+					Intent: "Ask for a greeting as {greeting}, a third shape, and check the contract whichever way the model goes",
 					Action: func(ctx context.Context, rep *Reporter) error {
 						// ended fails on any outcome error, and ErrNoStructuredResponse is one this
 						// step accepts, so the step reads the outcome itself.
-						o, err := r.exchange(ctx, rep, session.Exchange{Prompt: plainPrompt, Schema: greetingSchema})
+						o, err := r.exchange(ctx, rep, session.Exchange{Prompt: greetingPrompt, Schema: greetingSchema})
 						if err != nil {
 							return err
 						}
@@ -139,7 +140,7 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 						if err := decode(o.Result.Structured, &v); err != nil {
 							return err
 						}
-						rep.Note("the model answered through respond anyway; decoded: %+v", v)
+						rep.Note("decoded: %+v", v)
 						return nil
 					},
 				},
