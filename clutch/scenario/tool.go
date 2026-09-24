@@ -129,7 +129,7 @@ func fingerprint(text string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
-// replyHas fails unless the reply holds want, ignoring case. what names want in the failure.
+// replyHas fails unless the reply holds want, ignoring case. The failure names want by what.
 func replyHas(reply, want, what string) error {
 	if !strings.Contains(strings.ToLower(reply), strings.ToLower(want)) {
 		return fmt.Errorf("the reply lacks %s %s: %q", what, want, reply)

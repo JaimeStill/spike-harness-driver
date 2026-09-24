@@ -274,8 +274,8 @@ func TestPeerExit(t *testing.T) {
 }
 
 func TestRequestsAreAnswered(t *testing.T) {
-	// Each answer waits for the one before it to be asked, so the requests are answered
-	// only if they are answered concurrently.
+	// Each answer waits for every request to be asked before it returns, so the test
+	// deadlocks unless the client answers requests concurrently.
 	const n = 10
 	var asked sync.WaitGroup
 	asked.Add(n)

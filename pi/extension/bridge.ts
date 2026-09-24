@@ -8,8 +8,8 @@
  *   driver's answer is the tool's result or error.
  * - As each prompt arrives, a "pi-driver:exchange" input dialog asks the driver for the
  *   exchange's schema. With one, the bridge registers the "respond" tool with that schema,
- *   which ends the run once the model calls it, and appends an instruction to call it to the
- *   prompt; without one, "respond" is inactive. The instruction goes in the prompt because Pi
+ *   which ends the run once the model calls it, and appends to the prompt an instruction to
+ *   call it; without one, "respond" is inactive. The instruction goes in the prompt because Pi
  *   tells the model about a tool added mid-session only by name and schema, and a model with
  *   other tools to choose from then answers in text.
  *

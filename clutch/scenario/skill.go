@@ -128,7 +128,7 @@ func skillScenario(svc *session.Service, needs []Need) Scenario {
 }
 
 // replyHasPhrase fails unless the reply holds phrase, ignoring case and punctuation, so a model
-// that drops the full stop or the quotes still passes. what names phrase in the failure.
+// that drops the full stop or the quotes still passes. The failure names phrase by what.
 func replyHasPhrase(reply, phrase, what string) error {
 	if !strings.Contains(normalize(reply), normalize(phrase)) {
 		return fmt.Errorf("the reply lacks %s %q: %q", what, phrase, reply)
