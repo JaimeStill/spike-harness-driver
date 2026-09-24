@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"errors"
+	"fmt"
 	"uuid"
 
 	"github.com/JaimeStill/spike-harness-driver/domain/session"
@@ -53,6 +54,18 @@ func (r *run) exchange(ctx context.Context, rep *Reporter, e session.Exchange) (
 	}
 	rep.Result(o.Result, o.Err)
 	return o, nil
+}
+
+// ended fails when the exchange wasn't accepted, or ended in an error rather than a stop or a
+// cancellation.
+func ended(o session.Outcome, err error) error {
+	if err != nil {
+		return err
+	}
+	if o.Err != nil {
+		return fmt.Errorf("exchange ended in error: %w", o.Err)
+	}
+	return nil
 }
 
 // close closes the run's session, if one is open.

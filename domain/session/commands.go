@@ -78,10 +78,11 @@ func exchangesCommand(svc *Service, out *output.Output) *cobra.Command {
 		Short: "List a session's recorded exchanges",
 		Long: "exchanges lists the exchanges recorded for a session, oldest first: each one's ID, the\n" +
 			"harness entries it appended, how it ended, and its prompt. --verify also opens the\n" +
-			"session on the harness, which fails if the harness no longer holds the entries.",
+			"session on the harness, which fails if the harness no longer holds the last recorded\n" +
+			"entry. Opening starts the harness on the session, which may append entries to it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			recs, err := svc.Exchanges(cmd.Context(), args[0], verify)
+			recs, checked, err := svc.Exchanges(cmd.Context(), args[0], verify)
 			if err != nil {
 				return err
 			}
@@ -92,8 +93,11 @@ func exchangesCommand(svc *Service, out *output.Output) *cobra.Command {
 			for _, r := range recs {
 				out.Record(r)
 			}
-			if verify {
-				out.Printf("verified: the harness holds every recorded entry")
+			switch {
+			case verify && checked:
+				out.Printf("verified: the harness still holds the last recorded entry")
+			case verify:
+				out.Printf("not verified: the harness keeps no journal to check against")
 			}
 			return nil
 		},

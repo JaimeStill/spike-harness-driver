@@ -56,7 +56,7 @@ func TestASessionWithNoRecords(t *testing.T) {
 func TestInvalidSessionIDs(t *testing.T) {
 	dir := t.TempDir()
 	s := filestore.New(filepath.Join(dir, "store"))
-	for _, id := range []string{"", ".", "..", "../escape", `a\b`} {
+	for _, id := range []string{"", "../escape", "a/b", `a\b`} {
 		if err := s.Put(t.Context(), record(id)); err == nil {
 			t.Errorf("Put(%q) succeeded", id)
 		}

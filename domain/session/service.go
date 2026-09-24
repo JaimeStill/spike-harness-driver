@@ -65,22 +65,28 @@ func (s *Service) Open(ctx context.Context, id string) (*harness.Session, error)
 }
 
 // Exchanges returns the exchanges recorded for session id, from the store alone. With verify,
-// it opens the session on the harness instead, which checks the records against the
-// harness's journal, and closes it again.
-func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs []harness.Record, err error) {
+// it opens the session on the harness instead, and closes it again: opening checks that the
+// harness's journal still holds the last recorded entry. checked reports whether that check
+// ran, which needs a harness that keeps a journal.
+//
+// Opening is not read-only: the harness starts on the session, creating it if it has none,
+// and may append entries of its own, as Pi does when the model is set.
+func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs []harness.Record, checked bool, err error) {
 	if !verify {
 		store := s.options().Store
 		if store == nil {
-			return nil, nil
+			return nil, false, nil
 		}
-		return store.Records(ctx, id)
+		recs, err := store.Records(ctx, id)
+		return recs, false, err
 	}
 	sess, err := s.Open(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { err = errors.Join(err, sess.Close()) }()
-	return sess.Exchanges(ctx)
+	recs, err = sess.Exchanges(ctx)
+	return recs, sess.Journaled(), err
 }
 
 // Run sends e on sess and follows it to its end. The error is non-nil only when the harness

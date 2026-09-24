@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,20 +69,22 @@ func TestResumeKeepsTheSessionAndItsExchangeIDs(t *testing.T) {
 	if len(recs) != 2 || recs[0].ExchangeID != x1.ID() || recs[1].ExchangeID != x2.ID() {
 		t.Fatalf("records = %+v, want exchanges %s then %s", recs, x1.ID(), x2.ID())
 	}
-	// Each exchange is bound to its user and assistant entries, and the model_change the
-	// second process appended on opening belongs to neither.
-	entries := readEntries(t, filepath.Join(dir, "pi", "resume-1.entries"))
+	// Each exchange is bound to the entries its run appended: the session's system message,
+	// user, and assistant for the first, user and assistant for the second. The entries that
+	// setting the model appended on each open belong to neither.
+	entries, kinds := readEntries(t, filepath.Join(dir, "pi", "resume-1.entries"))
+	want := [][]string{{"system", "user", "assistant"}, {"user", "assistant"}}
 	for i, r := range recs {
-		if len(r.Entries) != 2 {
-			t.Fatalf("record %d entries = %v, want the user and assistant entries", i, r.Entries)
-		}
 		at := slices.Index(entries, r.Entries[0])
-		if at < 0 || !slices.Equal(entries[at:at+2], r.Entries) {
-			t.Errorf("record %d entries %v are not a span of Pi's %v", i, r.Entries, entries)
+		if at < 0 || !slices.Equal(entries[at:at+len(r.Entries)], r.Entries) {
+			t.Fatalf("record %d entries %v are not a span of Pi's %v", i, r.Entries, entries)
+		}
+		if got := kinds[at : at+len(r.Entries)]; !slices.Equal(got, want[i]) {
+			t.Errorf("record %d binds %v, want %v", i, got, want[i])
 		}
 	}
-	if len(entries) != 6 {
-		t.Errorf("Pi holds %d entries, want 6 (two model_changes, two exchanges of two)", len(entries))
+	if len(entries) != 9 {
+		t.Errorf("Pi holds %d entries, want 9: 3 on the first set_model, 3 and 2 for the runs, 1 on the second set_model", len(entries))
 	}
 }
 
@@ -138,16 +141,17 @@ func TestEntryIDsFromCapturedResponses(t *testing.T) {
 	}
 }
 
-func readEntries(t *testing.T, path string) []string {
+// readEntries reads the fake Pi's persisted journal: each entry's ID and kind.
+func readEntries(t *testing.T, path string) (ids, kinds []string) {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	var ids []string
 	for s := bufio.NewScanner(f); s.Scan(); {
-		ids = append(ids, s.Text())
+		id, kind, _ := strings.Cut(s.Text(), " ")
+		ids, kinds = append(ids, id), append(kinds, kind)
 	}
-	return ids
+	return ids, kinds
 }

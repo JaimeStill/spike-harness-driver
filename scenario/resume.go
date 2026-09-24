@@ -42,7 +42,7 @@ func resumeScenario(svc *session.Service, needs []Need) Scenario {
 					Action: func(ctx context.Context, rep *Reporter) error {
 						o, err := r.exchange(ctx, rep, session.Exchange{Prompt: resumePrompts[0]})
 						first = o.ExchangeID
-						return err
+						return ended(o, err)
 					},
 				},
 				{
@@ -61,8 +61,7 @@ func resumeScenario(svc *session.Service, needs []Need) Scenario {
 				{
 					Intent: "Ask a question only the session's history can answer",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						_, err := r.exchange(ctx, rep, session.Exchange{Prompt: resumePrompts[1]})
-						return err
+						return ended(r.exchange(ctx, rep, session.Exchange{Prompt: resumePrompts[1]}))
 					},
 				},
 				{

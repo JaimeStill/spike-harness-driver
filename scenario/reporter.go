@@ -1,8 +1,6 @@
 package scenario
 
 import (
-	"fmt"
-
 	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/output"
 )
@@ -40,5 +38,5 @@ func (r *Reporter) Record(rec harness.Record) { r.out.Record(rec) }
 
 // Cancelling notes that an exchange is being cancelled after n text deltas.
 func (r *Reporter) Cancelling(n int) {
-	r.Note("%s", fmt.Sprintf("-- cancelling after %d text deltas", n))
+	r.Note("-- cancelling after %d text deltas", n)
 }

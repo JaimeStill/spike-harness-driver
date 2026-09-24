@@ -2,7 +2,6 @@ package scenario
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/JaimeStill/spike-harness-driver/domain/session"
 )
@@ -23,14 +22,7 @@ func exchangeScenario(svc *session.Service, needs []Need) Scenario {
 				{
 					Intent: "Send one prompt and stream the exchange until the harness ends it",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						o, err := r.exchange(ctx, rep, session.Exchange{Prompt: exchangePrompt})
-						if err != nil {
-							return err
-						}
-						if o.Err != nil {
-							return fmt.Errorf("exchange ended in error: %w", o.Err)
-						}
-						return nil
+						return ended(r.exchange(ctx, rep, session.Exchange{Prompt: exchangePrompt}))
 					},
 				},
 				{

@@ -53,6 +53,11 @@ func (c connection) Head(ctx context.Context) (string, error) {
 // Since returns the IDs of the entries Pi appended after id. Pi's entry IDs are stable across
 // processes, and Pi fails get_entries when since names no entry it holds, which Since
 // reports as harness.ErrUnknownEntry.
+//
+// Since maps any refusal of a get_entries with since to ErrUnknownEntry, rather than matching
+// Pi's message ("Entry not found: <id>"), because unknown entries are the one refusal Pi
+// documents for it. A Pi without get_entries refuses it first without since, in Head, when
+// the session opens, so it surfaces as that error and never as a lost session.
 func (c connection) Since(ctx context.Context, id string) ([]string, error) {
 	r, err := c.client.Call(ctx, command{Type: "get_entries", Since: id})
 	var failed *commandError

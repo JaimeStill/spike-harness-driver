@@ -33,14 +33,20 @@ func fakeDriver(mode string) Driver {
 	return Driver{Command: os.Args[0], Env: []string{fakeEnv + "=" + mode, "GORACE=atexit_sleep_ms=0"}}
 }
 
-// fakeJournal is the fake Pi's session: entry IDs in append order. With --session-dir it
-// persists them to <dir>/<session-id>.entries, one per line, so a later fake process resumes
-// the session, and deleting the file loses it, as losing Pi's session file would.
+// fakeJournal is the fake Pi's session: its entries in append order, shaped as the capture in
+// testdata/entries.jsonl shows Pi's. Setting the model on a new session appends three
+// entries (model_change, thinking_level_change, model_change), and on a resumed one appends
+// one; a session's first run appends a system message before the user message.
+//
+// With --session-dir it persists the entries to <dir>/<session-id>.entries, one "id kind"
+// line each, so a later fake process resumes the session, and deleting the file loses it, as
+// losing Pi's session file would.
 type fakeJournal struct {
 	mu      sync.Mutex
 	id      string
 	path    string
-	entries []string
+	entries []string // IDs
+	kinds   []string // each entry's kind, as the fake names it
 	next    int
 }
 
@@ -60,19 +66,48 @@ func newFakeJournal(args []string) *fakeJournal {
 	}
 	j.path = filepath.Join(dir, j.id+".entries")
 	if data, err := os.ReadFile(j.path); err == nil {
-		j.entries = strings.Fields(string(data))
+		for line := range strings.Lines(string(data)) {
+			if id, kind, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+				j.entries, j.kinds = append(j.entries, id), append(j.kinds, kind)
+			}
+		}
 	}
 	return j
 }
 
-// append adds one entry and returns its ID. IDs are unique within the session, across
-// processes.
-func (j *fakeJournal) append() {
+// setModel appends the entries Pi appends when the model is set.
+func (j *fakeJournal) setModel() {
+	if j.empty() {
+		j.append("model_change")
+		j.append("thinking_level_change")
+	}
+	j.append("model_change")
+}
+
+// startRun appends the entries Pi appends as a run starts.
+func (j *fakeJournal) startRun() {
+	j.mu.Lock()
+	system := !slices.Contains(j.kinds, "system")
+	j.mu.Unlock()
+	if system {
+		j.append("system")
+	}
+	j.append("user")
+}
+
+func (j *fakeJournal) empty() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return len(j.entries) == 0
+}
+
+// append adds one entry of kind. IDs are unique within the session, across processes.
+func (j *fakeJournal) append(kind string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.next++
 	id := fmt.Sprintf("%04d%04d", len(j.entries), j.next)
-	j.entries = append(j.entries, id)
+	j.entries, j.kinds = append(j.entries, id), append(j.kinds, kind)
 	if j.path == "" {
 		return
 	}
@@ -81,7 +116,7 @@ func (j *fakeJournal) append() {
 	if err != nil {
 		panic(err)
 	}
-	_, _ = f.WriteString(id + "\n")
+	_, _ = f.WriteString(id + " " + kind + "\n")
 	_ = f.Close()
 }
 
@@ -138,7 +173,7 @@ func fakePi(mode string) int {
 		}
 		switch c.Type {
 		case "set_model":
-			journal.append()
+			journal.setModel()
 			respond(c, "")
 		case "clear_queue":
 			respond(c, "")
@@ -168,13 +203,13 @@ func fakePi(mode string) int {
 			running = true
 			runMu.Unlock()
 			respond(c, "")
-			// Pi appends the user message as the run starts, and the assistant message as it
-			// ends. The run is over by the time Pi reports agent_settled, so it accepts a prompt
+			// Pi appends the user message (and a session's first system message) as the run
+			// starts, and the assistant message as it ends. The run is over by the time Pi reports agent_settled, so it accepts a prompt
 			// sent in response to it.
-			journal.append()
+			journal.startRun()
 			runEmit := func(line string) {
 				if strings.Contains(line, `"type":"message_end"`) && strings.Contains(line, `"role":"assistant"`) {
-					journal.append()
+					journal.append("assistant")
 				}
 				if strings.Contains(line, `"type":"agent_settled"`) {
 					runMu.Lock()

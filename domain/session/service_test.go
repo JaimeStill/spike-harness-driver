@@ -144,7 +144,8 @@ func TestSendResumesAndExchangesLists(t *testing.T) {
 		if strings.Count(got, "exchange ") != 1 || !strings.Contains(got, `prompt: "hi"`) {
 			t.Errorf("%v:\n%s", args, got)
 		}
-		if (verify != "") != strings.Contains(got, "verified") {
+		// harnesstest keeps no journal, so there is nothing to verify against.
+		if (verify != "") != strings.Contains(got, "not verified: the harness keeps no journal") {
 			t.Errorf("%v: verification line:\n%s", args, got)
 		}
 	}

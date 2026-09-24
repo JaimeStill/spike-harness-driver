@@ -93,8 +93,9 @@ func (s *Store) Records(_ context.Context, sessionID string) ([]harness.Record, 
 // path is the file that keeps a session's records. A session ID must name a file in the
 // store's directory and nothing beyond it.
 func (s *Store) path(sessionID string) (string, error) {
-	if sessionID == "" || sessionID == "." || sessionID == ".." || strings.ContainsAny(sessionID, `/\`) {
+	name := sessionID + ".jsonl"
+	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) || !filepath.IsLocal(name) {
 		return "", fmt.Errorf("filestore: invalid session ID %q", sessionID)
 	}
-	return filepath.Join(s.dir, sessionID+".jsonl"), nil
+	return filepath.Join(s.dir, name), nil
 }
