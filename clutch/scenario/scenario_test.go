@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JaimeStill/spike-harness-driver/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
+	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/internal/harnesstest"
-	"github.com/JaimeStill/spike-harness-driver/output"
-	"github.com/JaimeStill/spike-harness-driver/scenario"
 )
 
 func reporter() (*scenario.Reporter, *bytes.Buffer) {

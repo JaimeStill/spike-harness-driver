@@ -11,7 +11,3 @@ references.local.toml
 bin/
 *.test
 coverage.out
-
-# Local workspace files.
-go.work
-go.work.sum

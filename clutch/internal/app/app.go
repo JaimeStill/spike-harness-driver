@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-harness-driver/output"
-	"github.com/JaimeStill/spike-harness-driver/scenario"
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
+	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 )
 
 // App is the application: the command tree assembled over the infrastructure and the domain

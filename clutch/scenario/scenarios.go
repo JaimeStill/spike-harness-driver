@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"uuid"
 
-	"github.com/JaimeStill/spike-harness-driver/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 

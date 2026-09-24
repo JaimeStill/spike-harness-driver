@@ -9,8 +9,8 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
 	"github.com/JaimeStill/spike-harness-driver/harness"
-	"github.com/JaimeStill/spike-harness-driver/output"
 )
 
 func TestEventLine(t *testing.T) {

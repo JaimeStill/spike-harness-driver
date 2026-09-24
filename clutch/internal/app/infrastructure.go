@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/pi"
-	"github.com/JaimeStill/spike-harness-driver/scenario"
 )
 
 // Infrastructure resolves the harness the flags name, and the store that keeps exchange

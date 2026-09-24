@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-harness-driver/output"
-	"github.com/JaimeStill/spike-harness-driver/scenario"
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
+	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 )
 
 // mountScenarios builds "scenario", with one subcommand per scenario, each narrating through

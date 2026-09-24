@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-harness-driver/output"
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
 )
 
 // Commands builds the session command family over svc, rendering through out.

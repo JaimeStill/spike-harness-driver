@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-harness-driver/domain/session"
-	"github.com/JaimeStill/spike-harness-driver/output"
+	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
 )
 
 // Domain holds the domain services.

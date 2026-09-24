@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JaimeStill/spike-harness-driver/internal/app"
+	"github.com/JaimeStill/spike-harness-driver/clutch/internal/app"
 )
 
 func execute(t *testing.T, args ...string) (code int, stdout, stderr string) {

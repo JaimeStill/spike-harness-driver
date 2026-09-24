@@ -3,7 +3,7 @@ package scenario
 import (
 	"context"
 
-	"github.com/JaimeStill/spike-harness-driver/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 )
 
 // exchangePrompt asks for a short answer, so the exchange ends on its own quickly.

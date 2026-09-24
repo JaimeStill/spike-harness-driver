@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/JaimeStill/spike-harness-driver/domain/session"
+	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 )
 
 // cancelPrompt asks for a long answer, so the exchange is still streaming when it is

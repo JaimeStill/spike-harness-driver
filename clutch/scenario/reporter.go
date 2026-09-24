@@ -1,8 +1,8 @@
 package scenario
 
 import (
+	"github.com/JaimeStill/spike-harness-driver/clutch/output"
 	"github.com/JaimeStill/spike-harness-driver/harness"
-	"github.com/JaimeStill/spike-harness-driver/output"
 )
 
 // Reporter narrates a scenario through the Output every clutch command renders with, so a
