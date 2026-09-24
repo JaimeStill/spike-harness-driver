@@ -18,4 +18,23 @@ Planned for step 5. Each adapter is a `harness.Connection`.
 
   Then `harness.Journal` becomes required, or is dropped (`findings.md`, Sessions).
 
+- **Tools.** Go tools reach Pi through the bridge's dialogs. For the others:
+  - Claude Code: probably `control_request` messages of subtype `mcp_message`, which the Agent
+    SDK uses for in-process tools, answered through `stdio`'s request path. Unverified.
+  - OpenCode: the `mcpServers` that ACP's `session/new` takes, which needs an MCP server the
+    driver runs or starts.
+
+  Then decide whether one Go MCP server (`modelcontextprotocol/go-sdk`) serves every harness,
+  Pi included through its bridge, or each harness keeps its own route. A command tool's
+  `tool.json` already uses MCP's `inputSchema`, so a manifest maps to an MCP tool.
+- **Structured responses.** Pi's `respond` is a tool the prompt asks for. Forcing it with the
+  provider's `tool_choice`, through Pi's `before_provider_request` hook, would be sturdier, but
+  the payload's shape differs per provider. A `respond` call in the same batch as another tool
+  doesn't end the run, and a second one replaces the first.
+- **The surface.** Pi's mechanics show through `harness`: `respond` arrives as ordinary tool
+  events, so a validation failure can only be found by the tool's name, and `Usage` is the last
+  message's, which undercounts an exchange with tool calls. With a second adapter, fold
+  `respond` into `EventStructured` plus a validation-failure event, and sum `Usage` over the
+  exchange.
+
 Assumes both harnesses accept a new prompt only after the previous run ends, as Pi does.

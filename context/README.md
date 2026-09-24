@@ -46,15 +46,14 @@ and decides what the workspace takes from it.
 ## Path
 
 The spike's sessions own these steps, in dependency order, and may revise them. The session
-interface and the Pi adapter (step 1), and session persistence and resume (step 2), exist.
-`context/findings.md` records what they showed. `clutch` (`go run ./cmd/clutch`) drives them:
-its `scenario` commands each show one capability, and its `session` commands run one exchange
-at a time.
+interface and the Pi adapter (step 1), session persistence and resume (step 2), and payloads,
+tool calls, and skills (step 3) exist. `context/findings.md` records what they showed. `clutch`
+(`go run ./clutch/cmd/clutch`) drives them: its `scenario` commands each show one capability,
+and its `session` commands run one exchange at a time.
 
-3. **Payloads, tool calls, and skills.** Register a tool and a skill, observe the tool-call
-   events, and interpret a structured, schema-validated response.
 4. **Native capabilities.** Establish which of vision, embeddings, and audio the harness exposes,
-   and build a thin direct model client for the rest.
+   and build a thin direct model client for the rest, as the spike's own code under the
+   Elemental Architecture.
 5. **Claude Code and OpenCode adapters.** A conformance suite runs the three adapters behind one
    interface, against local and cloud targets.
 6. **Long-running workflow.** A workflow spans several sessions, with progress, event streaming to
@@ -64,7 +63,8 @@ at a time.
 
 ## Prior art
 
-`references.toml` lists the repositories this spike reads. tau's `agent` package supplies the
-baseline for native capabilities (Chat, Vision, and Embed), and tau's `orchestrate` package is
-the prior art for workflows. `claude-classify-docs`, in tau-platform, showed that a harness can
+`references.toml` lists the repositories this spike reads. tau's `agent` package (Chat, Vision,
+and Embed) is prior art for native capabilities, not a baseline to adopt: it has no audio, among
+other gaps, so it informs the spike's own client rather than supplying it. tau's `orchestrate`
+package is the prior art for workflows. `claude-classify-docs`, in tau-platform, showed that a harness can
 run a real workflow with no Go infrastructure. herald is the workload that shaped tau.
