@@ -10,4 +10,12 @@ Planned for step 5. Each adapter is a `harness.Connection`.
 - If a harness tags its events with a request ID, as OpenCode's may, the session could route by
   ID instead of allowing one open exchange. Build that only if a harness needs it.
 
+- **Persistence.** For each harness, find out:
+  - whether it keeps a durable journal of a session with stable entry IDs, as Pi's
+    `get_entries` does. Claude Code's session JSONL files and OpenCode's message IDs are the
+    candidates to check.
+  - whether it scopes a session ID to the working directory, as Pi does.
+
+  Then `harness.Journal` becomes required, or is dropped (`findings.md`, Sessions).
+
 Assumes both harnesses accept a new prompt only after the previous run ends, as Pi does.

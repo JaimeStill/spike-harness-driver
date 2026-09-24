@@ -46,10 +46,11 @@ and decides what the workspace takes from it.
 ## Path
 
 The spike's sessions own these steps, in dependency order, and may revise them. The session
-interface and the Pi adapter (step 1) exist; `context/findings.md` records what they showed.
+interface and the Pi adapter (step 1), and session persistence and resume (step 2), exist.
+`context/findings.md` records what they showed. `clutch` (`go run ./cmd/clutch`) drives them:
+its `scenario` commands each show one capability, and its `session` commands run one exchange
+at a time.
 
-2. **Persistence and resume.** A session outlives one call and resumes by ID, and its exchange IDs
-   survive the resume.
 3. **Payloads, tool calls, and skills.** Register a tool and a skill, observe the tool-call
    events, and interpret a structured, schema-validated response.
 4. **Native capabilities.** Establish which of vision, embeddings, and audio the harness exposes,
