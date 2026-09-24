@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"time"
 	"uuid"
 
@@ -47,16 +48,39 @@ type Outcome struct {
 	Err error
 }
 
-// Open opens a session on the harness. The start-up handshake is bounded by ctx and by
-// openTimeout; the session lives until the caller closes it.
-func (s *Service) Open(ctx context.Context) (*harness.Session, error) {
+// Open opens the session id names on the harness, creating it if the harness has none, or a
+// new session when id is empty. Resuming a session checks its recorded exchanges against the
+// harness's journal. The start-up handshake is bounded by ctx and by openTimeout; the session
+// lives until the caller closes it.
+func (s *Service) Open(ctx context.Context, id string) (*harness.Session, error) {
 	d, err := s.driver()
 	if err != nil {
 		return nil, err
 	}
+	opts := s.options()
+	opts.SessionID = id
 	ctx, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
-	return d.Open(ctx, s.options())
+	return d.Open(ctx, opts)
+}
+
+// Exchanges returns the exchanges recorded for session id, from the store alone. With verify,
+// it opens the session on the harness instead, which checks the records against the
+// harness's journal, and closes it again.
+func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs []harness.Record, err error) {
+	if !verify {
+		store := s.options().Store
+		if store == nil {
+			return nil, nil
+		}
+		return store.Records(ctx, id)
+	}
+	sess, err := s.Open(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, sess.Close()) }()
+	return sess.Exchanges(ctx)
 }
 
 // Run sends e on sess and follows it to its end. The error is non-nil only when the harness

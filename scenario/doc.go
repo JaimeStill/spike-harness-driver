@@ -4,5 +4,5 @@
 //
 // A Scenario's Steps builds the steps of one run, so the steps can share that run's state,
 // such as an open session, and the cleanup that releases it whatever step fails. The
-// scenarios are defined beside the runner: exchange.go and cancel.go.
+// scenarios are defined beside the runner: exchange.go, cancel.go, and resume.go.
 package scenario

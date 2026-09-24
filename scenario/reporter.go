@@ -35,6 +35,9 @@ func (r *Reporter) Event(ev harness.Event) { r.out.Event(ev) }
 // Result prints an exchange's result.
 func (r *Reporter) Result(res harness.Result, err error) { r.out.Result(res, err) }
 
+// Record prints one recorded exchange.
+func (r *Reporter) Record(rec harness.Record) { r.out.Record(rec) }
+
 // Cancelling notes that an exchange is being cancelled after n text deltas.
 func (r *Reporter) Cancelling(n int) {
 	r.Note("%s", fmt.Sprintf("-- cancelling after %d text deltas", n))

@@ -9,6 +9,7 @@ import (
 
 	"github.com/JaimeStill/spike-harness-driver/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/internal/harnesstest"
 	"github.com/JaimeStill/spike-harness-driver/output"
 )
@@ -30,7 +31,7 @@ func newService(opened *harness.Options) *session.Service {
 func TestRunToTheEnd(t *testing.T) {
 	var opened harness.Options
 	svc := newService(&opened)
-	sess, err := svc.Open(t.Context())
+	sess, err := svc.Open(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestRunToTheEnd(t *testing.T) {
 
 func TestRunCancelsAfterDeltas(t *testing.T) {
 	svc := newService(nil)
-	sess, err := svc.Open(t.Context())
+	sess, err := svc.Open(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +86,7 @@ func TestRunCancelsAfterDeltas(t *testing.T) {
 func TestOpenFailsWithTheDriverError(t *testing.T) {
 	boom := errors.New("no such harness")
 	svc := session.New(func() (harness.Driver, error) { return nil, boom }, func() harness.Options { return harness.Options{} })
-	if _, err := svc.Open(t.Context()); !errors.Is(err, boom) {
+	if _, err := svc.Open(t.Context(), ""); !errors.Is(err, boom) {
 		t.Errorf("Open = %v, want %v", err, boom)
 	}
 }
@@ -103,5 +104,51 @@ func TestSendCommand(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestSendResumesAndExchangesLists(t *testing.T) {
+	var opened harness.Options
+	store := filestore.New(t.TempDir())
+	svc := session.New(
+		func() (harness.Driver, error) {
+			return harnesstest.Driver{Opened: func(o harness.Options) { opened = o }}, nil
+		},
+		func() harness.Options { return harness.Options{Store: store} },
+	)
+	execute := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		cmd := session.Commands(svc, output.New(&out, &out, nil))
+		cmd.SetArgs(args)
+		if err := cmd.ExecuteContext(t.Context()); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return out.String()
+	}
+
+	if got := execute("send", "hi"); !strings.Contains(got, "resume with: clutch session send --session "+harnesstest.SessionID) {
+		t.Errorf("send output lacks the resume line:\n%s", got)
+	}
+	execute("send", "--session", "resumed", "again")
+	if opened.SessionID != "resumed" {
+		t.Errorf("resumed with SessionID %q", opened.SessionID)
+	}
+
+	for _, verify := range []string{"", "--verify"} {
+		args := []string{"exchanges", harnesstest.SessionID}
+		if verify != "" {
+			args = append(args, verify)
+		}
+		got := execute(args...)
+		if strings.Count(got, "exchange ") != 1 || !strings.Contains(got, `prompt: "hi"`) {
+			t.Errorf("%v:\n%s", args, got)
+		}
+		if (verify != "") != strings.Contains(got, "verified") {
+			t.Errorf("%v: verification line:\n%s", args, got)
+		}
+	}
+	if got := execute("exchanges", "unknown"); !strings.Contains(got, "no exchanges recorded") {
+		t.Errorf("exchanges of an unknown session:\n%s", got)
 	}
 }

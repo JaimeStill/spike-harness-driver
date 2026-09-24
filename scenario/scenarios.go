@@ -15,6 +15,7 @@ func Scenarios(svc *session.Service, needs []Need) []Scenario {
 	return []Scenario{
 		exchangeScenario(svc, needs),
 		cancelScenario(svc, needs),
+		resumeScenario(svc, needs),
 	}
 }
 
@@ -24,9 +25,15 @@ type run struct {
 	sess *harness.Session
 }
 
-// open opens the run's session and notes its ID.
+// open opens a new session for the run and notes its ID.
 func (r *run) open(ctx context.Context, rep *Reporter) error {
-	sess, err := r.svc.Open(ctx)
+	return r.resume(ctx, rep, "")
+}
+
+// resume opens the session id names for the run, a new one when id is empty, and notes its
+// ID.
+func (r *run) resume(ctx context.Context, rep *Reporter, id string) error {
+	sess, err := r.svc.Open(ctx, id)
 	if err != nil {
 		return err
 	}

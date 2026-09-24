@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/pi"
 	"github.com/JaimeStill/spike-harness-driver/scenario"
 )
 
-// Infrastructure resolves the harness the flags name. It opens nothing itself: each session
-// the domain opens starts, and ends, its own harness process.
+// Infrastructure resolves the harness the flags name, and the store that keeps exchange
+// records, both under the --state directory. It opens nothing itself: each session the domain
+// opens starts, and ends, its own harness process.
 type Infrastructure struct {
 	cfg *Config
 }
@@ -32,15 +35,21 @@ func (i *Infrastructure) Validate() error {
 func (i *Infrastructure) Driver() (harness.Driver, error) {
 	switch i.cfg.Harness {
 	case "pi":
-		return pi.Driver{}, nil
+		return pi.Driver{SessionDir: filepath.Join(i.cfg.State, "pi")}, nil
 	default:
 		return nil, fmt.Errorf("unknown harness %q (known: pi)", i.cfg.Harness)
 	}
 }
 
-// Options returns the session options the flags name.
+// Options returns the session options the flags name, with the store that keeps exchange
+// records.
 func (i *Infrastructure) Options() harness.Options {
-	return harness.Options{Provider: i.cfg.Provider, Model: i.cfg.Model}
+	return harness.Options{Provider: i.cfg.Provider, Model: i.cfg.Model, Store: i.Store()}
+}
+
+// Store returns the store that keeps exchange records, in the --state directory.
+func (i *Infrastructure) Store() harness.Store {
+	return filestore.New(filepath.Join(i.cfg.State, "exchanges"))
 }
 
 // Needs returns what the harness requires to run, which each scenario checks first.

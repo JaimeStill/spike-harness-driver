@@ -9,6 +9,7 @@ import (
 
 	"github.com/JaimeStill/spike-harness-driver/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/internal/harnesstest"
 	"github.com/JaimeStill/spike-harness-driver/output"
 	"github.com/JaimeStill/spike-harness-driver/scenario"
@@ -63,9 +64,10 @@ func TestRunStopsAtAFailedNeed(t *testing.T) {
 }
 
 func TestScenariosOverAStubHarness(t *testing.T) {
+	store := filestore.New(t.TempDir())
 	svc := session.New(
 		func() (harness.Driver, error) { return harnesstest.Driver{Stream: "essay"}, nil },
-		func() harness.Options { return harness.Options{} },
+		func() harness.Options { return harness.Options{Store: store} },
 	)
 	scenarios := scenario.Scenarios(svc, nil)
 	for _, s := range scenarios {
@@ -84,7 +86,7 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 
 	var listing bytes.Buffer
 	scenario.WriteListing(&listing, scenarios)
-	for _, name := range []string{"exchange", "cancel"} {
+	for _, name := range []string{"exchange", "cancel", "resume"} {
 		if !strings.Contains(listing.String(), name) {
 			t.Errorf("listing lacks %s:\n%s", name, listing.String())
 		}

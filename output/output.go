@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
@@ -43,6 +44,25 @@ func (o *Output) Event(ev harness.Event) {
 func (o *Output) Result(res harness.Result, err error) {
 	o.Printf("result: stop=%s usage=%d/%d err=%v", res.StopReason, res.Usage.Input, res.Usage.Output, err)
 	o.Printf("  text: %q", res.Text)
+}
+
+// Record writes one recorded exchange: its ID, the span of harness entries it appended, how
+// it ended, and its prompt.
+func (o *Output) Record(r harness.Record) {
+	span := "no entries"
+	switch n := len(r.Entries); n {
+	case 0:
+	case 1:
+		span = "entry " + r.Entries[0]
+	default:
+		span = fmt.Sprintf("entries %s..%s (%d)", r.Entries[0], r.Entries[n-1], n)
+	}
+	ended := "stop=" + r.Result.StopReason
+	if r.Err != "" {
+		ended += " err=" + r.Err
+	}
+	o.Printf("exchange %s  %s  %s  %s", r.ExchangeID, r.Started.Format(time.RFC3339), ended, span)
+	o.Printf("  prompt: %q", r.Request.Text)
 }
 
 // Error writes the error a command ended with to stderr.

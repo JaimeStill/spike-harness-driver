@@ -8,7 +8,7 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// SessionID is the ID of every session a Driver opens.
+// SessionID is the ID of every session a Driver opens without Options.SessionID.
 const SessionID = "stub-session"
 
 // Reply is the text a Connection answers a prompt with.
@@ -28,7 +28,11 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if d.Opened != nil {
 		d.Opened(opts)
 	}
-	return harness.NewSession(ctx, SessionID, NewConnection(d.Stream), opts.Store)
+	id := opts.SessionID
+	if id == "" {
+		id = SessionID
+	}
+	return harness.NewSession(ctx, id, NewConnection(d.Stream), opts.Store)
 }
 
 // Connection is a scripted harness.Connection.

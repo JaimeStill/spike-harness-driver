@@ -21,7 +21,7 @@ func TestListNamesEveryScenario(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"exchange", "cancel", "needs the harness executable"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "needs the harness executable"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("list lacks %q:\n%s", name, out)
 		}
@@ -55,5 +55,12 @@ func TestScenarioChecksItsNeeds(t *testing.T) {
 	code, _, errs := execute(t, "scenario", "exchange")
 	if code != 1 || !strings.Contains(errs, "need the harness executable on the PATH") {
 		t.Errorf("exit %d, stderr %q", code, errs)
+	}
+}
+
+func TestExchangesReadTheStateDirectory(t *testing.T) {
+	code, out, errs := execute(t, "--state", t.TempDir(), "session", "exchanges", "none")
+	if code != 0 || !strings.Contains(out, "no exchanges recorded for session none") {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
 	}
 }

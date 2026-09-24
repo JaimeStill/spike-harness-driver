@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
@@ -78,5 +79,30 @@ func TestResultAndError(t *testing.T) {
 	}
 	if errs.String() != "error: bad\n" {
 		t.Errorf("stderr = %q", errs.String())
+	}
+}
+
+func TestRecord(t *testing.T) {
+	x := uuid.MustParse("0192f3a4-5b6c-7d8e-9f00-112233445566")
+	started := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		rec  harness.Record
+		want string
+	}{
+		{
+			rec:  harness.Record{ExchangeID: x, Started: started, Result: harness.Result{StopReason: "stop"}, Entries: []string{"a1", "b2", "c3"}, Request: harness.Request{Text: "hi"}},
+			want: "exchange " + x.String() + "  2026-09-24T12:00:00Z  stop=stop  entries a1..c3 (3)\n  prompt: \"hi\"\n",
+		},
+		{
+			rec:  harness.Record{ExchangeID: x, Started: started, Err: "boom", Request: harness.Request{Text: "hi"}},
+			want: "exchange " + x.String() + "  2026-09-24T12:00:00Z  stop= err=boom  no entries\n  prompt: \"hi\"\n",
+		},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		output.New(&out, &out, nil).Record(tt.rec)
+		if out.String() != tt.want {
+			t.Errorf("Record =\n%q\nwant\n%q", out.String(), tt.want)
+		}
 	}
 }
