@@ -50,8 +50,8 @@ type Session struct {
 // session lives until Close, or until the harness exits.
 //
 // When c keeps a Journal, setup takes the journal's head as the cursor, and checks that the
-// last entry store has recorded for id is still in the journal. If it isn't, NewSession fails
-// with ErrJournalMismatch. NewSession doesn't close c when it fails.
+// last entry the store has recorded for id is still in the journal. If it isn't, NewSession
+// fails with ErrJournalMismatch. NewSession doesn't close c when it fails.
 func NewSession(ctx context.Context, id string, c Connection, store Store) (*Session, error) {
 	s := &Session{id: id, connection: c, store: store, done: make(chan struct{})}
 	if j, ok := c.(Journal); ok {
