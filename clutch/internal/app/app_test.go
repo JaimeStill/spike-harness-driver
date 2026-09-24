@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +23,7 @@ func TestListNamesEveryScenario(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"exchange", "cancel", "resume", "needs the harness executable"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "needs the harness executable"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("list lacks %q:\n%s", name, out)
 		}
@@ -47,6 +49,47 @@ func TestUnknownHarnessFailsBeforeTheCommandRuns(t *testing.T) {
 	}
 	if out != "" {
 		t.Errorf("list ran anyway:\n%s", out)
+	}
+}
+
+func TestSourcesThatDontLoadFailBeforeTheCommandRuns(t *testing.T) {
+	empty := t.TempDir()
+	badSkill := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(badSkill, "nameless"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(badSkill, "nameless", "SKILL.md"), []byte("---\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(empty, "missing")
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--tools", missing}, "--tools " + missing + ": "},
+		{[]string{"--skills", missing}, "--skills " + missing + ": "},
+		{[]string{"--tools", empty}, "no command tools"},
+		{[]string{"--skills", empty}, "no skills"},
+		{[]string{"--skills", badSkill}, "frontmatter has no name"},
+		{[]string{"--tools", "../../examples/tools", "--tools", "../../examples/tools"}, `tool "fingerprint" is also in`},
+		// The skills root isn't a tools root: a mistyped flag fails rather than loading nothing.
+		{[]string{"--tools", "../../examples/skills"}, "no command tools"},
+	}
+	for _, tt := range tests {
+		code, out, errs := execute(t, append(tt.args, "list")...)
+		if code != 1 || !strings.Contains(errs, tt.want) {
+			t.Errorf("%v: exit %d, stderr %q, want %q", tt.args, code, errs, tt.want)
+		}
+		if out != "" {
+			t.Errorf("%v: list ran anyway:\n%s", tt.args, out)
+		}
+	}
+}
+
+func TestTheExamplesLoad(t *testing.T) {
+	code, _, errs := execute(t, "--tools", "../../examples/tools", "--skills", "../../examples/skills", "list")
+	if code != 0 {
+		t.Errorf("exit %d, stderr %q", code, errs)
 	}
 }
 

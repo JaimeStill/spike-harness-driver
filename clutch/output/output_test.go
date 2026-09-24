@@ -33,13 +33,41 @@ func TestEventLine(t *testing.T) {
 		},
 		{
 			name: "error",
-			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 1, Kind: harness.EventError, Err: "boom"},
+			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 1, Kind: harness.EventError, Err: errors.New("boom")},
 			want: `s 33445566    1 error          "boom"`,
 		},
 		{
-			name: "tool",
+			name: "tool without arguments",
 			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 2, Kind: harness.EventToolCall, Tool: &harness.ToolEvent{Name: "bash"}},
 			want: `s 33445566    2 tool_call      "bash"`,
+		},
+		{
+			name: "tool call is compacted",
+			ev: harness.Event{SessionID: "s", ExchangeID: x, Seq: 2, Kind: harness.EventToolCall,
+				Tool: &harness.ToolEvent{Name: "lookup_code", Args: []byte(`{ "name": "alice" }`)}},
+			want: `s 33445566    2 tool_call      ` + strconv.Quote(`lookup_code {"name":"alice"}`),
+		},
+		{
+			name: "tool result is cut",
+			ev: harness.Event{SessionID: "s", ExchangeID: x, Seq: 3, Kind: harness.EventToolResult,
+				Tool: &harness.ToolEvent{Name: "read", Result: []byte(long)}},
+			want: `s 33445566    3 tool_result    ` + strconv.Quote("read = "+long[:80]+"…"),
+		},
+		{
+			name: "failed tool result",
+			ev: harness.Event{SessionID: "s", ExchangeID: x, Seq: 3, Kind: harness.EventToolResult,
+				Tool: &harness.ToolEvent{Name: "fingerprint", Result: []byte(`"exit status 1"`), IsError: true}},
+			want: `s 33445566    3 tool_result    ` + strconv.Quote(`fingerprint failed: "exit status 1"`),
+		},
+		{
+			name: "structured",
+			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 5, Kind: harness.EventStructured, Structured: []byte(`{"answer": 42}`)},
+			want: `s 33445566    5 structured     ` + strconv.Quote(`{"answer":42}`),
+		},
+		{
+			name: "cut keeps whole characters",
+			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 6, Kind: harness.EventHarness, Raw: []byte(strings.Repeat("x", 79) + "éé")},
+			want: `s 33445566    6 harness        ` + strconv.Quote(strings.Repeat("x", 79)+"…"),
 		},
 		{
 			name: "harness raw is cut",
@@ -71,9 +99,11 @@ func TestEventSkipsHarnessEventsUnlessAll(t *testing.T) {
 func TestResultAndError(t *testing.T) {
 	var out, errs bytes.Buffer
 	o := output.New(&out, &errs, nil)
-	o.Result(harness.Result{StopReason: "stop", Text: "hi", Usage: harness.Usage{Input: 1, Output: 2}}, nil)
+	o.Result(harness.Result{StopReason: "stop", Text: "hi", Usage: harness.Usage{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, nil)
+	o.Result(harness.Result{StopReason: "stop", Structured: []byte(`{ "a": 1 }`)}, nil)
 	o.Error(errors.New("bad"))
-	want := "result: stop=stop usage=1/2 err=<nil>\n  text: \"hi\"\n"
+	want := "result: stop=stop usage=1/2 cache=3/4 err=<nil>\n  text: \"hi\"\n" +
+		"result: stop=stop usage=0/0 cache=0/0 err=<nil>\n  text: \"\"\n  structured: {\"a\":1}\n"
 	if out.String() != want {
 		t.Errorf("stdout = %q, want %q", out.String(), want)
 	}

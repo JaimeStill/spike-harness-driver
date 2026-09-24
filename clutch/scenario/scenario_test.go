@@ -65,28 +65,56 @@ func TestRunStopsAtAFailedNeed(t *testing.T) {
 
 func TestScenariosOverAStubHarness(t *testing.T) {
 	store := filestore.New(t.TempDir())
+	var opened []harness.Options
 	svc := session.New(
-		func() (harness.Driver, error) { return harnesstest.Driver{Stream: "essay"}, nil },
+		func() (harness.Driver, error) {
+			return harnesstest.Driver{Stream: "essay", Opened: func(o harness.Options) { opened = append(opened, o) }}, nil
+		},
 		func() harness.Options { return harness.Options{Store: store} },
 	)
+	// The stub harness replies with the same text whatever it is asked and calls no tools, so
+	// the scenarios that check the model's reply fail at their first check.
+	fails := map[string]string{
+		"tool":  "step 2: the model never called the lookup_code tool",
+		"skill": "step 1: the reply lacks the motto",
+	}
 	scenarios := scenario.Scenarios(svc, nil)
 	for _, s := range scenarios {
 		t.Run(s.Name, func(t *testing.T) {
+			opened = nil
 			rep, out := reporter()
 			cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
 			cmd.SetArgs(nil)
-			if err := cmd.ExecuteContext(t.Context()); err != nil {
+			err := cmd.ExecuteContext(t.Context())
+			if want, ok := fails[s.Name]; ok {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("Run = %v, want an error containing %q\n%s", err, want, out.String())
+				}
+			} else if err != nil {
 				t.Fatalf("%v\n%s", err, out.String())
 			}
 			if !strings.Contains(out.String(), "session "+harnesstest.SessionID) || !strings.Contains(out.String(), "result: stop=") {
 				t.Errorf("narration:\n%s", out.String())
+			}
+			if len(opened) == 0 {
+				t.Fatal("no session opened")
+			}
+			switch first := opened[0]; s.Name {
+			case "tool":
+				if len(first.Tools) != 1 || first.Tools[0].Name != "lookup_code" || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
+					t.Errorf("opened with tools %+v, harness tools %#v", first.Tools, first.HarnessTools)
+				}
+			case "skill":
+				if len(first.Skills) != 1 || first.Skills[0].Name != "clutch-motto" || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
+					t.Errorf("opened with skills %+v, harness tools %#v", first.Skills, first.HarnessTools)
+				}
 			}
 		})
 	}
 
 	var listing bytes.Buffer
 	scenario.WriteListing(&listing, scenarios)
-	for _, name := range []string{"exchange", "cancel", "resume"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill"} {
 		if !strings.Contains(listing.String(), name) {
 			t.Errorf("listing lacks %s:\n%s", name, listing.String())
 		}

@@ -14,6 +14,9 @@ type Config struct {
 	Model    string
 	State    string
 	All      bool
+	// Skills and Tools are directories of skills and command tools that every session offers.
+	Skills []string
+	Tools  []string
 }
 
 // bind registers cfg's flags on fs.
@@ -24,4 +27,6 @@ func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.State, "state", filepath.Join(os.TempDir(), "clutch"), "where the harness's sessions and the exchange records are kept; the default is under the\n"+
 		"temporary directory, so it doesn't survive a reboot")
 	fs.BoolVar(&cfg.All, "all", false, "also print harness events with no normalized meaning")
+	fs.StringArrayVar(&cfg.Skills, "skills", nil, "a directory of skills, one per subdirectory, that every session offers; repeatable")
+	fs.StringArrayVar(&cfg.Tools, "tools", nil, "a directory of command tools, one per subdirectory, that every session offers; repeatable")
 }

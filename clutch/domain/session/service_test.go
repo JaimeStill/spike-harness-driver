@@ -3,6 +3,7 @@ package session_test
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"uuid"
@@ -88,6 +89,64 @@ func TestOpenFailsWithTheDriverError(t *testing.T) {
 	svc := session.New(func() (harness.Driver, error) { return nil, boom }, func() harness.Options { return harness.Options{} })
 	if _, err := svc.Open(t.Context(), ""); !errors.Is(err, boom) {
 		t.Errorf("Open = %v, want %v", err, boom)
+	}
+}
+
+func TestOpenWithAddsTheSetup(t *testing.T) {
+	base := harness.Options{
+		Tools:        []harness.Tool{{Name: "fingerprint"}},
+		Skills:       []harness.Skill{{Name: "clutch-weather"}},
+		HarnessTools: []string{"bash"},
+	}
+	// A spare capacity would let an in-place append leak one Open's setup into the next.
+	base.Tools = slices.Grow(base.Tools, 4)
+	var opened harness.Options
+	svc := session.New(
+		func() (harness.Driver, error) {
+			return harnesstest.Driver{Opened: func(o harness.Options) { opened = o }}, nil
+		},
+		func() harness.Options { return base },
+	)
+	names := func(tools []harness.Tool) []string {
+		var n []string
+		for _, t := range tools {
+			n = append(n, t.Name)
+		}
+		return n
+	}
+
+	sess, err := svc.OpenWith(t.Context(), "", session.Setup{
+		Tools:        []harness.Tool{{Name: "lookup_code"}},
+		Skills:       []harness.Skill{{Name: "clutch-motto"}},
+		HarnessTools: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sess.Close()
+	if got := names(opened.Tools); !slices.Equal(got, []string{"fingerprint", "lookup_code"}) {
+		t.Errorf("tools = %v", got)
+	}
+	if len(opened.Skills) != 2 || opened.Skills[0].Name != "clutch-weather" || opened.Skills[1].Name != "clutch-motto" {
+		t.Errorf("skills = %+v", opened.Skills)
+	}
+	if opened.HarnessTools == nil || len(opened.HarnessTools) != 0 {
+		t.Errorf("harness tools = %#v, want empty", opened.HarnessTools)
+	}
+
+	sess, err = svc.Open(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sess.Close()
+	if got := names(opened.Tools); !slices.Equal(got, []string{"fingerprint"}) {
+		t.Errorf("a plain Open offers %v", got)
+	}
+	if !slices.Equal(opened.HarnessTools, []string{"bash"}) {
+		t.Errorf("a plain Open enables %v", opened.HarnessTools)
+	}
+	if got := names(svc.Tools()); !slices.Equal(got, []string{"fingerprint"}) || len(svc.Skills()) != 1 {
+		t.Errorf("Tools = %v, Skills = %+v", got, svc.Skills())
 	}
 }
 

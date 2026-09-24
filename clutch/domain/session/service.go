@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 	"uuid"
 
@@ -48,21 +49,51 @@ type Outcome struct {
 	Err error
 }
 
+// Setup is what one session offers the model beyond what every session the Service opens
+// does, such as a scenario's own tools and skills.
+type Setup struct {
+	// Tools and Skills are added after the ones every session offers. A name offered twice
+	// fails the Open.
+	Tools  []harness.Tool
+	Skills []harness.Skill
+	// HarnessTools, when not nil, replaces the harness's own tools every session enables, as
+	// harness.Options.HarnessTools does: empty enables none.
+	HarnessTools []string
+}
+
 // Open opens the session id names on the harness, creating it if the harness has none, or a
 // new session when id is empty. Resuming a session checks its recorded exchanges against the
 // harness's journal. The start-up handshake is bounded by ctx and by openTimeout; the session
 // lives until the caller closes it.
 func (s *Service) Open(ctx context.Context, id string) (*harness.Session, error) {
+	return s.OpenWith(ctx, id, Setup{})
+}
+
+// OpenWith opens the session id names as Open does, offering setup's tools and skills beside
+// the ones every session offers.
+func (s *Service) OpenWith(ctx context.Context, id string, setup Setup) (*harness.Session, error) {
 	d, err := s.driver()
 	if err != nil {
 		return nil, err
 	}
 	opts := s.options()
 	opts.SessionID = id
+	// Concat copies, so the options function's slices are never appended to in place.
+	opts.Tools = slices.Concat(opts.Tools, setup.Tools)
+	opts.Skills = slices.Concat(opts.Skills, setup.Skills)
+	if setup.HarnessTools != nil {
+		opts.HarnessTools = setup.HarnessTools
+	}
 	ctx, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
 	return d.Open(ctx, opts)
 }
+
+// Tools returns the tools every session the Service opens offers.
+func (s *Service) Tools() []harness.Tool { return s.options().Tools }
+
+// Skills returns the skills every session the Service opens offers.
+func (s *Service) Skills() []harness.Skill { return s.options().Skills }
 
 // Exchanges returns the exchanges recorded for session id, from the store alone. With verify,
 // it opens the session on the harness instead, and closes it again: opening checks that the

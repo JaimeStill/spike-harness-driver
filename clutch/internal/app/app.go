@@ -51,8 +51,9 @@ func (a *App) Run(ctx context.Context) int {
 func (a *App) SetArgs(args []string) { a.root.SetArgs(args) }
 
 // newRoot builds the root command with cfg's persistent flags bound. Before any subcommand
-// runs, it fails when the flags name a harness clutch has no adapter for. Run without a
-// subcommand, it prints its help and the scenario listing.
+// runs, it fails when the flags name a harness clutch has no adapter for or a --skills or
+// --tools directory that doesn't load. Run without a subcommand, it prints its help and the
+// scenario listing.
 func newRoot(cfg *Config, infra *Infrastructure, scenarios []scenario.Scenario) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "clutch",

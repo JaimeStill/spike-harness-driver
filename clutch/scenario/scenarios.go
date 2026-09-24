@@ -17,6 +17,8 @@ func Scenarios(svc *session.Service, needs []Need) []Scenario {
 		exchangeScenario(svc, needs),
 		cancelScenario(svc, needs),
 		resumeScenario(svc, needs),
+		toolScenario(svc, needs),
+		skillScenario(svc, needs),
 	}
 }
 
@@ -24,6 +26,8 @@ func Scenarios(svc *session.Service, needs []Need) []Scenario {
 type run struct {
 	svc  *session.Service
 	sess *harness.Session
+	// events are the events of the run's last exchange.
+	events []harness.Event
 }
 
 // open opens a new session for the run and notes its ID.
@@ -34,7 +38,13 @@ func (r *run) open(ctx context.Context, rep *Reporter) error {
 // resume opens the session id names for the run, a new one when id is empty, and notes its
 // ID.
 func (r *run) resume(ctx context.Context, rep *Reporter, id string) error {
-	sess, err := r.svc.Open(ctx, id)
+	return r.openWith(ctx, rep, id, session.Setup{})
+}
+
+// openWith opens the session id names for the run as resume does, offering setup's tools and
+// skills.
+func (r *run) openWith(ctx context.Context, rep *Reporter, id string, setup session.Setup) error {
+	sess, err := r.svc.OpenWith(ctx, id, setup)
 	if err != nil {
 		return err
 	}
@@ -43,12 +53,18 @@ func (r *run) resume(ctx context.Context, rep *Reporter, id string) error {
 	return nil
 }
 
-// exchange runs e on the run's session, narrating its events and result.
+// exchange runs e on the run's session, narrating its events and result, and keeps its events.
 func (r *run) exchange(ctx context.Context, rep *Reporter, e session.Exchange) (session.Outcome, error) {
 	if r.sess == nil {
 		return session.Outcome{}, errors.New("no open session")
 	}
-	o, err := r.svc.Run(ctx, r.sess, e, observer(rep, e.Prompt))
+	r.events = nil
+	obs := observer(rep, e.Prompt)
+	obs.Event = func(ev harness.Event) {
+		r.events = append(r.events, ev)
+		rep.Event(ev)
+	}
+	o, err := r.svc.Run(ctx, r.sess, e, obs)
 	if err != nil {
 		return o, err
 	}
@@ -64,6 +80,26 @@ func ended(o session.Outcome, err error) error {
 	}
 	if o.Err != nil {
 		return fmt.Errorf("exchange ended in error: %w", o.Err)
+	}
+	return nil
+}
+
+// toolRan fails unless the run's last exchange both called the tool name names and received
+// its result.
+func (r *run) toolRan(name string) error {
+	var called, returned bool
+	for _, ev := range r.events {
+		if ev.Tool == nil || ev.Tool.Name != name {
+			continue
+		}
+		called = called || ev.Kind == harness.EventToolCall
+		returned = returned || ev.Kind == harness.EventToolResult
+	}
+	switch {
+	case !called:
+		return fmt.Errorf("the model never called the %s tool", name)
+	case !returned:
+		return fmt.Errorf("the %s tool was called but no result came back", name)
 	}
 	return nil
 }
