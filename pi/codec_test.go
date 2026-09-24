@@ -3,6 +3,7 @@ package pi
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -139,6 +140,15 @@ func TestStructuredResponse(t *testing.T) {
 	ev := normalize(r, []byte(line))[1]
 	if string(ev.Structured) != `{"a":1}` {
 		t.Fatalf("Structured = %s", ev.Structured)
+	}
+}
+
+func TestARespondWithoutDetailsIsNoStructuredResponse(t *testing.T) {
+	line := `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[]},"isError":false}`
+	r, _ := decode([]byte(line))
+	events := normalize(r, []byte(line))
+	if last := events[len(events)-1]; !errors.Is(last.Err, harness.ErrNoStructuredResponse) {
+		t.Fatalf("event = %+v, want ErrNoStructuredResponse", last)
 	}
 }
 

@@ -1,14 +1,12 @@
 package catalog_test
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 	"github.com/JaimeStill/spike-harness-driver/harness/catalog"
@@ -30,7 +28,7 @@ func commandTools(t *testing.T) map[string]harness.Tool {
 		names = append(names, tool.Name)
 		byName[tool.Name] = tool
 	}
-	if got, want := strings.Join(names, ","), "echo,fail,slow"; got != want {
+	if got, want := strings.Join(names, ","), "echo,fail,leaves,slow"; got != want {
 		t.Fatalf("names = %s, want %s", got, want)
 	}
 	return byName
@@ -64,20 +62,6 @@ func TestCommandToolFail(t *testing.T) {
 	}
 }
 
-func TestCommandToolCancel(t *testing.T) {
-	tool := commandTools(t)["slow"]
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	_, err := tool.Handler(ctx, json.RawMessage(`{}`))
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("the call took %v after cancellation", elapsed)
-	}
-	if err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
-		t.Fatalf("err = %v, want the deadline", err)
-	}
-}
-
 func TestCommandToolPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("cat isn't on Windows's PATH")
@@ -101,11 +85,11 @@ func TestCommandToolInvalid(t *testing.T) {
 		want     string
 	}{
 		{"missing inputSchema", `{"name":"t","description":"T.","command":["x"]}`, "inputSchema is missing"},
-		{"non-object type", `{"name":"t","description":"T.","inputSchema":{"type":"array"},"command":["x"]}`, `type isn't "object"`},
-		{"schema not an object", `{"name":"t","description":"T.","inputSchema":[],"command":["x"]}`, "isn't a JSON object"},
+		{"non-object type", `{"name":"t","description":"T.","inputSchema":{"type":"array"},"command":["x"]}`, `its type is "array", want "object"`},
+		{"schema not an object", `{"name":"t","description":"T.","inputSchema":[],"command":["x"]}`, "not a JSON object"},
 		{"empty command", `{"name":"t","description":"T.","inputSchema":{"type":"object"},"command":[]}`, "command is empty"},
 		{"empty description", `{"name":"t","description":" ","inputSchema":{"type":"object"},"command":["x"]}`, "description is empty"},
-		{"bad name", `{"name":"a b","description":"T.","inputSchema":{"type":"object"},"command":["x"]}`, `name "a b" isn't`},
+		{"bad name", `{"name":"a b","description":"T.","inputSchema":{"type":"object"},"command":["x"]}`, `tool "a b": the name isn't`},
 		{"not JSON", `{`, "tool.json"},
 	}
 	for _, c := range cases {

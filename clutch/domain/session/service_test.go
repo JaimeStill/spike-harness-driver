@@ -229,10 +229,10 @@ func TestSendSchema(t *testing.T) {
 	}{
 		{name: "inline", value: schema},
 		{name: "file", value: file},
-		{name: "invalid JSON", value: `{"type":`, err: "--schema: not a JSON object"},
-		{name: "not an object", value: array, err: "--schema: not a JSON object"},
-		{name: "not an object schema", value: `{"type":"array"}`, err: `--schema: the schema's type is "array", want "object"`},
-		{name: "no type", value: `{}`, err: "--schema: the schema declares no type"},
+		{name: "invalid JSON", value: `{"type":`, err: "--schema: harness: invalid schema: not a JSON object"},
+		{name: "not an object", value: array, err: "--schema: harness: invalid schema: not a JSON object"},
+		{name: "not an object schema", value: `{"type":"array"}`, err: `--schema: harness: invalid schema: its type is "array", want "object"`},
+		{name: "no type", value: `{}`, err: "--schema: harness: invalid schema: it declares no type"},
 		{name: "missing file", value: filepath.Join(t.TempDir(), "none.json"), err: "--schema: open"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

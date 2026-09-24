@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
@@ -29,9 +30,6 @@ const (
 	// are closed, for a process that keeps them open.
 	waitDelay = 2 * time.Second
 )
-
-// toolName is the name rule the model providers share for a tool.
-var toolName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // errOutputTooLarge fails a call whose command writes more than maxOutput to stdout.
 var errOutputTooLarge = errors.New("output exceeds 1 MiB")
@@ -110,19 +108,22 @@ func CommandTool(dir string) (harness.Tool, error) {
 			c.path = filepath.Join(dir, c.path)
 		}
 	}
-	return harness.Tool{
+	t := harness.Tool{
 		Name:        m.Name,
 		Description: m.Description,
 		Schema:      schema.Bytes(),
 		Handler:     c.run,
-	}, nil
+	}
+	if err := t.Validate(); err != nil {
+		return harness.Tool{}, fmt.Errorf("catalog: %s: %w", file, err)
+	}
+	return t, nil
 }
 
-// validate checks the manifest against what a harness and a model provider accept.
+// validate checks the manifest's own fields. The tool it describes is checked as any
+// harness.Tool is, by Validate.
 func (m *manifest) validate() error {
 	switch {
-	case !toolName.MatchString(m.Name):
-		return fmt.Errorf("name %q isn't 1 to 64 letters, digits, underscores, and hyphens", m.Name)
 	case strings.TrimSpace(m.Description) == "":
 		return errors.New("description is empty")
 	case len(m.InputSchema) == 0:
@@ -130,13 +131,8 @@ func (m *manifest) validate() error {
 	case len(m.Command) == 0 || m.Command[0] == "":
 		return errors.New("command is empty")
 	}
-	var schema map[string]json.RawMessage
-	if err := json.Unmarshal(m.InputSchema, &schema); err != nil || schema == nil {
-		return errors.New("inputSchema isn't a JSON object")
-	}
-	var typ string
-	if err := json.Unmarshal(schema["type"], &typ); err != nil || typ != "object" {
-		return errors.New(`inputSchema's type isn't "object"`)
+	if err := harness.ValidateSchema(m.InputSchema); err != nil {
+		return fmt.Errorf("inputSchema: %w", err)
 	}
 	return nil
 }
@@ -149,18 +145,50 @@ type command struct {
 	args []string
 }
 
-// run runs one call. Cancelling ctx kills the command and, on Unix, every process it started,
-// so a script's children don't outlive the call.
+// run runs one call. The command gets its stdout and stderr as *os.File pipes, so Wait returns
+// as soon as it exits rather than when every process holding the pipes lets go. The command
+// runs in a process group of its own on Unix, and the group is killed once the command exits,
+// or when ctx ends, so no process a script started outlives the call: the driver owns what a
+// tool leaves behind, as it owns what a harness does.
 func (c *command) run(ctx context.Context, args json.RawMessage) (string, error) {
 	cmd := exec.CommandContext(ctx, c.path, c.args...)
 	cmd.Dir = c.dir
 	cmd.Stdin = bytes.NewReader(args)
-	stdout := &limited{max: maxOutput}
-	stderr := &tail{max: stderrTail}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.WaitDelay = waitDelay
 	ownGroup(cmd)
-	err := cmd.Run()
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		return "", fmt.Errorf("catalog: tool %q: %w", c.name, err)
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		_, _ = stdoutR.Close(), stdoutW.Close()
+		return "", fmt.Errorf("catalog: tool %q: %w", c.name, err)
+	}
+	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
+	err = cmd.Start()
+	// The command holds its own copies of the write ends; closing these lets the readers
+	// reach EOF once every process holding them is gone.
+	_, _ = stdoutW.Close(), stderrW.Close()
+	if err != nil {
+		_, _ = stdoutR.Close(), stderrR.Close()
+		return "", fmt.Errorf("catalog: tool %q: %w", c.name, err)
+	}
+
+	stdout := &limited{max: maxOutput}
+	stderr := &tail{max: stderrTail}
+	var reading sync.WaitGroup
+	reading.Go(func() { drain(stdoutR, stdout) })
+	reading.Go(func() { drain(stderrR, stderr) })
+
+	err = cmd.Wait()
+	killGroup(cmd)
+	// A process that left the group can still hold the pipes; stop reading after the delay.
+	grace := time.AfterFunc(waitDelay, func() { _, _ = stdoutR.Close(), stderrR.Close() })
+	reading.Wait()
+	grace.Stop()
+
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("catalog: tool %q: %w", c.name, context.Cause(ctx))
 	}
@@ -176,9 +204,16 @@ func (c *command) run(ctx context.Context, args json.RawMessage) (string, error)
 	return stdout.String(), nil
 }
 
+// drain copies r to w until r ends, and closes r. When w refuses a write, as limited does past
+// its bound, closing r makes the command's next write fail on the closed pipe, so a runaway
+// command stops rather than blocking on a full one.
+func drain(r *os.File, w io.Writer) {
+	_, _ = io.Copy(w, r)
+	_ = r.Close()
+}
+
 // limited keeps what is written to it up to max bytes, and fails the write that would pass
-// max. The failure ends exec's copy of the command's stdout, and the command's next write
-// fails on the closed pipe, so a runaway command stops rather than filling memory.
+// max, which ends drain's copy.
 type limited struct {
 	buf  bytes.Buffer
 	max  int

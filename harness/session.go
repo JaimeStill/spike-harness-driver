@@ -112,7 +112,8 @@ func (s *Session) ID() string { return s.id }
 func (s *Session) Journaled() bool { return s.journal != nil }
 
 // Send opens an exchange and prompts the harness with req. Cancelling ctx cancels the
-// exchange. Send returns ErrBusy while another exchange is open, ErrClosed after Close, and
+// exchange. Send returns ErrInvalidSchema, wrapped, for a request whose schema isn't an object
+// schema, ErrBusy while another exchange is open, ErrClosed after Close, and
 // the harness's exit error after the harness has exited.
 //
 // Send returns once the harness has accepted the prompt, however ctx ends in the meantime: a
@@ -121,6 +122,11 @@ func (s *Session) Journaled() bool { return s.journal != nil }
 // allows, for a cancellation of the previous exchange to finish, so that cancellation can't
 // reach this exchange's run.
 func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
+	if len(req.Schema) > 0 {
+		if err := ValidateSchema(req.Schema); err != nil {
+			return nil, err
+		}
+	}
 	s.mu.Lock()
 	for s.cancelling != nil {
 		pending := s.cancelling
@@ -219,6 +225,9 @@ func (s *Session) cancel(x *Exchange) {
 	done := make(chan struct{})
 	s.cancelling = done
 	s.mu.Unlock()
+	// The exchange owes no structured response once it is cancelled, whether or not the
+	// harness reports the cancellation in an event of its own.
+	x.markCancelled()
 	go func() {
 		defer func() {
 			s.mu.Lock()

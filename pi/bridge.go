@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -78,11 +79,11 @@ func newBridge(opts harness.Options, cache string) (*bridge, error) {
 	tools := map[string]harness.Tool{}
 	specs := []toolSpec{}
 	for _, t := range opts.Tools {
-		switch {
-		case t.Name == respondTool:
+		if err := t.Validate(); err != nil {
+			return nil, err
+		}
+		if t.Name == respondTool {
 			return nil, fmt.Errorf("pi: tool %q: the name is the bridge's own", t.Name)
-		case t.Handler == nil:
-			return nil, fmt.Errorf("pi: tool %q has no handler", t.Name)
 		}
 		if _, dup := tools[t.Name]; dup {
 			return nil, fmt.Errorf("pi: two tools are named %q", t.Name)
@@ -113,7 +114,7 @@ func newBridge(opts harness.Options, cache string) (*bridge, error) {
 // write writes the tool spec to dir and the extension and skills to cache, and builds the
 // arguments that load them.
 func (b *bridge) write(opts harness.Options, specs []toolSpec, dir, cache string) error {
-	ext, err := cached(cache, "bridge", digest(bridgeSource), func(d string) error {
+	ext, err := cached(cache, "bridge", fileDigest("bridge.ts", bridgeSource), func(d string) error {
 		return os.WriteFile(filepath.Join(d, "bridge.ts"), bridgeSource, 0o600)
 	})
 	if err != nil {
@@ -161,45 +162,39 @@ func (b *bridge) write(opts harness.Options, specs []toolSpec, dir, cache string
 // cachedFS returns the directory under root that holds fsys's files, named by name and a
 // digest of every file's path and content.
 func cachedFS(root, name string, fsys fs.FS) (string, error) {
-	h := sha256.New()
-	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
-			return err
-		}
-		data, err := fs.ReadFile(fsys, p)
-		if err != nil {
-			return err
-		}
-		// Length-prefixed, so no two trees hash alike by moving bytes between files.
-		_, _ = fmt.Fprintf(h, "%s\x00%d\x00", p, len(data))
-		_, _ = h.Write(data)
-		return nil
-	})
+	digest, err := treeDigest(fsys)
 	if err != nil {
 		return "", err
 	}
-	return cached(root, name, hex.EncodeToString(h.Sum(nil))[:12], func(d string) error {
-		return os.CopyFS(d, fsys)
-	})
-}
-
-// digest is the first 12 hex digits of data's SHA-256.
-func digest(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:6])
+	return cached(root, name, digest, func(dir string) error { return os.CopyFS(dir, fsys) })
 }
 
 // cached returns the directory root/name-digest, which write fills the first time. It writes
 // to a temporary name it then renames, so a concurrent writer of the same content never sees
 // the directory half written. The same content always gets the same directory, and changed
 // content a new one, so no session's files change under it.
+//
+// The driver runs what the cache holds: Pi loads the bridge as code. So root must belong to
+// the current user and be writable by no one else, which keeps anyone else from planting a
+// directory under a name the driver would trust, and a directory found under the right name
+// is used only when its content still has the digest it is named by.
 func cached(root, name, digest string, write func(dir string) error) (string, error) {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	if err := private(root); err != nil {
+		return "", err
+	}
 	dir := filepath.Join(root, name+"-"+digest)
 	if _, err := os.Stat(dir); err == nil {
-		return dir, nil
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", err
+		if got, err := treeDigest(os.DirFS(dir)); err == nil && got == digest {
+			return dir, nil
+		}
+		// Only this user writes under root, so a mismatch is damage, such as a copy a crash
+		// cut short: write the directory again.
+		if err := os.RemoveAll(dir); err != nil {
+			return "", err
+		}
 	}
 	tmp, err := os.MkdirTemp(root, ".write-")
 	if err != nil {
@@ -207,7 +202,7 @@ func cached(root, name, digest string, write func(dir string) error) (string, er
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	staged := filepath.Join(tmp, "d")
-	if err := os.Mkdir(staged, 0o755); err != nil {
+	if err := os.Mkdir(staged, 0o700); err != nil {
 		return "", err
 	}
 	if err := write(staged); err != nil {
@@ -220,6 +215,41 @@ func cached(root, name, digest string, write func(dir string) error) (string, er
 		}
 	}
 	return dir, nil
+}
+
+// treeDigest is the first 12 hex digits of a SHA-256 over every regular file's path and
+// content, in the lexical order fs.WalkDir walks.
+func treeDigest(fsys fs.FS) (string, error) {
+	h := sha256.New()
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		hashFile(h, p, data)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12], nil
+}
+
+// fileDigest is treeDigest of a tree that holds data alone, at path p.
+func fileDigest(p string, data []byte) string {
+	h := sha256.New()
+	hashFile(h, p, data)
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// hashFile adds one file to a tree's digest, length-prefixed, so no two trees hash alike by
+// moving bytes between files.
+func hashFile(h hash.Hash, p string, data []byte) {
+	_, _ = fmt.Fprintf(h, "%s\x00%d\x00", p, len(data))
+	_, _ = h.Write(data)
 }
 
 // answerCall runs the tool body names and renders the answer. A tool error, an unknown tool, or
@@ -256,7 +286,13 @@ func failure(err error) string {
 	return render(answer{Error: &msg})
 }
 
+// render renders a as the bridge reads it. An answer that won't marshal, such as a schema
+// that isn't JSON, is rendered as an error instead, so the bridge reports it rather than
+// failing to parse an empty answer.
 func render(a answer) string {
-	b, _ := json.Marshal(a)
+	b, err := json.Marshal(a)
+	if err != nil {
+		b, _ = json.Marshal(map[string]string{"error": fmt.Sprintf("pi: render the answer: %v", err)})
+	}
 	return string(b)
 }

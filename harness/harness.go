@@ -16,10 +16,13 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"regexp"
 )
 
 // ErrBusy is returned by Send while an earlier exchange on the same session is still open.
@@ -74,6 +77,10 @@ type Options struct {
 // ToolHandler runs one call of a tool with the model's arguments, which the harness has
 // validated against the tool's schema. Its result is the text the model receives. An error
 // reaches the model as a failed tool call; the exchange carries on.
+//
+// A handler must return once ctx ends, which it does when the exchange is cancelled or the
+// session closes. A session waits only a bounded time for a handler still running as it
+// closes, and then abandons it.
 type ToolHandler func(ctx context.Context, args json.RawMessage) (string, error)
 
 // Tool is a tool the program defines and runs. It may come from a Go library that packages
@@ -86,6 +93,49 @@ type Tool struct {
 	// Schema is the JSON Schema of the tool's arguments, an object schema.
 	Schema  json.RawMessage
 	Handler ToolHandler
+}
+
+// toolName is the rule the model providers share for a tool's name.
+var toolName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// Validate checks that t can be offered to a model: a name of 1 to 64 letters, digits,
+// underscores, and hyphens, which also keeps it safe in an adapter's comma-separated lists, and
+// a handler. A tool that declares a schema must declare an object schema.
+func (t Tool) Validate() error {
+	switch {
+	case !toolName.MatchString(t.Name):
+		return fmt.Errorf("harness: tool %q: the name isn't 1 to 64 letters, digits, underscores, and hyphens", t.Name)
+	case t.Handler == nil:
+		return fmt.Errorf("harness: tool %q has no handler", t.Name)
+	}
+	if len(t.Schema) > 0 {
+		if err := ValidateSchema(t.Schema); err != nil {
+			return fmt.Errorf("harness: tool %q: %w", t.Name, err)
+		}
+	}
+	return nil
+}
+
+// ErrInvalidSchema is returned, wrapped, for a schema that isn't a JSON object whose type is
+// "object", the only kind a tool's arguments or a structured response take.
+var ErrInvalidSchema = errors.New("harness: invalid schema")
+
+// ValidateSchema checks that schema is a JSON object whose type is "object". It checks no
+// more of JSON Schema than that: the harness validates values against the schema.
+func ValidateSchema(schema json.RawMessage) error {
+	var s struct {
+		Type json.RawMessage `json:"type"`
+	}
+	if err := json.Unmarshal(schema, &s); err != nil {
+		return fmt.Errorf("%w: not a JSON object: %w", ErrInvalidSchema, err)
+	}
+	switch t := string(bytes.TrimSpace(s.Type)); {
+	case t == "":
+		return fmt.Errorf(`%w: it declares no type, want "object"`, ErrInvalidSchema)
+	case t != `"object"`:
+		return fmt.Errorf(`%w: its type is %s, want "object"`, ErrInvalidSchema, t)
+	}
+	return nil
 }
 
 // Skill is a skill: a directory holding a SKILL.md, whose frontmatter names and describes it,

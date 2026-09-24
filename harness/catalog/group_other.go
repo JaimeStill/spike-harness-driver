@@ -5,5 +5,8 @@ package catalog
 import "os/exec"
 
 // ownGroup does nothing where process groups don't exist. Cancellation kills the command
-// alone, and WaitDelay stops the wait for any process it left holding its output.
+// alone, and the wait delay stops the reading of output a leftover process still holds.
 func ownGroup(*exec.Cmd) {}
+
+// killGroup does nothing where process groups don't exist.
+func killGroup(*exec.Cmd) {}

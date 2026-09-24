@@ -24,10 +24,19 @@ func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.Harness, "harness", "pi", "the harness to drive: pi")
 	fs.StringVar(&cfg.Provider, "provider", "llama.cpp", "the harness's model provider")
 	fs.StringVar(&cfg.Model, "model", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "the provider's model ID")
-	fs.StringVar(&cfg.State, "state", filepath.Join(os.TempDir(), "clutch"), "where the harness's sessions, the exchange records, and the files the driver loads into\n"+
-		"the harness are kept; the default is under the temporary directory, so it doesn't survive a\n"+
-		"reboot")
+	fs.StringVar(&cfg.State, "state", defaultState(), "where the harness's sessions, the exchange records, and the files the driver loads into\n"+
+		"the harness are kept; it must be yours alone, since the harness runs code from it")
 	fs.BoolVar(&cfg.All, "all", false, "also print harness events with no normalized meaning")
 	fs.StringArrayVar(&cfg.Skills, "skills", nil, "a directory of skills, one per subdirectory, that every session offers; repeatable")
 	fs.StringArrayVar(&cfg.Tools, "tools", nil, "a directory of command tools, one per subdirectory, that every session offers; repeatable")
+}
+
+// defaultState is clutch's directory in the user's cache directory, which, unlike the shared
+// temporary directory, no other user can write to. It falls back to the temporary directory
+// when the user has no cache directory.
+func defaultState() string {
+	if dir, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(dir, "clutch")
+	}
+	return filepath.Join(os.TempDir(), "clutch")
 }

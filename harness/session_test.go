@@ -476,3 +476,56 @@ func TestSendWaitsForACancellationInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A cancelled exchange owes no structured response even when the harness ends the run without
+// reporting the cancellation, as when the cancel lands during a tool call.
+func TestACancelWithoutACancelledEventOwesNoResponse(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	x, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(`{"type":"object"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collect(t, x)
+	c.emit(harness.EventStarted)
+	x.Cancel()
+	<-c.cancels
+	c.finish("toolUse", "")
+	<-events
+	if _, err := x.Wait(); err != nil {
+		t.Fatalf("Wait error = %v, want none for a cancelled exchange", err)
+	}
+}
+
+func TestSendRefusesAnInvalidSchema(t *testing.T) {
+	s := newSession(t, newFakeConnection(), nil)
+	defer func() { _ = s.Close() }()
+	for _, schema := range []string{`{`, `[]`, `{}`, `{"type":"array"}`} {
+		if _, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(schema)}); !errors.Is(err, harness.ErrInvalidSchema) {
+			t.Errorf("schema %s: Send = %v, want ErrInvalidSchema", schema, err)
+		}
+	}
+	// A refused request opens no exchange.
+	send(t, s, t.Context())
+}
+
+func TestToolValidate(t *testing.T) {
+	handler := func(context.Context, json.RawMessage) (string, error) { return "", nil }
+	for _, tc := range []struct {
+		tool harness.Tool
+		ok   bool
+	}{
+		{harness.Tool{Name: "lookup_code", Handler: handler}, true},
+		{harness.Tool{Name: "a-b", Handler: handler, Schema: json.RawMessage(`{"type":"object"}`)}, true},
+		{harness.Tool{Name: "", Handler: handler}, false},
+		{harness.Tool{Name: "a,b", Handler: handler}, false},
+		{harness.Tool{Name: "ok"}, false},
+		{harness.Tool{Name: "ok", Handler: handler, Schema: json.RawMessage(`{"type":"string"}`)}, false},
+	} {
+		if err := tc.tool.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%+v: Validate = %v, want ok %v", tc.tool.Name, err, tc.ok)
+		}
+	}
+}

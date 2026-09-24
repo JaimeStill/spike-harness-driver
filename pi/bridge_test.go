@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,9 +185,12 @@ func TestToolsTheBridgeRefuses(t *testing.T) {
 	noHandler.Handler = nil
 	respond := lookup
 	respond.Name = respondTool
+	comma := lookup
+	comma.Name = "a,b"
 	for name, tools := range map[string][]harness.Tool{
 		"no handler":    {noHandler},
 		"respond":       {respond},
+		"comma in name": {comma},
 		"duplicate":     {lookup, lookup},
 		"bad skill dir": nil,
 	} {
@@ -194,9 +198,43 @@ func TestToolsTheBridgeRefuses(t *testing.T) {
 		if name == "bad skill dir" {
 			opts.Skills = []harness.Skill{{Name: "../escape", FS: fstest.MapFS{}}}
 		}
-		if _, err := fakeDriver("ok").Open(t.Context(), opts); err == nil {
+		if s, err := fakeDriver("ok").Open(t.Context(), opts); err == nil {
 			t.Errorf("%s: Open succeeded", name)
+			_ = s.Close()
 		}
+	}
+}
+
+// Pi runs the bridge as code, so a cache anyone else can write to is refused.
+func TestACacheOthersCanWriteIsRefused(t *testing.T) {
+	cache := t.TempDir()
+	if err := os.Chmod(cache, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	d := fakeDriver("ok")
+	d.CacheDir = cache
+	if s, err := d.Open(t.Context(), harness.Options{}); err == nil || !strings.Contains(err.Error(), "writable by others") {
+		t.Errorf("Open = %v, want the cache refused", err)
+		if err == nil {
+			_ = s.Close()
+		}
+	}
+}
+
+// A cache entry whose content no longer has its digest is written again, not trusted.
+func TestADamagedCacheEntryIsRewritten(t *testing.T) {
+	cache := t.TempDir()
+	s, file := openCached(t, harness.Options{}, cache)
+	closeSession(t, s)
+	ext := arg(readLaunch(t, file).Args, "-e")
+	if err := os.WriteFile(ext, []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, file = openCached(t, harness.Options{}, cache)
+	closeSession(t, s)
+	data, err := os.ReadFile(arg(readLaunch(t, file).Args, "-e"))
+	if err != nil || !bytes.Equal(data, bridgeSource) {
+		t.Fatalf("the bridge in the cache = %.20q, %v; want it written again", data, err)
 	}
 }
 

@@ -31,8 +31,9 @@ type Driver struct {
 	// CacheDir is where the driver keeps what it loads into Pi from files: the bridge
 	// extension, and the skills that aren't on disk already. They are written once, under names
 	// their content decides, so sessions share them and a resumed session finds the files its
-	// history names. Empty writes them into each session's temporary directory, which Close
-	// removes.
+	// history names. Pi runs the bridge as code, so the directory must belong to the current
+	// user and be writable by no one else; Open fails otherwise. Empty writes them into each
+	// session's temporary directory, which Close removes.
 	CacheDir string
 	// Env adds variables to Pi's environment, such as LLAMA_BASE_URL.
 	Env []string

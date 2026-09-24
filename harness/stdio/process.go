@@ -56,6 +56,9 @@ type Process struct {
 	waited     chan struct{} // closed once cmd.Wait has returned and exitErr is set
 	done       chan struct{} // closed once the process has exited and Lines has closed
 	exitErr    error
+	// cause is why the process was asked to stop, as it stood when the process exited, so a
+	// Close that comes after the harness exited on its own doesn't recast the exit as asked for.
+	cause error
 }
 
 // Start starts the process. It takes no context: like a network connection, the process lives
@@ -136,10 +139,14 @@ func (p *Process) Err() error {
 	return p.exitErr
 }
 
-// Cause reports why the process was asked to stop: harness.ErrClosed after Close, or the error
-// that failed its output. It is nil if the process was never asked, so an exit with a nil Cause
-// was the harness's own.
-func (p *Process) Cause() error { return context.Cause(p.ctx) }
+// Cause reports why the process was asked to stop, as it stood when the process exited:
+// harness.ErrClosed after Close, or the error that failed its output. It is nil if the process
+// was never asked before it exited, so an exit with a nil Cause was the harness's own. It
+// waits for the process to exit.
+func (p *Process) Cause() error {
+	<-p.done
+	return p.cause
+}
 
 // WriteLine writes line and a line feed to the process's stdin.
 func (p *Process) WriteLine(line []byte) error {
@@ -164,6 +171,7 @@ func (p *Process) Close() error {
 // process outside the group still holds them, so the readers always end.
 func (p *Process) wait(stdout, stderr *os.File) {
 	err := p.cmd.Wait()
+	p.cause = context.Cause(p.ctx)
 	killGroup(p.cmd)
 	grace := time.AfterFunc(p.waitDelay, func() {
 		_, _ = stdout.Close(), stderr.Close()

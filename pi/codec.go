@@ -173,7 +173,8 @@ func messageEnd(m *message, raw []byte) []harness.Event {
 func structured(result json.RawMessage, raw []byte) harness.Event {
 	var r toolResult
 	if err := json.Unmarshal(result, &r); err != nil || len(r.Details) == 0 {
-		return harness.Event{Kind: harness.EventError, Err: fmt.Errorf("pi: respond: no structured response in %s", result), Raw: raw}
+		// Still the exchange's missing structured response, so errors.Is matches it.
+		return harness.Event{Kind: harness.EventError, Err: fmt.Errorf("%w: pi: respond returned no details in %s", harness.ErrNoStructuredResponse, result), Raw: raw}
 	}
 	return harness.Event{Kind: harness.EventStructured, Structured: r.Details, Raw: raw}
 }

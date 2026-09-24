@@ -76,6 +76,16 @@ func TestSkillsInvalid(t *testing.T) {
 			`My_Skill/SKILL.md: name "My_Skill" isn't`,
 		},
 		{
+			"leading hyphen",
+			fstest.MapFS{"-a/SKILL.md": skillMD("name: -a\ndescription: A.\n")},
+			`-a/SKILL.md: name "-a" isn't`,
+		},
+		{
+			"doubled hyphen",
+			fstest.MapFS{"a--b/SKILL.md": skillMD("name: a--b\ndescription: A.\n")},
+			`a--b/SKILL.md: name "a--b" isn't`,
+		},
+		{
 			"no frontmatter",
 			fstest.MapFS{"a/SKILL.md": {Data: []byte("# A\n")}},
 			"a/SKILL.md: no frontmatter",
@@ -130,5 +140,14 @@ func TestSkillsDirKeepsTheDirectory(t *testing.T) {
 	fromFS, err := catalog.Skills(os.DirFS(root))
 	if err != nil || fromFS[0].Dir != "" {
 		t.Fatalf("Skills over an FS = %+v, %v; want no Dir", fromFS, err)
+	}
+}
+
+// A block scalar under a key the loader doesn't read leaves the skill readable.
+func TestSkillIgnoresOtherBlockScalars(t *testing.T) {
+	fsys := fstest.MapFS{"SKILL.md": skillMD("name: a\ndescription: A.\nlicense: >\n  MIT, see\n  LICENSE.\n")}
+	s, err := catalog.Skill(fsys)
+	if err != nil || s.Name != "a" {
+		t.Fatalf("Skill = %+v, %v", s, err)
 	}
 }

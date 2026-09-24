@@ -1,0 +1,6 @@
+{
+  "name": "leaves",
+  "description": "Answers and exits, leaving a child running.",
+  "inputSchema": {"type": "object"},
+  "command": ["./run.sh"]
+}

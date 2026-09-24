@@ -271,6 +271,10 @@ func TestPeerExit(t *testing.T) {
 	if err := c.Close(); err == nil {
 		t.Fatal("Close after a failed exit returned nil")
 	}
+	// A Close after the harness exited on its own doesn't recast the exit as a clean close.
+	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "fatal: peer gone") {
+		t.Fatalf("Err after Close = %v, want the exit error", err)
+	}
 }
 
 func TestRequestsAreAnswered(t *testing.T) {
@@ -389,5 +393,30 @@ func TestCloseDiscardsUnreadEvents(t *testing.T) {
 	}
 	if ev, ok := nextEvent(t, c); ok {
 		t.Fatalf("Close delivered %+v instead of discarding it", ev)
+	}
+}
+
+// A handler that ignores its context can't hold the Client open: Close abandons it after the
+// wait delay.
+func TestCloseAbandonsAHandlerThatIgnoresItsContext(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	answering := make(chan struct{})
+	c := startAnswering(t, "echo", 200*time.Millisecond, func(context.Context, stdio.Request) any {
+		close(answering)
+		<-release
+		return ""
+	})
+	go func() { _, _ = c.Call(context.Background(), testCmd{Op: "ask", Data: "stuck"}) }()
+	<-answering
+	begin := time.Now()
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := nextEvent(t, c); ok {
+		t.Fatal("Events did not close")
+	}
+	if d := time.Since(begin); d > 3*time.Second {
+		t.Fatalf("Close and shutdown took %s with a stuck handler", d)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
@@ -148,8 +149,8 @@ func (c *Client) answer(req Request) {
 	})
 }
 
-// shutdown fails the open calls with the exit error, waits for the answers in progress, and
-// closes Events. Err reports the exit to whoever reads Events.
+// shutdown fails the open calls with the exit error, waits a bounded time for the answers in
+// progress, and closes Events. Err reports the exit to whoever reads Events.
 func (c *Client) shutdown() {
 	err := c.p.Err()
 	if err == nil {
@@ -157,6 +158,16 @@ func (c *Client) shutdown() {
 	}
 	c.calls.fail(err)
 	c.stop()
-	c.answering.Wait()
+	// A handler should return once its context ends. One that doesn't is abandoned after the
+	// process's wait delay, so it can't hold the Client open; its late answer goes nowhere.
+	answered := make(chan struct{})
+	go func() {
+		c.answering.Wait()
+		close(answered)
+	}()
+	select {
+	case <-answered:
+	case <-time.After(c.p.waitDelay):
+	}
 	c.events.Close()
 }

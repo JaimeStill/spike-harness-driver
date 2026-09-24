@@ -18,8 +18,10 @@ import (
 // skillFile is the file that makes a directory a skill.
 const skillFile = "SKILL.md"
 
-// skillName is the Agent Skills rule for a skill's name.
-var skillName = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+// skillName is the Agent Skills rule for a skill's name, which Pi follows: lowercase letters
+// and digits in hyphen-separated runs, with no leading, trailing, or doubled hyphen. The
+// length limit, 64, is checked apart.
+var skillName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Skill loads the skill whose directory is the root of fsys. The frontmatter of its SKILL.md
 // must give a name and a description: Pi refuses a skill without a description, and a skill
@@ -115,8 +117,8 @@ func readSkill(fsys fs.FS) (string, error) {
 	switch {
 	case name == "":
 		return "", errors.New("frontmatter has no name")
-	case !skillName.MatchString(name):
-		return "", fmt.Errorf("name %q isn't 1 to 64 lowercase letters, digits, and hyphens", name)
+	case len(name) > 64 || !skillName.MatchString(name):
+		return "", fmt.Errorf("name %q isn't 1 to 64 lowercase letters and digits in hyphen-separated runs", name)
 	case description == "":
 		return "", errors.New("frontmatter has no description")
 	}
@@ -127,8 +129,9 @@ func readSkill(fsys fs.FS) (string, error) {
 // first line of "---" and the next line of "---". It reads only the top-level "key: value"
 // lines a skill's name and description take, with the value bare or in single or double
 // quotes, and skips comments and indented lines. A full YAML parser would be the module's first
-// dependency, for two keys. A block scalar ("|" or ">") is refused rather than misread,
-// because its value is on the indented lines this parser skips.
+// dependency, for two keys. A block scalar ("|" or ">") for name or description is refused
+// rather than misread, because its value is on the indented lines this parser skips; under any
+// other key it is ignored.
 func frontmatter(data []byte) (map[string]string, error) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	if !sc.Scan() || strings.TrimRight(sc.Text(), " \t\r") != "---" {
@@ -150,7 +153,12 @@ func frontmatter(data []byte) (map[string]string, error) {
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 		value, err := scalar(value)
 		if err != nil {
-			return nil, fmt.Errorf("frontmatter key %q: %w", key, err)
+			// Only name and description are read; any other key may take a form this parser
+			// doesn't, such as a block scalar, without making the skill unreadable.
+			if key == "name" || key == "description" {
+				return nil, fmt.Errorf("frontmatter key %q: %w", key, err)
+			}
+			continue
 		}
 		fields[key] = value
 	}

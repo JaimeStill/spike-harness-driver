@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JaimeStill/spike-harness-driver/clutch/output"
+	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
 // Commands builds the session command family over svc, rendering through out.
@@ -61,7 +62,8 @@ func sendCommand(svc *Service, out *output.Output) *cobra.Command {
 
 // parseSchema reads --schema's value: inline JSON when it starts with "{", otherwise the path
 // of a JSON file. The schema must be an object schema, the only kind a structured response
-// takes. An empty value asks for none.
+// takes, which the session would also refuse; checking here fails before a harness starts.
+// An empty value asks for none.
 func parseSchema(value string) (json.RawMessage, error) {
 	if value == "" {
 		return nil, nil
@@ -75,17 +77,8 @@ func parseSchema(value string) (json.RawMessage, error) {
 		raw = b
 	}
 	raw = bytes.TrimSpace(raw)
-	var s struct {
-		Type json.RawMessage `json:"type"`
-	}
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return nil, fmt.Errorf("not a JSON object: %w", err)
-	}
-	switch t := string(bytes.TrimSpace(s.Type)); {
-	case t == "":
-		return nil, errors.New(`the schema declares no type, want "object"`)
-	case t != `"object"`:
-		return nil, fmt.Errorf(`the schema's type is %s, want "object"`, t)
+	if err := harness.ValidateSchema(raw); err != nil {
+		return nil, err
 	}
 	return raw, nil
 }

@@ -136,6 +136,13 @@ func (x *Exchange) push(ev Event) {
 	}
 }
 
+// markCancelled records that the session cancelled the exchange's run.
+func (x *Exchange) markCancelled() {
+	x.mu.Lock()
+	x.cancelled = true
+	x.mu.Unlock()
+}
+
 // unanswered reports whether the exchange's request carried a schema and its run ended, other
 // than by cancellation or in an error, without a structured response.
 func (x *Exchange) unanswered() bool {

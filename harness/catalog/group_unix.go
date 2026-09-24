@@ -16,3 +16,9 @@ func ownGroup(cmd *exec.Cmd) {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+// killGroup kills whatever is left of the command's process group once the command has
+// exited. The group is gone already when the command left nothing behind.
+func killGroup(cmd *exec.Cmd) {
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+}
