@@ -11,3 +11,11 @@ references.local.toml
 bin/
 *.test
 coverage.out
+
+# Connection details and secrets for model targets (setup/azure-foundry.md).
+.env
+.env.*
+secrets.json
+secrets.*.json
+config.*.json
+*.pem
