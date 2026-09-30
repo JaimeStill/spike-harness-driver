@@ -136,8 +136,8 @@ TOKEN=$(az account get-access-token --resource https://ai.azure.com --query acce
 Vision:
 
 ```bash
-img=$(base64 -w0 clutch/examples/media/shapes.png)
-jq -n --arg img "$img" '{
+base64 -w0 clutch/examples/media/shapes.png \
+| jq -n --rawfile img /dev/stdin '{
   model: "gpt-4.1-mini",
   messages: [{role: "user", content: [
     {type: "text", text: "Name each shape in this image and its color."},

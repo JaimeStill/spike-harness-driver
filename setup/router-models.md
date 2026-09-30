@@ -10,7 +10,7 @@ The models were chosen on 2026-09-25 against the router's build, b10809.
 
 | Capability | Model ID | Files | Memory |
 |---|---|---|---|
-| Vision, and the harness model for image sessions | `unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL` | `Qwen3.8-27B-UD-Q4_K_XL.gguf`, `mmproj-BF16.gguf` | 18.4 GB of weights, about 4 GiB of KV at 64k |
+| Vision, and the harness model for image sessions | `unsloth/Qwen3.8-27B-GGUF:Q4_K_XL` | `Qwen3.8-27B-UD-Q4_K_XL.gguf`, `mmproj-BF16.gguf` | 18.4 GB of weights, about 4 GiB of KV at 64k |
 | Embeddings | `Qwen/Qwen3-Embedding-4B-GGUF:Q5_K_M` | `Qwen3-Embedding-4B-Q5_K_M.gguf` | about 3 GB, 2560 dimensions |
 | Audio input and transcription | `ggml-org/gemma-4-E4B-it-GGUF:Q8_0` | the Q8_0 model and its BF16 mmproj | about 9 GB |
 
@@ -19,7 +19,7 @@ Why these:
 - **Qwen3.8-27B** is the newest Qwen with vision that fits beside other models. It is dense, so
   it decodes more slowly than an A3B MoE (an estimated 10 tok/s against 50). Qwen3.8-Flash-Next
   is about 190B parameters, and its smallest usable quant is 78 GB. The faster alternative is
-  `unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL`; avoid its `-MTP` variant, which doesn't support
+  `unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_XL`; avoid its `-MTP` variant, which doesn't support
   an mmproj.
 - **Qwen3-Embedding-4B** has an official GGUF. It needs `last` pooling. A query reads
   `Instruct: <task>\nQuery: <text>`, and a passage is plain text.
@@ -61,7 +61,7 @@ with its `; Recipe:` comment:
 ```ini
 ; Recipe: ../reference/README.md, vision. Dense 27B; 16 of 64 layers hold KV
 ; (4 heads x 256), about 64 KB per token. The mmproj resolves from the HF cache.
-[unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL]
+[unsloth/Qwen3.8-27B-GGUF:Q4_K_XL]
 c = 65536
 
 ; Recipe: ../reference/README.md, embeddings. Overrides [*]'s c. Last-token
@@ -79,7 +79,9 @@ c = 32768
 ```
 
 Check each section name against `outpost server models` after the restart. The router names a
-cached model `<repo>:<quant>`, and unsloth's `UD-` prefix is part of the quant.
+cached model `<repo>:<quant>`, and it drops unsloth's `UD-` prefix from the quant: the file
+`Qwen3.8-27B-UD-Q4_K_XL.gguf` is served as `unsloth/Qwen3.8-27B-GGUF:Q4_K_XL`. A request that
+names the model with the prefix fails with `model '…' not found`.
 
 If an image or audio encoder misbehaves on Vulkan, add `mmproj-offload = false` to its section
 to run the encoder on the CPU.
@@ -90,7 +92,7 @@ to run the encoder on the CPU.
 outpost preset install unified-96gb
 outpost service restart
 outpost server models
-outpost server models load unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL
+outpost server models load unsloth/Qwen3.8-27B-GGUF:Q4_K_XL
 outpost server models load Qwen/Qwen3-Embedding-4B-GGUF:Q5_K_M
 outpost server models load ggml-org/gemma-4-E4B-it-GGUF:Q8_0
 outpost amd usage
@@ -99,6 +101,8 @@ outpost amd usage
 ## 4. Smoke tests
 
 Run these from the spike's checkout, with `LLAMA_BASE_URL` set as it is for `clutch`. The
+base64 goes to jq through `--rawfile` because an audio clip is too long for a command-line
+argument. The
 fixtures are in `clutch/examples/media` (see its README).
 
 `/models` should list image input for the vision model and audio input for the audio model.
@@ -112,9 +116,9 @@ curl -s "$LLAMA_BASE_URL/v1/models" \
 Vision:
 
 ```bash
-img=$(base64 -w0 clutch/examples/media/shapes.png)
-jq -n --arg img "$img" '{
-  model: "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+base64 -w0 clutch/examples/media/shapes.png \
+| jq -n --rawfile img /dev/stdin '{
+  model: "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL",
   messages: [{role: "user", content: [
     {type: "text", text: "Name each shape in this image and its color."},
     {type: "image_url", image_url: {url: ("data:image/png;base64," + $img)}}]}]}' \
@@ -143,8 +147,8 @@ curl -s "$LLAMA_BASE_URL/v1/audio/transcriptions" \
 Audio in chat:
 
 ```bash
-wav=$(base64 -w0 clutch/examples/media/phrase.wav)
-jq -n --arg wav "$wav" '{
+base64 -w0 clutch/examples/media/phrase.wav \
+| jq -n --rawfile wav /dev/stdin '{
   model: "ggml-org/gemma-4-E4B-it-GGUF:Q8_0",
   messages: [{role: "user", content: [
     {type: "text", text: "What access code does the speaker say?"},
