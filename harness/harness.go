@@ -162,8 +162,9 @@ type Request struct {
 	Schema json.RawMessage `json:"schema,omitempty"`
 }
 
-// Image is an image sent with a request. A Record keeps only its media type: the harness's
-// own session holds the image, and a Store that copied it would grow by every image sent.
+// Image is an image sent with a request. A Record keeps only its media type, because the
+// harness's own session already holds the image and a Store that copied it would grow with every
+// image sent.
 type Image struct {
 	// MediaType is the image's media type, such as "image/png".
 	MediaType string `json:"mediaType"`
@@ -173,9 +174,9 @@ type Image struct {
 // ErrInvalidImage is returned, wrapped, for a request image with no media type or no data.
 var ErrInvalidImage = errors.New("harness: invalid image")
 
-// validateImages checks that each image has a media type and data. Whether the model takes
-// images at all is the harness's to know: Pi, for one, replaces an image with a note for a
-// model without image input.
+// validateImages checks that each image has a media type and data. It does not check whether the
+// model takes images, which only the harness knows: Pi, for one, replaces an image with a note
+// for a model without image input.
 func validateImages(images []Image) error {
 	for i, img := range images {
 		if img.MediaType == "" || len(img.Data) == 0 {

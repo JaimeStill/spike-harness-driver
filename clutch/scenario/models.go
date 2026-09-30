@@ -2,8 +2,8 @@ package scenario
 
 import "github.com/JaimeStill/spike-harness-driver/model"
 
-// Models is the direct model client the capability scenarios call, set up for one target, and
-// the model a harness session that takes images runs on.
+// Models holds the direct model clients the capability scenarios call, set up for one target,
+// and the model a harness session runs on when it is sent an image.
 type Models struct {
 	// Target names the endpoint the clients talk to, such as "llama.cpp" or "azure".
 	Target string
@@ -24,7 +24,7 @@ type Models struct {
 	HarnessVision string
 }
 
-// Needs is what each kind of scenario checks before its first step.
+// Needs holds what each kind of scenario checks before its first step.
 type Needs struct {
 	// Harness is what a scenario that drives only the harness needs.
 	Harness []Need

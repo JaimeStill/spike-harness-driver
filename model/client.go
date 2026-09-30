@@ -1,7 +1,7 @@
 // Package model is a direct client for OpenAI-compatible model endpoints: chat, including
-// image and audio parts, embeddings, and transcription. It sits beside harness as the second
-// way a Go program reaches a model. Where a harness runs an agent loop, a Client makes one
-// request and returns its answer.
+// image and audio parts, embeddings, and transcription. It sits beside the harness package as
+// the second way a Go program reaches a model. Where a harness runs an agent loop, a Client
+// makes one request and returns its answer.
 //
 // A Client serves one endpoint, which Config describes: the base URL every route is appended
 // to, a query every request carries, and the token a request authenticates with. An endpoint

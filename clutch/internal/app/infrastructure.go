@@ -27,8 +27,8 @@ import (
 
 // modelTimeout bounds one direct model request, from sending it to reading its response. The
 // router loads a model on its first request, which for the 27B vision model takes a minute or
-// more before a reasoning model's answer starts, so the bound is generous: it catches an
-// endpoint that has hung, not one that is slow.
+// more before a reasoning model's answer starts. The bound is generous because it exists to
+// catch an endpoint that has hung, not one that is slow.
 const modelTimeout = 10 * time.Minute
 
 // Infrastructure resolves the harness the flags name, the store that keeps exchange records,
@@ -195,8 +195,9 @@ func (i *Infrastructure) Needs() scenario.Needs {
 	}
 }
 
-// llamaNeed is the need for LLAMA_BASE_URL when the harness's provider is llama.cpp, when the
-// target is, or, with both set, when either is.
+// llamaNeed is the need for LLAMA_BASE_URL. With provider set, it applies when the harness's
+// provider is llama.cpp. With target set, it applies when the target is. With both set, it
+// applies when either is.
 func (i *Infrastructure) llamaNeed(provider, target bool) scenario.Need {
 	var when []string
 	if provider {
@@ -223,7 +224,7 @@ const (
 	targetAzure = "azure"
 )
 
-// target is a target's default model IDs, and whether its audio model takes audio in chat.
+// target holds a target's default model IDs and whether its audio model takes audio in chat.
 type target struct {
 	vision, embed, audio string
 	audioInChat          bool
@@ -247,15 +248,15 @@ var targets = map[string]target{
 	},
 }
 
-// targetNames is the targets' names, in the order help and errors list them.
+// targetNames returns the targets' names, in the order help and errors list them.
 func targetNames() []string { return []string{targetLlama, targetAzure} }
 
 // azureAudioVersion is the api-version the azure target's transcription route takes.
 const azureAudioVersion = "2025-04-01-preview"
 
 // Models returns the direct model clients for the --target endpoint, with the model IDs the
-// flags name or the target's defaults. It reads the target's environment variables, and
-// makes no request.
+// flags name or the target's defaults. It reads the target's environment variables and makes no
+// request.
 func (i *Infrastructure) Models() (scenario.Models, error) {
 	t, ok := targets[i.cfg.Target]
 	if !ok {
@@ -276,8 +277,8 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		if base == "" {
 			return scenario.Models{}, errors.New("LLAMA_BASE_URL is not set")
 		}
-		// LLAMA_BASE_URL is the router's root, which Pi's provider takes; the client wants
-		// its OpenAI-compatible API root beneath it. The router serves every route there.
+		// LLAMA_BASE_URL is the router's root, which Pi's provider takes. The client needs the
+		// OpenAI-compatible API root beneath it, where the router serves every route.
 		m.Chat, err = model.New(model.Config{BaseURL: strings.TrimSuffix(base, "/") + "/v1", HTTP: i.http})
 		m.Audio = m.Chat
 	case targetAzure:
@@ -291,7 +292,7 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		}
 		// Azure's v1 /audio/transcriptions route answered 404 DeploymentNotFound for a
 		// deployment that existed (checked 2026-09-30), while the older deployment route
-		// works, so transcription gets a client of its own on that route.
+		// works. Transcription therefore gets its own client on that route.
 		audio, aerr := azureAudioBase(base, m.AudioModel)
 		if aerr != nil {
 			return scenario.Models{}, aerr
@@ -319,8 +320,8 @@ func azureAudioBase(base, deployment string) (string, error) {
 	return root + "/deployments/" + url.PathEscape(deployment), nil
 }
 
-// azureToken returns the Infrastructure's one token source for the azure target, so every
-// client shares its cached token.
+// azureToken returns the Infrastructure's single token source for the azure target, so every
+// client shares one cached token.
 func (i *Infrastructure) azureToken() *azureToken {
 	i.tokenOnce.Do(func() {
 		i.token = &azureToken{scope: i.cfg.AzureScope, run: i.az, now: time.Now}
@@ -331,8 +332,8 @@ func (i *Infrastructure) azureToken() *azureToken {
 // azRunner runs the Azure CLI with args and returns what it writes to standard output.
 type azRunner func(ctx context.Context, args ...string) ([]byte, error)
 
-// runAz runs az. A failure carries az's standard error, which says why, such as a sign-in
-// that has expired; the token goes only to standard output.
+// runAz runs az. A failure carries az's standard error, which says why, such as an expired
+// sign-in. The token goes only to standard output.
 func runAz(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "az", args...)
 	var stderr bytes.Buffer
@@ -345,8 +346,8 @@ func runAz(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 // tokenMargin is how long before its expiry a cached token is replaced. Azure checks a token
-// when a request arrives, so the margin need only cover the time from here to there and any
-// skew between this machine's clock and Azure's; five minutes is ample for both, and costs a
+// when a request arrives, so the margin need only cover the request's travel time and any skew
+// between this machine's clock and Azure's. Five minutes is ample for both, and costs only a
 // refresh a few minutes early on a token that lasts an hour or more.
 const tokenMargin = 5 * time.Minute
 
@@ -389,9 +390,9 @@ func (a *azureToken) Token(ctx context.Context) (string, error) {
 const azTokenTime = "2006-01-02 15:04:05.999999"
 
 // parseAzToken reads the token and its expiry from az account get-access-token's JSON. The
-// expiry is expires_on, in seconds since the epoch, which newer versions of az give as a
-// number and older ones as a string; without it, expiresOn, in the local zone. An error never
-// quotes the output, which holds the token.
+// expiry is expires_on, in seconds since the epoch, which newer versions of az give as a number
+// and older ones as a string. When expires_on is absent, the expiry is expiresOn, in the local
+// zone. An error never quotes the output, which holds the token.
 func parseAzToken(out []byte) (string, time.Time, error) {
 	var v struct {
 		AccessToken string          `json:"accessToken"`

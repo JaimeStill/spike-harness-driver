@@ -26,8 +26,8 @@ const (
 	transcribeTool = "transcribe_recording"
 )
 
-// transcribeSchema is transcribe_recording's argument schema: it takes none, since the
-// recording is the one the tool holds.
+// transcribeSchema is transcribe_recording's argument schema. The tool takes no arguments,
+// because it holds the recording.
 var transcribeSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
 // digitWords maps each spoken digit to its numeral.
@@ -37,9 +37,9 @@ var digitWords = map[string]string{
 }
 
 // audioScenario transcribes a recording with the direct client, asks a chat model about it
-// when the target's audio model takes audio in chat, and then gives the recording to a
-// harness session through a Go tool that transcribes it: the harness takes no audio itself,
-// so a tool is where transcription meets an agent.
+// when the target's audio model takes audio in chat, and then gives the recording to a harness
+// session through a Go tool that transcribes it. The harness takes no audio itself, so a tool
+// is how an agent gets a transcript.
 func audioScenario(svc *session.Service, models func() (Models, error), needs []Need) Scenario {
 	return Scenario{
 		Name:    "audio",

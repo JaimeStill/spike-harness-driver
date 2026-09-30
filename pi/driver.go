@@ -17,10 +17,10 @@ import (
 // persists the session.
 var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
-// llamaProvider is Pi's llama.cpp provider, which Pi ships as the built-in extension of the same
-// name. Since Pi 0.99, -ne disables built-in extensions too, so the driver loads this one by
-// name for a session on the provider, and keeps the user's extensions and the other built-ins,
-// such as MCP, out.
+// llamaProvider is the name of Pi's llama.cpp provider, which Pi ships as a built-in extension.
+// Since Pi 0.99, -ne disables built-in extensions too, so for a session on this provider the
+// driver loads the extension by name. The user's extensions and the other built-ins, such as
+// MCP, stay out.
 const llamaProvider = "llama.cpp"
 
 // Driver starts one Pi process per session. Pi persists each session, so a later process
@@ -30,7 +30,7 @@ const llamaProvider = "llama.cpp"
 // finds nothing, and Pi starts a fresh session under the same ID. The session's exchange
 // records then name entries Pi doesn't hold, and Open fails with harness.ErrJournalMismatch.
 //
-// The driver needs Pi 0.99 or newer, which loads a built-in extension by its builtin: name.
+// The driver needs Pi 0.99 or newer, which loads a built-in extension by a "builtin:" name.
 type Driver struct {
 	// Command is the Pi executable. Empty means "pi" on the PATH.
 	Command string
@@ -104,19 +104,18 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 }
 
 // catalogWait is how long setModel retries a model Pi doesn't list yet. Pi starts from the
-// model catalog it saved last, and refreshes a provider's catalog from the provider in the
-// background as it starts; for llama.cpp's router the saved catalog holds only the models
-// loaded when it was saved. A model loaded since appears once the refresh lands, which took
-// under a second against the router, so the wait covers that with room to spare. A test
-// shortens it.
+// model catalog it saved last and refreshes each provider's catalog in the background as it
+// starts. For llama.cpp's router, the saved catalog holds only the models that were loaded when
+// it was saved, so a model loaded since appears once the refresh lands. The refresh took under a
+// second against the router, which leaves the wait ample room. A test shortens it.
 var catalogWait = 5 * time.Second
 
 // catalogPoll is how often setModel retries within catalogWait.
 const catalogPoll = 100 * time.Millisecond
 
-// setModel selects the session's model, retrying for up to catalogWait while Pi's background
-// refresh of its catalog may still add it. A model Pi still doesn't list by then fails with
-// Pi's own error.
+// setModel selects the session's model. It retries for up to catalogWait, because Pi's background
+// catalog refresh may still add the model. A model Pi still doesn't list by then fails with Pi's
+// own error.
 func setModel(ctx context.Context, c *stdio.Client, opts harness.Options) error {
 	cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
 	deadline := time.Now().Add(catalogWait)

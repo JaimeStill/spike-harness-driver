@@ -93,8 +93,7 @@ func visionScenario(svc *session.Service, models func() (Models, error), needs [
 				{
 					Intent: "Send the same image to a harness session on the text-only default model",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						rep.Note("Pi replaces an image with \"(image omitted: model does not support images)\" for a model")
-						rep.Note("whose entry lists no image input, and runs the exchange anyway")
+						rep.Note("for a model without image input, Pi replaces the image with \"(image omitted: model does not support images)\" and runs the exchange anyway")
 						o, err := ask(ctx, rep, "")
 						if err != nil {
 							return err

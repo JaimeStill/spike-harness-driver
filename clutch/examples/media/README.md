@@ -14,12 +14,12 @@ go run ./clutch/examples/media/shapes.go
 
 ## phrase.wav
 
-One speaker saying:
+The recording holds one speaker saying:
 
 > The access code is seven four two nine.
 
-It is 16 kHz mono and a few seconds long. Gemma 4 E4B loops on clips longer than about 30
-seconds. Generate it with espeak-ng:
+The clip is 16 kHz mono and a few seconds long. It stays short because Gemma 4 E4B loops on
+clips longer than about 30 seconds. Generate it with espeak-ng:
 
 ```bash
 sudo pacman -S espeak-ng

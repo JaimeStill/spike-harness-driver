@@ -1,6 +1,6 @@
 # Router models for native capabilities
 
-Step 4's scenarios need three models that the llama.cpp router doesn't serve yet: one that
+Step 4's scenarios need three models that the llama.cpp router does not yet serve: one that
 takes images, one that embeds text, and one that takes audio. This runbook adds them to the
 Framework desktop's router. The router's configuration lives in personal-agents
 (`profiles/unified-96gb.ini`, with recipes in `reference/README.md`); this spike never writes
@@ -101,12 +101,11 @@ outpost amd usage
 ## 4. Smoke tests
 
 Run these from the spike's checkout, with `LLAMA_BASE_URL` set as it is for `clutch`. The
-base64 goes to jq through `--rawfile` because an audio clip is too long for a command-line
-argument. The
-fixtures are in `clutch/examples/media` (see its README).
+fixtures are in `clutch/examples/media` (see its README). The commands pass base64 to jq through
+`--rawfile` because an audio clip is too long for a command-line argument.
 
-`/models` should list image input for the vision model and audio input for the audio model.
-Pi reads the same field to decide whether a model takes images:
+The `/v1/models` response should list image input for the vision model and audio input for the
+audio model. Pi reads the same field to decide whether a model takes images:
 
 ```bash
 curl -s "$LLAMA_BASE_URL/v1/models" \
