@@ -46,3 +46,18 @@ Planned for step 6, where a service runs workflows over many sessions in a conta
     to tell a loading model from a hung one.
   - A provider error, such as llama.cpp rejecting a malformed tool call, ends the exchange with
     `stopReason: "error"`, and Pi doesn't retry it. A service decides which of these to retry.
+- **The harness's version.** The image pins it. A harness installed as "latest" changed what
+  the driver's flags do between two runs (`findings.md`, Process lifecycle).
+- **Native capability models.**
+  - The router's vision, embedding, and audio models share the GPU pool with the text models.
+    A vision model beside gpt-oss leaves no room for the others, so a service either sizes the
+    set it keeps loaded or swaps models, and a swap must land in the harness's model catalog
+    before a session selects the model.
+  - Audio is split on the client: Gemma 4 E4B loops on clips longer than about 30 seconds, and
+    Azure's transcription takes files up to 25 MB.
+- **Model client credentials.**
+  - The spike's Azure token comes from the Azure CLI's sign-in. A service takes a managed
+    identity instead, either from IMDS over plain HTTP or through an azidentity sub-module,
+    behind the same token-source function.
+  - An error from a failed request quotes the endpoint's URL. The endpoint isn't a secret, but
+    a service redacts it from the errors it logs.

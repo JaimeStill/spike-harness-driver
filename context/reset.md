@@ -1,103 +1,110 @@
-# reset · payloads-tools-skills
+# reset · native-capabilities
 
 - **Status:** closeout
 - **Session:** start
-- **Branch:** payloads-tools-skills
+- **Branch:** native-capabilities
 
 ## Disposition
 
-- **Integrated:** deleted `context/payloads.md`. Its three items are built, and the `harness`
-  package documentation covers them: `Event.Err` is an `error`, `Connection.Err` reports the
-  exit error, and `Usage` counts cache reads and writes.
 - **Add or sharpen:**
   - `context/findings.md`:
-    - A new Payloads section records how tools, skills, and structured responses reach Pi:
-      - the bridge baseline and its dialog callbacks;
-      - skills listed to the model only with `read` or `bash` active;
-      - the `toolsAdded` delta that drops a tool's guidelines, and the prompt instruction it
-        requires;
-      - the peg-native parse failure under a prompt that contradicts the instruction;
-      - the unseen validation-retry path;
-      - cache usage.
-    - Sessions records that skill paths are stable across a resume.
-    - The rejected Pi-extension option is restated: the bridge removes its cost, and it stays
-      rejected because it works for Pi alone.
-    - Infrastructure shape records the three-module layout as go-ai's packaging, and its
-      workspace-only cost, with `harness/catalog`, `stdio`'s requests, and new line counts.
-    - Process lifecycle adds command-tool process groups and the private cache.
-  - `context/adapters.md`, for step 5:
-    - how Go tools reach each harness, and whether one Go MCP server serves them all;
-    - `tool_choice` as a sturdier way to force `respond`;
-    - review finding 10: fold `respond` into `EventStructured` with a validation-failure event,
-      and sum `Usage` over the exchange.
+    - Capabilities records:
+      - Pi exposes vision alone, as RPC prompt images, and drops an image quietly for a model
+        without image input.
+      - Pi has nothing for embeddings or audio.
+      - The router's capability routes.
+      - Azure v1 serves chat and embeddings, while its transcription works only on the
+        deployment route.
+      - Reasoning models reject `max_tokens` and `temperature`.
+      - Azure Government lists no transcription model.
+      - A Go tool reaches a capability the harness lacks.
+      - Qwen3.8-27B's decode rate.
+    - Payloads records that images travel as prompt images and that a record keeps only their
+      media type.
+    - Infrastructure shape records:
+      - `model` as the second surface: about 610 lines, the standard library only, and one
+        `Config` with no policy.
+      - The token-source seam.
+      - The rejected openai-go SDK and tau shape.
+      - Review finding 11: `clutch`'s internal test packages.
+    - Process lifecycle records:
+      - The harness installed as "latest", with Pi 0.99's `-ne` and `-e builtin:llama.cpp`.
+      - Pi's saved model catalog and its background refresh, which races `set_model`.
+      - `pi update --models` not refreshing llama.cpp.
   - `context/service-runtime.md`, for step 6:
-    - a database registry of tools and skills;
-    - layered skill search paths with precedence, at the architect's request;
-    - the command tools' environment, the `defaultTools` default, and cache leftovers;
-    - model cold starts, and provider errors Pi doesn't retry;
-    - the private default `--state`.
-  - `context/README.md`:
-    - Path marks step 3 built, and names `go run ./clutch/cmd/clutch`.
-    - Step 4 is the spike's own code under the Elemental Architecture.
-    - Prior art recasts tau's `agent` as prior art, not a baseline, at the architect's
-      direction. `references.toml`'s comment matches.
+    - pin the harness version;
+    - size or swap the capability models, with a swap landing in the harness's catalog;
+    - split audio on the client;
+    - managed identity through IMDS or an azidentity sub-module;
+    - redact the endpoint from logged errors (review finding 7).
+  - `context/adapters.md`, for step 5:
+    - native capabilities per harness;
+    - how each harness learns a provider's models;
+    - a cloud harness target;
+    - the suite's reply checks that depend on wording (review finding 6).
+  - `context/README.md`: Path marks step 4 built, and names `--target` and `setup/`.
 - **Retained:** `context/adapters.md` (step 5) and `context/service-runtime.md` (step 6).
 - **Validated:**
-  - **Checkpoint 1** (Go tools and skills, live on the llama.cpp router with gpt-oss-120b):
-    - `scenario tool`: the model called the Go tool `lookup_code`, whose handler returned
-      `ZX-2BD806`, and replied with it. With `--tools clutch/examples/tools`, it called the
-      python command tool `fingerprint` (`c278be9e2247`, matched in Go).
-    - `scenario skill`: the embedded `clutch-motto` skill ran through `/skill:` with no tools,
-      and was found by the model with only `read` active. With `--skills
-      clutch/examples/skills`, the model found `clutch-weather`.
-    - `exchange`, `cancel`, and `resume` passed, and no process was left.
-    - Adjust `464a9c3` gave skills and the bridge stable paths: on-disk skills in place, the rest
-      in a content-addressed cache. A session resumed in a new process re-read its skill at the
-      path in its history.
-  - **Checkpoint 2** (structured responses, live): `scenario structured` decoded `{city,
-    country}` and `{count, colors}` on one session, twice. `session send --schema` met a
-    pattern and exact-count schema on its first call.
-  - **Checkpoint 3** (final validation):
-    - The editor pass ran on Sonnet (`1e7224d`).
-    - Build, vet, `go test -race`, and golangci-lint 2.13.2 passed across all three modules.
-    - All six scenarios ran live from a clean `--state`.
-    - `structured` step 4 failed in 2 of 4 runs: its prompt contradicted the schema instruction,
-      and llama.cpp rejected gpt-oss's malformed tool call. Adjust `d247a4f`, at the
-      architect's direction, asks for the greeting directly. It then passed 4 of 4.
-  - **Branch review** (reviewer on Opus). Findings 1–9, 11, and a leaking test were fixed in
-    Adjust `2f31a1a`:
-    - a private, digest-checked cache, and the default `--state` in the user's cache
-      directory;
-    - command-tool process groups killed after every exit;
-    - the session's own cancel mark;
-    - a bounded wait for tool answers at shutdown;
-    - schema and tool-name validation in `harness`;
-    - the `respond` sentinel;
-    - the exit cause captured at `Wait`;
-    - PID-checked group-kill tests;
-    - Pi's skill-name rule.
+  - **Checkpoint 1** (setup, from `setup/router-models.md` and `setup/azure-foundry.md`):
+    - The router's Qwen3.8-27B, Qwen3-Embedding-4B, and Gemma 4 E4B answered their smoke tests:
+      the shapes named, 2560 dimensions, and "The access code is 7429." both transcribed and in
+      chat.
+    - Azure answered keyless with the Foundry User role and the `https://ai.azure.com` scope:
+      gpt-5-mini, text-embedding-3-small at 1536 dimensions, and gpt-4o-mini-transcribe on the
+      deployment route.
+    - The v1 transcription route answered 404.
+    - The subscription has no quota for gpt-6-luna or gpt-transcribe; switching is a flag.
+    - `disableLocalAuth` is on, and GitHub secret scanning and push protection are on.
+    - Adjusts: `e653742`, `20c4e59`, `4c4e149`, `f1cd7ca`, `39d8342`, `79af481`, `262e7f6`,
+      `a34a4a0`.
+  - **Checkpoint 2** (live on the router): `vision`, `embed`, and `audio` passed.
+    - `vision` first failed at `set_model`.
+    - `27174d5` misdiagnosed it as a stale catalog.
+    - `e1d0490` found the cause: mise had updated Pi to 0.99.1, whose `-ne` drops the built-in
+      llama.cpp provider. The driver now loads it by name.
+  - **Checkpoint 3** (live on Azure, `--target azure`): the three scenarios passed with no
+    endpoint or token in the output.
+    - `vision` failed at `set_model` again. `b788ae2` found the race with Pi's background
+      catalog refresh, and reverted `27174d5`, since `pi update --models` never refreshes
+      llama.cpp.
+    - A model loaded after Pi saved its catalog was then selected.
+  - **Checkpoint 4** (final validation):
+    - The editor pass ran on Sonnet (`a2d844a`).
+    - Build, vet, `go test -race`, golangci-lint 2.13.2, and gofmt were clean in all three
+      modules.
+    - All nine scenarios passed live on Pi 0.99.1 from a clean `--state`, with the example
+      tools and skills, and the three capability scenarios passed on Azure.
+  - **Branch review** (reviewer on Opus). Findings 1–5 and 8–10 were fixed in Adjust `7e0c59a`:
+    - `set_model` asks again only on Pi's "Model not found" for llama.cpp. A Pi that has exited
+      fails at once.
+    - A record keeps no image bytes.
+    - The wait is `Driver.CatalogWait`.
+    - `hasCode` ends a run at punctuation.
+    - A test covers vision steps 2 and 3.
+    - `fakePi`'s doc comment is back on `fakePi`.
+    - The runbook passes the token off curl's arguments.
+    - The target table is tidied.
 
-    The new tests for findings 2, 3, and 7 fail with their fixes reverted. The suite and lint
-    passed, and `tool`, `skill`, and `structured` passed live again. Finding 10 is recorded in
-    `adapters.md` for step 5.
+    Checks passed in all three modules, and the race was re-proved live with Gemma. Findings 6,
+    7, and 11 are recorded in the notes above. Finding 12, that `clutch` builds only in the
+    workspace, predates the branch and was already recorded.
 
 ## Next-focus
 
-Path step 4, native capabilities, in this repository.
+Path step 5, the Claude Code and OpenCode adapters, in this repository. `context/adapters.md`
+holds the plan and its open questions.
 
-- Establish which of vision, embeddings, and audio Pi exposes to a driver: image input through
-  RPC `prompt` (Pi's `@image` files and message content), and whether it offers anything for
-  embeddings or audio.
-- Build a thin direct model client for what the harness doesn't expose, covering vision,
-  embeddings, and audio, against the llama.cpp router and a cloud target.
-- Write it as the spike's own Go infrastructure under the Elemental Architecture
-  ([standards-lab/architecture](https://github.com/standards-lab/architecture): `architecture.md`,
-  its principles, especially minimal-footprint and downward-dependencies, and the Go Elemental
-  standard).
-- tau's `agent` package (Chat, Vision, Embed) is prior art that informs the client's shape, not
-  a baseline to adopt: it has no audio, among other gaps.
-- Each capability gets its own `clutch` scenario.
-
-The design question to settle first: where the direct client sits beside `harness`. It could be
-a sibling module the same programs compose, or a capability a harness session can also reach,
-for example as a tool. It also depends on which native capabilities the router's models serve.
+- Each adapter is a `harness.Connection` over `harness/stdio`:
+  - Claude Code: `claude -p` with `stream-json` and control requests.
+  - OpenCode: `opencode acp`.
+- A conformance suite runs Pi and both new adapters behind one interface, against the router and
+  a cloud target.
+- Settle first, per harness:
+  - persistence: a durable journal with stable entry IDs, which decides whether
+    `harness.Journal` becomes required or is dropped;
+  - how Go tools reach it, and whether one Go MCP server serves every harness;
+  - whether it takes images;
+  - how it learns a provider's models.
+- Pin each harness's version for the suite's runs. Pi changed under this step.
+- The review's surface change waits for the second adapter: fold `respond` into
+  `EventStructured`, with a validation-failure event, and sum `Usage` over the exchange.
