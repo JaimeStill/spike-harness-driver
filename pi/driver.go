@@ -20,12 +20,20 @@ import (
 // persists the session.
 var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
+// llamaProvider is Pi's llama.cpp provider, which Pi ships as the built-in extension of the same
+// name. Since Pi 0.99, -ne disables built-in extensions too, so the driver loads this one by
+// name for a session on the provider, and keeps the user's extensions and the other built-ins,
+// such as MCP, out.
+const llamaProvider = "llama.cpp"
+
 // Driver starts one Pi process per session. Pi persists each session, so a later process
 // resumes it by ID.
 //
 // Pi scopes a session ID to the working directory: resuming a session from another directory
 // finds nothing, and Pi starts a fresh session under the same ID. The session's exchange
 // records then name entries Pi doesn't hold, and Open fails with harness.ErrJournalMismatch.
+//
+// The driver needs Pi 0.99 or newer, which loads a built-in extension by its builtin: name.
 type Driver struct {
 	// Command is the Pi executable. Empty means "pi" on the PATH.
 	Command string
@@ -76,7 +84,11 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if err != nil {
 		return nil, err
 	}
-	args := slices.Concat(rpcArgs, b.args)
+	args := slices.Clone(rpcArgs)
+	if opts.Provider == llamaProvider {
+		args = append(args, "-e", "builtin:"+llamaProvider)
+	}
+	args = append(args, b.args...)
 	if opts.SessionID != "" {
 		args = append(args, "--session-id", opts.SessionID)
 	}

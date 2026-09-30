@@ -206,6 +206,44 @@ func TestAFailedRefreshFailsOpen(t *testing.T) {
 	}
 }
 
+func TestTheLlamaProviderLoadsItsBuiltinExtension(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		want     bool
+	}{
+		{"llama.cpp", true},
+		{"anthropic", false},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "launch.json")
+			d := fakeDriver("ok")
+			d.Env = append(d.Env, launchEnv+"="+file)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			s, err := d.Open(ctx, harness.Options{Provider: tc.provider, Model: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			closeSession(t, s)
+			raw, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var l launch
+			if err := json.Unmarshal(raw, &l); err != nil {
+				t.Fatal(err)
+			}
+			args := strings.Join(l.Args, " ")
+			if got := strings.Contains(args, "-e builtin:llama.cpp"); got != tc.want {
+				t.Fatalf("args %q: loads builtin:llama.cpp = %v, want %v", args, got, tc.want)
+			}
+			if !l.Extension {
+				t.Fatalf("args %q: the bridge extension isn't loaded", args)
+			}
+		})
+	}
+}
+
 func TestSendWhileOpenIsBusy(t *testing.T) {
 	s := open(t, "ok")
 	defer closeSession(t, s)

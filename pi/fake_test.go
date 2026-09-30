@@ -90,6 +90,10 @@ func recordLaunch(args []string) {
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "-e":
+			// A built-in extension, loaded by name, is no file of the driver's.
+			if strings.HasPrefix(args[i+1], "builtin:") {
+				continue
+			}
 			_, err := os.Stat(args[i+1])
 			l.Extension = err == nil
 		case "--skill":
