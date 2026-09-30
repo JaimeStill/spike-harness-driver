@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/pflag"
 )
@@ -17,6 +18,18 @@ type Config struct {
 	// Skills and Tools are directories of skills and command tools that every session offers.
 	Skills []string
 	Tools  []string
+	// Target names the endpoint the direct model client talks to.
+	Target string
+	// VisionModel, EmbedModel, and AudioModel are the direct client's model IDs. Empty takes
+	// the target's default.
+	VisionModel string
+	EmbedModel  string
+	AudioModel  string
+	// HarnessVisionModel is the provider's model a harness session runs on when it is sent an
+	// image.
+	HarnessVisionModel string
+	// AzureScope is the Entra ID scope of the token the azure target authenticates with.
+	AzureScope string
 }
 
 // bind registers cfg's flags on fs.
@@ -29,6 +42,13 @@ func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&cfg.All, "all", false, "also print harness events with no normalized meaning")
 	fs.StringArrayVar(&cfg.Skills, "skills", nil, "a directory of skills, one per subdirectory, that every session offers; repeatable")
 	fs.StringArrayVar(&cfg.Tools, "tools", nil, "a directory of command tools, one per subdirectory, that every session offers; repeatable")
+	fs.StringVar(&cfg.Target, "target", targetLlama, "the endpoint the direct model client talks to: "+strings.Join(targetNames(), " | "))
+	fs.StringVar(&cfg.VisionModel, "vision-model", "", "the direct client's model ID for images; empty takes the target's default")
+	fs.StringVar(&cfg.EmbedModel, "embed-model", "", "the direct client's model ID for embeddings; empty takes the target's default")
+	fs.StringVar(&cfg.AudioModel, "audio-model", "", "the direct client's model ID for audio; empty takes the target's default")
+	fs.StringVar(&cfg.HarnessVisionModel, "harness-vision-model", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL",
+		"the provider's model ID for a harness session sent an image; the harness keeps --provider whatever --target is")
+	fs.StringVar(&cfg.AzureScope, "azure-scope", "https://ai.azure.com", "the Entra ID scope of the azure target's token")
 }
 
 // defaultState is clutch's directory in the user's cache directory, which, unlike the shared

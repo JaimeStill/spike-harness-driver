@@ -23,7 +23,7 @@ func TestListNamesEveryScenario(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "structured", "needs the harness executable"} {
+	for _, name := range []string{"exchange", "cancel", "resume", "tool", "skill", "structured", "vision", "embed", "audio", "needs the harness executable"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("list lacks %q:\n%s", name, out)
 		}
@@ -105,5 +105,40 @@ func TestExchangesReadTheStateDirectory(t *testing.T) {
 	code, out, errs := execute(t, "--state", t.TempDir(), "session", "exchanges", "none")
 	if code != 0 || !strings.Contains(out, "no exchanges recorded for session none") {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+}
+
+func TestTargetIsValidated(t *testing.T) {
+	code, out, errs := execute(t, "--target", "openai", "list")
+	if code != 1 || !strings.Contains(errs, `unknown target "openai" (known: llama.cpp, azure)`) || out != "" {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+	for _, target := range []string{"llama.cpp", "azure"} {
+		if code, _, errs := execute(t, "--target", target, "list"); code != 0 {
+			t.Errorf("--target %s: exit %d, stderr %q", target, code, errs)
+		}
+	}
+}
+
+func TestHelpShowsTheTargetFlags(t *testing.T) {
+	_, out, _ := execute(t, "--help")
+	for _, flag := range []string{"--target", "--vision-model", "--embed-model", "--audio-model", "--harness-vision-model", "--azure-scope"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("help lacks %s:\n%s", flag, out)
+		}
+	}
+}
+
+func TestListShowsEachKindOfNeed(t *testing.T) {
+	_, out, _ := execute(t, "list")
+	for _, want := range []string{
+		"needs LLAMA_BASE_URL set when the provider is llama.cpp",
+		"needs LLAMA_BASE_URL set when the target is llama.cpp",
+		"needs LLAMA_BASE_URL set when the provider or the target is llama.cpp",
+		"needs the Azure CLI, az, on the PATH when the target is azure",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list lacks %q:\n%s", want, out)
+		}
 	}
 }

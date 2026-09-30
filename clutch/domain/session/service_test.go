@@ -98,6 +98,7 @@ func TestOpenWithAddsTheSetup(t *testing.T) {
 	base := harness.Options{
 		Tools:        []harness.Tool{{Name: "fingerprint"}},
 		Skills:       []harness.Skill{{Name: "clutch-weather"}},
+		Model:        "m",
 		HarnessTools: []string{"bash"},
 	}
 	// A spare capacity would let an in-place append leak one Open's setup into the next.
@@ -118,6 +119,7 @@ func TestOpenWithAddsTheSetup(t *testing.T) {
 	}
 
 	sess, err := svc.OpenWith(t.Context(), "", session.Setup{
+		Model:        "vision",
 		Tools:        []harness.Tool{{Name: "lookup_code"}},
 		Skills:       []harness.Skill{{Name: "clutch-motto"}},
 		HarnessTools: []string{},
@@ -135,6 +137,9 @@ func TestOpenWithAddsTheSetup(t *testing.T) {
 	if opened.HarnessTools == nil || len(opened.HarnessTools) != 0 {
 		t.Errorf("harness tools = %#v, want empty", opened.HarnessTools)
 	}
+	if opened.Model != "vision" {
+		t.Errorf("model = %q, want the setup's", opened.Model)
+	}
 
 	sess, err = svc.Open(t.Context(), "")
 	if err != nil {
@@ -146,6 +151,9 @@ func TestOpenWithAddsTheSetup(t *testing.T) {
 	}
 	if !slices.Equal(opened.HarnessTools, []string{"bash"}) {
 		t.Errorf("a plain Open enables %v", opened.HarnessTools)
+	}
+	if opened.Model != "m" {
+		t.Errorf("a plain Open runs on %q", opened.Model)
 	}
 	if got := names(svc.Tools()); !slices.Equal(got, []string{"fingerprint"}) || len(svc.Skills()) != 1 {
 		t.Errorf("Tools = %v, Skills = %+v", got, svc.Skills())
@@ -272,5 +280,30 @@ func TestSendSchema(t *testing.T) {
 				t.Errorf("recorded %+v, %v", recs, err)
 			}
 		})
+	}
+}
+
+func TestRunSendsTheImages(t *testing.T) {
+	store := filestore.New(t.TempDir())
+	svc := session.New(
+		func() (harness.Driver, error) { return harnesstest.Driver{}, nil },
+		func() harness.Options { return harness.Options{Store: store} },
+	)
+	sess, err := svc.Open(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sess.Close() }()
+	img := harness.Image{MediaType: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}}
+	if _, err := svc.Run(t.Context(), sess, session.Exchange{Prompt: "what is this?", Images: []harness.Image{img}}, session.Observer{}); err != nil {
+		t.Fatal(err)
+	}
+	// The record keeps each image's media type, which shows the request carried it.
+	recs, err := store.Records(t.Context(), sess.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || len(recs[0].Request.Images) != 1 || recs[0].Request.Images[0].MediaType != "image/png" {
+		t.Errorf("records = %+v", recs)
 	}
 }
