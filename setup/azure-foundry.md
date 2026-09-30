@@ -8,9 +8,9 @@ It follows the precedent herald set: Azure AI Foundry, with managed identity in 
 Here, local development uses the Azure CLI's sign-in in place of the managed identity. Either
 way the client sends an Entra ID bearer token, and no API key exists to leak.
 
-Checked against Microsoft Learn on 2026-09-25, and the model choices against eastus2's live
-catalog (`az cognitiveservices model list -l eastus2`) on 2026-09-30. The places where the docs
-disagree are marked **Verify**.
+Checked against Microsoft Learn on 2026-09-25, the model choices against eastus2's live catalog
+(`az cognitiveservices model list -l eastus2`) on 2026-09-30, and every step run end to end on
+2026-09-30. Where the docs disagreed, the run settled it, and the runbook states the result.
 
 ## What gets created
 
@@ -19,7 +19,7 @@ disagree are marked **Verify**.
 | Resource group | `rg-spike-harness` | Holds everything, so cleanup is one delete |
 | Resource | kind `AIServices`, SKU `S0`, region `eastus2`, with a custom subdomain | Entra ID auth requires the custom subdomain. eastus2 offers all three models as Global Standard |
 | Vision chat | deployment `gpt-5-mini`, version `2025-08-07`, Global Standard | GA until 2027-02-09. The newest small model this subscription has quota for; gpt-6-luna replaces it once quota is granted |
-| Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | GA until 2028-02-09 (2027-04-15 in Azure Government). No newer OpenAI embedding model exists. 1536 dimensions, with `dimensions` supported. $0.02 per 1M tokens |
+| Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | GA until 2028-02-09. No newer OpenAI embedding model exists. 1536 dimensions, with `dimensions` supported. $0.02 per 1M tokens |
 | Transcription | deployment `gpt-4o-mini-transcribe`, version `2025-12-15`, Global Standard | GA until 2027-06-15. gpt-transcribe replaces it once quota is granted |
 
 Each deployment is named after its model, because the v1 API takes the deployment name as the
@@ -37,14 +37,12 @@ Models passed over:
 - **gpt-4.1-mini** is Legacy in the catalog and Deprecated in the retirement schedule, retiring
   2027-04-14. Microsoft's policy blocks new deployments of a Deprecated version in a
   subscription that never deployed it.
-- **gpt-5.6-luna** (2026-07-09, GA until 2028-01-11, $0.20 / $1.20) is the model Azure
-  Government offers. The spike aims for gpt-6-luna, and a deployment in Azure Government
-  changes only configuration: the model ID, base URL, and token scope. See the last section.
 - **whisper** retires 2026-12-15, and the 2025-03-20 versions of the gpt-4o transcribe models
   retire 2026-10-15. Pin versions: a fallback that deploys the older version dies within weeks.
-- **Cohere embed-v4** isn't offered in Azure Government.
+- **Cohere embed-v4** costs six times as much as text-embedding-3-small, and it's unconfirmed
+  whether the v1 route honors its `dimensions`.
 
-gpt-5-mini, gpt-5.6-luna, and gpt-6-luna are reasoning models. On `/chat/completions` they take
+gpt-5-mini and gpt-6-luna are reasoning models. On `/chat/completions` they take
 `max_completion_tokens`, never `max_tokens`. The GPT-5 models reject `temperature` and
 `top_p`, and gpt-5.6 needs `reasoning_effort: "none"` alongside `tools`. Microsoft's GPT-6 table
 marks `temperature` as supported. The client never sends `max_tokens` or `temperature`, and
@@ -150,8 +148,7 @@ Capacity is counted in thousands of tokens per minute. Ten is ample for the scen
 ## 4. Grant yourself access
 
 Assign the Foundry User role (formerly Azure AI User) by its ID, since the role's name is
-mid-rename. **Verify:** some pages name Cognitive Services OpenAI User instead. If step 5
-returns 401 or 403 after the role has had time to apply, assign that role too.
+mid-rename. It is enough on its own for chat, embeddings, and transcription.
 
 ```bash
 az role assignment create \
@@ -171,9 +168,8 @@ set -a; . ./.env.azure; set +a
 TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
 ```
 
-**Verify:** the current docs give the scope `https://ai.azure.com`. If the calls below return
-401, try `--resource https://cognitiveservices.azure.com`. The scope that works goes to
-`clutch --azure-scope`.
+The scope `https://ai.azure.com` works, and it is `clutch --azure-scope`'s default. Older
+pages give `https://cognitiveservices.azure.com`.
 
 Vision:
 
@@ -209,11 +205,8 @@ curl -s "${AZURE_OPENAI_BASE_URL%/v1}/deployments/gpt-4o-mini-transcribe/audio/t
 ```
 
 The same call to `$AZURE_OPENAI_BASE_URL/audio/transcriptions` returns 404
-`DeploymentNotFound`. Once gpt-transcribe is deployed, put its name in the path instead.
-
-**Verify:** the transcription overview names the v1 route, but the transcription quickstart
-shows only the older deployment path. If the v1 route fails, record the response. The older
-path is `https://<account>.openai.azure.com/openai/deployments/<deployment>/audio/transcriptions?api-version=2025-04-01-preview`.
+`DeploymentNotFound`. Microsoft's transcription overview names the v1 route, but only the older
+deployment path works. Once gpt-transcribe is deployed, put its name in the path instead.
 
 ## 6. Disable key access
 
@@ -225,15 +218,12 @@ az resource update -g $RG -n $ACCT \
   --set properties.disableLocalAuth=true
 ```
 
-The change can take minutes or longer to apply. It has applied when a call with the key
-returns 401:
+Confirm it. The resource reports `true`, and Azure then refuses to list the keys at all, with
+`Failed to list key. disableLocalAuth is set to be true`:
 
 ```bash
-KEY=$(az cognitiveservices account keys list -n $ACCT -g $RG --query key1 -o tsv)
-curl -s -o /dev/null -w '%{http_code}\n' "$AZURE_OPENAI_BASE_URL/embeddings" \
-  -H "api-key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"model": "text-embedding-3-small", "input": ["x"]}'
-unset KEY
+az cognitiveservices account show -n $ACCT -g $RG --query properties.disableLocalAuth -o tsv
+az cognitiveservices account keys list -n $ACCT -g $RG
 ```
 
 ## 7. Repository guards
@@ -259,20 +249,3 @@ az cognitiveservices account purge -n $ACCT -g $RG -l $LOC
 ```
 
 A deleted account is soft-deleted, and purging it releases the name.
-
-## Azure Government and IL6, on paper
-
-- **Endpoints:** Azure Government uses `https://<account>.openai.azure.us`, and the token scope
-  `https://cognitiveservices.azure.us/.default`. Run `az cloud set -n AzureUSGovernment` before
-  `az login`.
-- **Deployment types:** only Data Zone Standard, Standard, and Provisioned. There is no Global
-  Standard.
-- **Models:** it doesn't offer gpt-6-luna. It offers `gpt-5.6-luna`, which takes the same
-  request shape, and `text-embedding-3-small`, both as Data Zone Standard in both regions. A
-  client there passes `--vision-model gpt-5.6-luna` and changes no code.
-  `text-embedding-3-small` retires there on 2027-04-15, ten months before commercial.
-- **No transcription model:** Azure Government offers no whisper, gpt-4o-transcribe, or
-  gpt-transcribe. Audio at that level needs Azure Speech or a model the service hosts itself.
-- **Secret and Top Secret:** these clouds don't publish their endpoint suffixes, token scope, or
-  sign-in authority. The client therefore takes the base URL and the scope from configuration,
-  and nothing is fixed to `.com`.
