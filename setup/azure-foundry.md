@@ -8,8 +8,9 @@ It follows the precedent herald set: Azure AI Foundry, with managed identity in 
 Here, local development uses the Azure CLI's sign-in in place of the managed identity. Either
 way the client sends an Entra ID bearer token, and no API key exists to leak.
 
-Checked against Microsoft Learn on 2026-09-25. The places where the docs disagree are marked
-**Verify**.
+Checked against Microsoft Learn on 2026-09-25, and the model choices against eastus2's live
+catalog (`az cognitiveservices model list -l eastus2`) on 2026-09-30. The places where the docs
+disagree are marked **Verify**.
 
 ## What gets created
 
@@ -17,12 +18,28 @@ Checked against Microsoft Learn on 2026-09-25. The places where the docs disagre
 |---|---|---|
 | Resource group | `rg-spike-harness` | Holds everything, so cleanup is one delete |
 | Resource | kind `AIServices`, SKU `S0`, region `eastus2`, with a custom subdomain | Entra ID auth requires the custom subdomain. eastus2 offers all three models as Global Standard |
-| Vision chat | deployment `gpt-4.1-mini`, version `2025-04-14`, Global Standard | Of the candidates, it is the only one Azure Government also offers |
-| Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | |
-| Transcription | deployment `gpt-4o-mini-transcribe`, version `2025-12-15`, Global Standard | Marked Preview. The fallback is `whisper`, version `001`, Standard |
+| Vision chat | deployment `gpt-5.6-luna`, version `2026-07-09`, Global Standard | GA until 2028-01-11. The newest small model that Azure Government also offers (Data Zone Standard). $0.20 / $1.20 per 1M tokens |
+| Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | GA until 2028-02-09 (2027-04-15 in Azure Government). No newer OpenAI embedding model exists. 1536 dimensions, with `dimensions` supported. $0.02 per 1M tokens |
+| Transcription | deployment `gpt-transcribe`, version `2026-07-28`, Global Standard | GA until 2028-02-01, and Microsoft's recommended offline model. About $0.27 per audio hour. The fallback is `gpt-4o-mini-transcribe`, version `2025-12-15` (GA until 2027-06-15) |
 
 Each deployment is named after its model, because the v1 API takes the deployment name as the
 request's `model`.
+
+Models passed over:
+
+- **gpt-4.1-mini** is Legacy in the catalog and Deprecated in the retirement schedule, retiring
+  2027-04-14. Microsoft's policy blocks new deployments of a Deprecated version in a
+  subscription that never deployed it.
+- **gpt-6-luna** is cheaper ($0.10 / $0.50) and newer, but Azure Government doesn't offer it,
+  and its retirement date isn't published.
+- **whisper** retires 2026-12-15, and the 2025-03-20 versions of the gpt-4o transcribe models
+  retire 2026-10-15. Pin versions: a fallback that deploys the older version dies within weeks.
+- **Cohere embed-v4** isn't offered in Azure Government.
+
+gpt-5.6-luna is a reasoning model. On `/chat/completions` it takes `max_completion_tokens`,
+never `max_tokens`, and rejects `temperature` and `top_p`. With `tools` it needs
+`reasoning_effort: "none"`. llama.cpp accepts `max_completion_tokens` and `reasoning_effort`
+too, so the client sends the same shape to both targets.
 
 The client targets the v1 API, `https://<account>.openai.azure.com/openai/v1`. It has the same
 routes as the router's `/v1` (`/chat/completions`, `/embeddings`, `/audio/transcriptions`) and
@@ -84,11 +101,12 @@ az cognitiveservices account create -n $ACCT -g $RG -l $LOC \
 
 ```bash
 az cognitiveservices account list-models -n $ACCT -g $RG \
-  | jq -r '.[] | select(.name | test("gpt-4.1-mini|text-embedding-3-small|transcribe|whisper"))
+  | jq -r '.[] | select(.name | test("gpt-5.6-luna|text-embedding-3-small|transcribe"))
            | [.name, .version, ([.skus[].name] | join(","))] | @tsv'
 ```
 
-If the versions differ from the table, use the ones listed.
+If the versions differ from the table, use the ones listed, and check that none retires soon:
+`az cognitiveservices model list -l $LOC` shows each version's `deprecation.inference` date.
 
 ```bash
 dep() {
@@ -96,11 +114,11 @@ dep() {
     --deployment-name "$1" --model-name "$1" --model-version "$2" \
     --model-format OpenAI --sku-name "$3" --sku-capacity "$4"
 }
-dep gpt-4.1-mini           2025-04-14 GlobalStandard 10
+dep gpt-5.6-luna           2026-07-09 GlobalStandard 10
 dep text-embedding-3-small 1          GlobalStandard 10
-dep gpt-4o-mini-transcribe 2025-12-15 GlobalStandard 1
-# Fallback, if the transcribe model isn't offered:
-# dep whisper 001 Standard 1
+dep gpt-transcribe         2026-07-28 GlobalStandard 1
+# Fallback, if gpt-transcribe is refused or fails its smoke test:
+# dep gpt-4o-mini-transcribe 2025-12-15 GlobalStandard 1
 ```
 
 Capacity is counted in thousands of tokens per minute. Ten is ample for the scenarios.
@@ -138,7 +156,8 @@ Vision:
 ```bash
 base64 -w0 clutch/examples/media/shapes.png \
 | jq -n --rawfile img /dev/stdin '{
-  model: "gpt-4.1-mini",
+  model: "gpt-5.6-luna",
+  reasoning_effort: "low",
   messages: [{role: "user", content: [
     {type: "text", text: "Name each shape in this image and its color."},
     {type: "image_url", image_url: {url: ("data:image/png;base64," + $img)}}]}]}' \
@@ -162,8 +181,12 @@ Transcription:
 curl -s "$AZURE_OPENAI_BASE_URL/audio/transcriptions" \
   -H "Authorization: Bearer $TOKEN" \
   -F file=@clutch/examples/media/phrase.wav \
-  -F model=gpt-4o-mini-transcribe | jq -r .text
+  -F model=gpt-transcribe | jq -r .text
 ```
+
+If you deployed the fallback, send `model=gpt-4o-mini-transcribe`. **Verify:** Microsoft's docs
+don't yet show gpt-transcribe's request fields on the v1 route. If it fails, record the response
+and deploy the fallback.
 
 **Verify:** the transcription overview names the v1 route, but the transcription quickstart
 shows only the older deployment path. If the v1 route fails, record the response. The older
@@ -232,8 +255,10 @@ A deleted account is soft-deleted, and purging it releases the name.
   `az login`.
 - **Deployment types:** only Data Zone Standard, Standard, and Provisioned. There is no Global
   Standard.
-- **Models:** it lists `gpt-4.1-mini` and `text-embedding-3-small`, but **no transcription
-  model**: no whisper and no gpt-4o-transcribe. Audio at that level needs Azure Speech or a
+- **Models:** it offers `gpt-5.6-luna` and `text-embedding-3-small` as Data Zone Standard in
+  both regions. `text-embedding-3-small` retires there on 2027-04-15, ten months before
+  commercial. It offers **no transcription model**: no whisper, gpt-4o-transcribe, or
+  gpt-transcribe. Audio at that level needs Azure Speech or a
   model the service hosts itself.
 - **Secret and Top Secret:** these clouds don't publish their endpoint suffixes, token scope, or
   sign-in authority. The client therefore takes the base URL and the scope from configuration,
