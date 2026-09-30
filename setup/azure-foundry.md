@@ -87,7 +87,6 @@ older deployment route works:
 Guards:
 
 - `.gitignore` covers `.env*`, `secrets*.json`, and `config.*.json`.
-- A gitleaks pre-commit hook scans each staged change (step 7).
 - GitHub's secret scanning and push protection are on for the repository (step 7).
 
 ## 1. Sign in
@@ -238,17 +237,6 @@ unset KEY
 ```
 
 ## 7. Repository guards
-
-A gitleaks hook scans each staged change before it commits:
-
-```bash
-sudo pacman -S gitleaks
-cat > .git/hooks/pre-commit <<'EOF'
-#!/bin/sh
-exec gitleaks git --pre-commit --staged --redact
-EOF
-chmod +x .git/hooks/pre-commit
-```
 
 On GitHub, confirm that secret scanning and push protection are on (Settings, then Advanced
 Security). Both are free on public repositories:
