@@ -576,6 +576,10 @@ func TestImagesReachTheHarnessButNotTheRecord(t *testing.T) {
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("records = %+v, %v", recs, err)
 	}
+	// The Store itself receives no image data, whatever it does with a Record.
+	if imgs := recs[0].Request.Images; len(imgs) != 1 || imgs[0].MediaType != "image/png" || imgs[0].Data != nil {
+		t.Fatalf("the stored record's images = %+v, want the media type alone", imgs)
+	}
 	raw, err := json.Marshal(recs[0])
 	if err != nil {
 		t.Fatal(err)

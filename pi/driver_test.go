@@ -213,12 +213,12 @@ func TestSetModelWaitsForTheCatalogRefresh(t *testing.T) {
 }
 
 func TestSetModelGivesUpOnAModelPiNeverLists(t *testing.T) {
-	defer func(w time.Duration) { catalogWait = w }(catalogWait)
-	catalogWait = 400 * time.Millisecond
+	d := fakeDriver("ok")
+	d.CatalogWait = 400 * time.Millisecond
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	s, err := fakeDriver("ok").Open(ctx, harness.Options{Provider: "llama.cpp", Model: absentModel})
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: absentModel})
 	if err == nil {
 		_ = s.Close()
 		t.Fatal("Open succeeded on a model Pi never lists")
@@ -226,8 +226,37 @@ func TestSetModelGivesUpOnAModelPiNeverLists(t *testing.T) {
 	if !strings.Contains(err.Error(), "Model not found: llama.cpp/"+absentModel) {
 		t.Fatalf("Open = %v, want Pi's Model not found error", err)
 	}
-	if took := time.Since(start); took < catalogWait || took > catalogWait+5*time.Second {
-		t.Fatalf("Open gave up after %v, want about catalogWait (%v)", took, catalogWait)
+	if took := time.Since(start); took < d.CatalogWait || took > d.CatalogWait+5*time.Second {
+		t.Fatalf("Open gave up after %v, want about CatalogWait (%v)", took, d.CatalogWait)
+	}
+}
+
+func TestSetModelWaitsOnlyForTheLlamaCatalog(t *testing.T) {
+	// The wait is long, so a retry would show; neither case may retry.
+	for _, tc := range []struct {
+		name, command, provider string
+	}{
+		{"another provider's missing model", "", "anthropic"},
+		{"a Pi that has exited", "/bin/false", "llama.cpp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := fakeDriver("ok")
+			d.CatalogWait = time.Minute
+			if tc.command != "" {
+				d.Command = tc.command
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			start := time.Now()
+			s, err := d.Open(ctx, harness.Options{Provider: tc.provider, Model: absentModel})
+			if err == nil {
+				_ = s.Close()
+				t.Fatal("Open succeeded")
+			}
+			if took := time.Since(start); took > 10*time.Second {
+				t.Fatalf("Open failed after %v, want at once: %v", took, err)
+			}
+		})
 	}
 }
 

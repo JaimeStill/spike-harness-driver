@@ -35,7 +35,7 @@ type Config struct {
 // bind registers cfg's flags on fs.
 func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.Harness, "harness", "pi", "the harness to drive: pi")
-	fs.StringVar(&cfg.Provider, "provider", "llama.cpp", "the harness's model provider")
+	fs.StringVar(&cfg.Provider, "provider", providerLlama, "the harness's model provider")
 	fs.StringVar(&cfg.Model, "model", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "the provider's model ID")
 	fs.StringVar(&cfg.State, "state", defaultState(), "where the harness's sessions, the exchange records, and the files the driver loads into\n"+
 		"the harness are kept; it must be yours alone, since the harness runs code from it")
@@ -46,7 +46,7 @@ func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.VisionModel, "vision-model", "", "the direct client's model ID for images; empty takes the target's default")
 	fs.StringVar(&cfg.EmbedModel, "embed-model", "", "the direct client's model ID for embeddings; empty takes the target's default")
 	fs.StringVar(&cfg.AudioModel, "audio-model", "", "the direct client's model ID for audio; empty takes the target's default")
-	fs.StringVar(&cfg.HarnessVisionModel, "harness-vision-model", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL",
+	fs.StringVar(&cfg.HarnessVisionModel, "harness-vision-model", qwenVision,
 		"the provider's model ID for a harness session sent an image; the harness keeps --provider whatever --target is")
 	fs.StringVar(&cfg.AzureScope, "azure-scope", "https://ai.azure.com", "the Entra ID scope of the azure target's token")
 }

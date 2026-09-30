@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/clutch/examples/media"
@@ -153,7 +154,8 @@ func transcribeRecordingTool(rep *Reporter, m Models) harness.Tool {
 
 // hasCode fails unless text holds the access code phraseCode, as numerals or spoken digits,
 // run together or apart: "7429", "7 4 2 9", "7-4-2-9", and "seven four two nine" all pass. A
-// longer run of digits holding the code, such as "17429", doesn't.
+// longer run of digits holding the code, such as "17429", doesn't, and a sentence break or a
+// bracket ends a run, so "7429 (four digits)" passes.
 func hasCode(text string) error {
 	for _, run := range digitRuns(text) {
 		if run == phraseCode {
@@ -163,27 +165,49 @@ func hasCode(text string) error {
 	return fmt.Errorf("the reply lacks the access code %s: %q", phraseCode, text)
 }
 
+// runBreaks are the marks that end a run of digits. A comma, a hyphen, or a space joins digits,
+// as in "7,429" and "seven, four, two, nine"; a sentence's end, a colon, or a bracket ends
+// them.
+const runBreaks = ".!?;:()[]{}\n"
+
 // digitRuns returns each run of consecutive words in text that are all numerals or spoken
 // digits, joined into one string of numerals.
 func digitRuns(text string) []string {
 	var runs []string
-	var cur strings.Builder
+	var run, word strings.Builder
 	end := func() {
-		if cur.Len() > 0 {
-			runs = append(runs, cur.String())
-			cur.Reset()
+		if run.Len() > 0 {
+			runs = append(runs, run.String())
+			run.Reset()
 		}
 	}
-	for _, w := range strings.Fields(normalize(text)) {
+	endWord := func() {
+		w := word.String()
+		word.Reset()
+		if w == "" {
+			return
+		}
 		if d, ok := digitWords[w]; ok {
 			w = d
 		}
 		if strings.Trim(w, "0123456789") != "" {
 			end()
-			continue
+			return
 		}
-		cur.WriteString(w)
+		run.WriteString(w)
 	}
+	for _, r := range strings.ToLower(text) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			word.WriteRune(r)
+		case strings.ContainsRune(runBreaks, r):
+			endWord()
+			end()
+		default:
+			endWord()
+		}
+	}
+	endWord()
 	end()
 	return runs
 }

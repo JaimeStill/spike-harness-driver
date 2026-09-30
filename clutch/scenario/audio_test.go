@@ -23,6 +23,8 @@ func TestHasCode(t *testing.T) {
 		"code: 7-4-2-9",
 		"It's 7,429.",
 		"seven 4 two 9",
+		"The speaker says the access code is 7429 (four digits).",
+		"Code: 7429\n2 speakers? No, 1.",
 	} {
 		if err := hasCode(text); err != nil {
 			t.Error(err)

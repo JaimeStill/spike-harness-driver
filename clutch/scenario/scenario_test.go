@@ -144,6 +144,35 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 	return func() (scenario.Models, error) { return m, nil }
 }
 
+// TestVisionPastItsHarnessStep runs the vision scenario's steps after the first, which the stub
+// harness's fixed reply keeps TestScenariosOverAStubHarness from reaching: the direct client's
+// image request, and the text-only harness session, whose reply must not name the shapes.
+func TestVisionPastItsHarnessStep(t *testing.T) {
+	svc := session.New(
+		func() (harness.Driver, error) { return harnesstest.Driver{Stream: "essay"}, nil },
+		func() harness.Options { return harness.Options{Store: filestore.New(t.TempDir())} },
+	)
+	var vision scenario.Scenario
+	for _, s := range scenario.Scenarios(svc, stubModels(t), scenario.Needs{}) {
+		if s.Name == "vision" {
+			vision = s
+		}
+	}
+	steps, cleanup := vision.Steps()
+	defer func() { _ = cleanup() }()
+	rep, out := reporter()
+	for i, step := range steps[1:] {
+		if err := step.Action(t.Context(), rep); err != nil {
+			t.Fatalf("step %d: %v\n%s", i+2, err, out.String())
+		}
+	}
+	for _, want := range []string{"model vision on target stub", "blue square", "the exchange succeeded without the image"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("narration lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestScenariosOverAStubHarness(t *testing.T) {
 	store := filestore.New(t.TempDir())
 	var opened []harness.Options

@@ -1,10 +1,13 @@
 package pi
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
@@ -48,6 +51,12 @@ type Driver struct {
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
 	// seconds.
 	WaitDelay time.Duration
+	// CatalogWait is how long Open waits for a llama.cpp model Pi doesn't list yet. Pi starts
+	// from the model catalog it saved last and refreshes each provider's catalog in the
+	// background as it starts. For llama.cpp's router, the saved catalog holds only the models
+	// that were loaded when it was saved, so a model loaded since appears once the refresh
+	// lands, which took under a second against the router. Zero means five seconds.
+	CatalogWait time.Duration
 }
 
 var _ harness.Driver = Driver{}
@@ -90,7 +99,7 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	}
 	conn := newConnection(b)
 	conn.client = stdio.NewClient(p, codec{}, conn.answer)
-	id, err := handshake(ctx, conn.client, opts)
+	id, err := handshake(ctx, conn.client, opts, cmp.Or(d.CatalogWait, 5*time.Second))
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -103,25 +112,19 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-// catalogWait is how long setModel retries a model Pi doesn't list yet. Pi starts from the
-// model catalog it saved last and refreshes each provider's catalog in the background as it
-// starts. For llama.cpp's router, the saved catalog holds only the models that were loaded when
-// it was saved, so a model loaded since appears once the refresh lands. The refresh took under a
-// second against the router, which leaves the wait ample room. A test shortens it.
-var catalogWait = 5 * time.Second
-
-// catalogPoll is how often setModel retries within catalogWait.
+// catalogPoll is how often setModel asks again for a model Pi doesn't list yet.
 const catalogPoll = 100 * time.Millisecond
 
-// setModel selects the session's model. It retries for up to catalogWait, because Pi's background
-// catalog refresh may still add the model. A model Pi still doesn't list by then fails with Pi's
-// own error.
-func setModel(ctx context.Context, c *stdio.Client, opts harness.Options) error {
+// setModel selects the session's model. On llama.cpp, a model Pi answers it doesn't list may
+// still arrive with Pi's background catalog refresh, so setModel asks again for up to wait.
+// Every other failure, such as Pi having exited or a model another provider lacks, returns at
+// once.
+func setModel(ctx context.Context, c *stdio.Client, opts harness.Options, wait time.Duration) error {
 	cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
-	deadline := time.Now().Add(catalogWait)
+	deadline := time.Now().Add(wait)
 	for {
 		_, err := c.Call(ctx, cmd)
-		if err == nil || time.Now().After(deadline) {
+		if err == nil || !catalogMiss(opts, err) || time.Now().After(deadline) {
 			return err
 		}
 		select {
@@ -132,9 +135,17 @@ func setModel(ctx context.Context, c *stdio.Client, opts harness.Options) error 
 	}
 }
 
-func handshake(ctx context.Context, c *stdio.Client, opts harness.Options) (string, error) {
+// catalogMiss reports whether err is Pi's own answer that it doesn't list a llama.cpp model,
+// the one failure a catalog refresh can still mend.
+func catalogMiss(opts harness.Options, err error) bool {
+	var failed *commandError
+	return opts.Provider == llamaProvider && errors.As(err, &failed) &&
+		strings.HasPrefix(failed.Message, "Model not found")
+}
+
+func handshake(ctx context.Context, c *stdio.Client, opts harness.Options, catalogWait time.Duration) (string, error) {
 	if opts.Model != "" {
-		if err := setModel(ctx, c, opts); err != nil {
+		if err := setModel(ctx, c, opts, catalogWait); err != nil {
 			return "", err
 		}
 	}

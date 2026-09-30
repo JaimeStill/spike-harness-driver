@@ -241,10 +241,6 @@ func (j *fakeJournal) since(since string) (string, bool) {
 	return `{"entries":[` + b.String() + `]}`, true
 }
 
-// fakePi speaks Pi's RPC protocol on stdin and stdout. A normal prompt replays the events of
-// the captured plain.jsonl transcript. The long prompt streams deltas until an abort arrives,
-// then ends the way the captured aborted.jsonl transcript does, including answering the abort
-// only after agent_settled.
 // lateModel is a model the fake Pi lists only lateModelDelay after it starts, as Pi's
 // catalog gains a model loaded since the catalog was saved. absentModel is never listed.
 const (
@@ -253,6 +249,10 @@ const (
 	absentModel    = "absent-model"
 )
 
+// fakePi speaks Pi's RPC protocol on stdin and stdout. A normal prompt replays the events of
+// the captured plain.jsonl transcript. The long prompt streams deltas until an abort arrives,
+// then ends the way the captured aborted.jsonl transcript does, including answering the abort
+// only after agent_settled.
 func fakePi(mode string) int {
 	started := time.Now()
 	recordLaunch(os.Args[1:])

@@ -76,7 +76,7 @@ func (x *Exchange) record(entries []string, err error) Record {
 	rec := Record{
 		SessionID:  x.sessionID,
 		ExchangeID: x.id,
-		Request:    x.request,
+		Request:    recorded(x.request),
 		Result:     x.result,
 		Entries:    entries,
 		Started:    x.started,
@@ -155,4 +155,18 @@ func (x *Exchange) unanswered() bool {
 func (x *Exchange) fail(err error) {
 	x.push(Event{Kind: EventError, Err: err})
 	x.push(Event{Kind: EventEnded})
+}
+
+// recorded is req as a Record keeps it: each image by its media type alone, so a Store holds no
+// image data whatever it does with the Record.
+func recorded(req Request) Request {
+	if len(req.Images) == 0 {
+		return req
+	}
+	images := make([]Image, len(req.Images))
+	for i, img := range req.Images {
+		images[i] = Image{MediaType: img.MediaType}
+	}
+	req.Images = images
+	return req
 }

@@ -62,8 +62,8 @@ func (i *Infrastructure) Validate() error {
 	if _, err := i.Driver(); err != nil {
 		return err
 	}
-	if _, ok := targets[i.cfg.Target]; !ok {
-		return fmt.Errorf("unknown target %q (known: %s)", i.cfg.Target, strings.Join(targetNames(), ", "))
+	if _, err := lookupTarget(i.cfg.Target); err != nil {
+		return err
 	}
 	skills, err := loadSkills(i.cfg.Skills)
 	if err != nil {
@@ -209,7 +209,7 @@ func (i *Infrastructure) llamaNeed(provider, target bool) scenario.Need {
 	return scenario.Need{
 		What: "LLAMA_BASE_URL set when " + strings.Join(when, " or ") + " is llama.cpp",
 		Check: func(context.Context) error {
-			used := (provider && i.cfg.Provider == targetLlama) || (target && i.cfg.Target == targetLlama)
+			used := (provider && i.cfg.Provider == providerLlama) || (target && i.cfg.Target == targetLlama)
 			if used && os.Getenv("LLAMA_BASE_URL") == "" {
 				return errors.New("LLAMA_BASE_URL is not set")
 			}
@@ -224,24 +224,36 @@ const (
 	targetAzure = "azure"
 )
 
-// target holds a target's default model IDs and whether its audio model takes audio in chat.
+// providerLlama is the harness's provider for the llama.cpp router, the same name the router's
+// target has.
+const providerLlama = "llama.cpp"
+
+// qwenVision is the router's vision model: the llama.cpp target's, and a harness session's when
+// it is sent an image.
+const qwenVision = "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL"
+
+// target holds a target's name, its default model IDs, and whether its audio model takes audio
+// in chat.
 type target struct {
+	name                 string
 	vision, embed, audio string
 	audioInChat          bool
 }
 
-// targets are the targets by name. setup/router-models.md and setup/azure-foundry.md say why
-// each model was chosen.
-var targets = map[string]target{
-	targetLlama: {
-		vision:      "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL",
+// targets are the targets, in the order help and errors list them. setup/router-models.md and
+// setup/azure-foundry.md say why each model was chosen.
+var targets = []target{
+	{
+		name:        targetLlama,
+		vision:      qwenVision,
 		embed:       "Qwen/Qwen3-Embedding-4B-GGUF:Q5_K_M",
 		audio:       "ggml-org/gemma-4-E4B-it-GGUF:Q8_0",
 		audioInChat: true,
 	},
 	// Azure's transcription models take audio only through transcription, and its chat models
 	// take none.
-	targetAzure: {
+	{
+		name:   targetAzure,
 		vision: "gpt-5-mini",
 		embed:  "text-embedding-3-small",
 		audio:  "gpt-4o-mini-transcribe",
@@ -249,7 +261,23 @@ var targets = map[string]target{
 }
 
 // targetNames returns the targets' names, in the order help and errors list them.
-func targetNames() []string { return []string{targetLlama, targetAzure} }
+func targetNames() []string {
+	names := make([]string, len(targets))
+	for i, t := range targets {
+		names[i] = t.name
+	}
+	return names
+}
+
+// lookupTarget returns the target named name.
+func lookupTarget(name string) (target, error) {
+	for _, t := range targets {
+		if t.name == name {
+			return t, nil
+		}
+	}
+	return target{}, fmt.Errorf("unknown target %q (known: %s)", name, strings.Join(targetNames(), ", "))
+}
 
 // azureAudioVersion is the api-version the azure target's transcription route takes.
 const azureAudioVersion = "2025-04-01-preview"
@@ -258,9 +286,9 @@ const azureAudioVersion = "2025-04-01-preview"
 // flags name or the target's defaults. It reads the target's environment variables and makes no
 // request.
 func (i *Infrastructure) Models() (scenario.Models, error) {
-	t, ok := targets[i.cfg.Target]
-	if !ok {
-		return scenario.Models{}, fmt.Errorf("unknown target %q (known: %s)", i.cfg.Target, strings.Join(targetNames(), ", "))
+	t, err := lookupTarget(i.cfg.Target)
+	if err != nil {
+		return scenario.Models{}, err
 	}
 	m := scenario.Models{
 		Target:        i.cfg.Target,
@@ -270,8 +298,7 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		AudioInChat:   t.audioInChat,
 		HarnessVision: i.cfg.HarnessVisionModel,
 	}
-	var err error
-	switch i.cfg.Target {
+	switch t.name {
 	case targetLlama:
 		base := os.Getenv("LLAMA_BASE_URL")
 		if base == "" {

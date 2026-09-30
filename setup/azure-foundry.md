@@ -84,7 +84,8 @@ older deployment route works:
 
 Guards:
 
-- `.gitignore` covers `.env*`, `secrets*.json`, and `config.*.json`.
+- `.gitignore` covers `.env`, `.env.*`, `secrets.json`, `secrets.*.json`, `config.*.json`, and
+  `*.pem`.
 - GitHub's secret scanning and push protection are on for the repository (step 7).
 
 ## 1. Sign in
@@ -171,6 +172,10 @@ TOKEN=$(az account get-access-token --resource https://ai.azure.com --query acce
 The scope `https://ai.azure.com` works, and it is `clutch --azure-scope`'s default. Older
 pages give `https://cognitiveservices.azure.com`.
 
+The commands below pass the token to curl as a header file, `-H @<(printf …)`. `printf` is a
+shell builtin, so the token never appears in a process's arguments, where other users on the
+machine could read it.
+
 Vision:
 
 ```bash
@@ -182,7 +187,7 @@ base64 -w0 clutch/examples/media/shapes.png \
     {type: "text", text: "Name each shape in this image and its color."},
     {type: "image_url", image_url: {url: ("data:image/png;base64," + $img)}}]}]}' \
 | curl -s "$AZURE_OPENAI_BASE_URL/chat/completions" \
-    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @- \
+    -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") -H 'Content-Type: application/json' -d @- \
 | jq -r '.choices[0].message.content'
 ```
 
@@ -190,7 +195,7 @@ Embeddings (expect `1536`):
 
 ```bash
 curl -s "$AZURE_OPENAI_BASE_URL/embeddings" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") -H 'Content-Type: application/json' \
   -d '{"model": "text-embedding-3-small", "input": ["How do bees make honey?"]}' \
 | jq '.data[0].embedding | length'
 ```
@@ -199,7 +204,7 @@ Transcription, on the older deployment route (expect "The access code is 7429.")
 
 ```bash
 curl -s "${AZURE_OPENAI_BASE_URL%/v1}/deployments/gpt-4o-mini-transcribe/audio/transcriptions?api-version=2025-04-01-preview" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") \
   -F file=@clutch/examples/media/phrase.wav \
   -F model=gpt-4o-mini-transcribe | jq -r .text
 ```
