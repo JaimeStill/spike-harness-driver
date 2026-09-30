@@ -18,12 +18,19 @@ disagree are marked **Verify**.
 |---|---|---|
 | Resource group | `rg-spike-harness` | Holds everything, so cleanup is one delete |
 | Resource | kind `AIServices`, SKU `S0`, region `eastus2`, with a custom subdomain | Entra ID auth requires the custom subdomain. eastus2 offers all three models as Global Standard |
-| Vision chat | deployment `gpt-6-luna`, version `2026-09-22`, Global Standard | GA since 2026-09-22, the newest small model. $0.10 / $0.50 per 1M tokens |
+| Vision chat | deployment `gpt-5-mini`, version `2025-08-07`, Global Standard | GA until 2027-02-09. The newest small model this subscription has quota for; gpt-6-luna replaces it once quota is granted |
 | Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | GA until 2028-02-09 (2027-04-15 in Azure Government). No newer OpenAI embedding model exists. 1536 dimensions, with `dimensions` supported. $0.02 per 1M tokens |
-| Transcription | deployment `gpt-transcribe`, version `2026-07-28`, Global Standard | GA until 2028-02-01, and Microsoft's recommended offline model. About $0.27 per audio hour. The fallback is `gpt-4o-mini-transcribe`, version `2025-12-15` (GA until 2027-06-15) |
+| Transcription | deployment `gpt-4o-mini-transcribe`, version `2025-12-15`, Global Standard | GA until 2027-06-15. gpt-transcribe replaces it once quota is granted |
 
 Each deployment is named after its model, because the v1 API takes the deployment name as the
 request's `model`.
+
+The models the spike aims for are **gpt-6-luna** (2026-09-22, $0.10 / $0.50 per 1M tokens) and
+**gpt-transcribe** (2026-07-28, GA until 2028-02-01, about $0.27 per audio hour). The Visual
+Studio subscription this was first run on had a quota of 0 for both, and for every GPT-5.4 and
+later model. Step 3 checks the quota first. Request more through the Foundry portal's Quotas
+page. Once it's granted, switching is a deployment and a flag (`--vision-model gpt-6-luna`,
+`--audio-model gpt-transcribe`), because each pair takes the same request shape.
 
 Models passed over:
 
@@ -31,13 +38,13 @@ Models passed over:
   2027-04-14. Microsoft's policy blocks new deployments of a Deprecated version in a
   subscription that never deployed it.
 - **gpt-5.6-luna** (2026-07-09, GA until 2028-01-11, $0.20 / $1.20) is the model Azure
-  Government offers. The spike runs on gpt-6-luna, and a deployment in Azure Government
+  Government offers. The spike aims for gpt-6-luna, and a deployment in Azure Government
   changes only configuration: the model ID, base URL, and token scope. See the last section.
 - **whisper** retires 2026-12-15, and the 2025-03-20 versions of the gpt-4o transcribe models
   retire 2026-10-15. Pin versions: a fallback that deploys the older version dies within weeks.
 - **Cohere embed-v4** isn't offered in Azure Government.
 
-gpt-6-luna is a reasoning model, as gpt-5.6-luna is. On `/chat/completions` both take
+gpt-5-mini, gpt-5.6-luna, and gpt-6-luna are reasoning models. On `/chat/completions` they take
 `max_completion_tokens`, never `max_tokens`. The GPT-5 models reject `temperature` and
 `top_p`, and gpt-5.6 needs `reasoning_effort: "none"` alongside `tools`. Microsoft's GPT-6 table
 marks `temperature` as supported. The client never sends `max_tokens` or `temperature`, and
@@ -100,12 +107,22 @@ az cognitiveservices account create -n $ACCT -g $RG -l $LOC \
   --kind AIServices --sku S0 --custom-domain $ACCT --yes
 ```
 
-## 3. Confirm the models, then deploy
+## 3. Confirm the models and the quota, then deploy
 
 ```bash
 az cognitiveservices account list-models -n $ACCT -g $RG \
-  | jq -r '.[] | select(.name | test("gpt-6-luna|text-embedding-3-small|transcribe"))
+  | jq -r '.[] | select(.name | test("gpt-5-mini|gpt-6-luna|text-embedding-3-small|transcribe"))
            | [.name, .version, ([.skus[].name] | join(","))] | @tsv'
+```
+
+A model the catalog lists can still have no quota in the subscription. A deployment then fails
+with `InsufficientQuota` and a limit of 0. Check the limit first, in thousands of tokens per
+minute:
+
+```bash
+az cognitiveservices usage list -l $LOC \
+  | jq -r '.[] | select(.name.value | test("GlobalStandard\\.(gpt-5-mini|gpt-6-luna|text-embedding-3-small|gpt-4o-mini-transcribe|gpt-transcribe)$"))
+           | [.name.value, .limit] | @tsv'
 ```
 
 If the versions differ from the table, use the ones listed, and check that none retires soon:
@@ -117,11 +134,12 @@ dep() {
     --deployment-name "$1" --model-name "$1" --model-version "$2" \
     --model-format OpenAI --sku-name "$3" --sku-capacity "$4"
 }
-dep gpt-6-luna             2026-09-22 GlobalStandard 10
+dep gpt-5-mini             2025-08-07 GlobalStandard 10
 dep text-embedding-3-small 1          GlobalStandard 10
-dep gpt-transcribe         2026-07-28 GlobalStandard 1
-# Fallback, if gpt-transcribe is refused or fails its smoke test:
-# dep gpt-4o-mini-transcribe 2025-12-15 GlobalStandard 1
+dep gpt-4o-mini-transcribe 2025-12-15 GlobalStandard 1
+# Once their quota is granted:
+# dep gpt-6-luna     2026-09-22 GlobalStandard 10
+# dep gpt-transcribe 2026-07-28 GlobalStandard 1
 ```
 
 Capacity is counted in thousands of tokens per minute. Ten is ample for the scenarios.
@@ -159,7 +177,7 @@ Vision:
 ```bash
 base64 -w0 clutch/examples/media/shapes.png \
 | jq -n --rawfile img /dev/stdin '{
-  model: "gpt-6-luna",
+  model: "gpt-5-mini",
   reasoning_effort: "low",
   messages: [{role: "user", content: [
     {type: "text", text: "Name each shape in this image and its color."},
@@ -184,12 +202,11 @@ Transcription:
 curl -s "$AZURE_OPENAI_BASE_URL/audio/transcriptions" \
   -H "Authorization: Bearer $TOKEN" \
   -F file=@clutch/examples/media/phrase.wav \
-  -F model=gpt-transcribe | jq -r .text
+  -F model=gpt-4o-mini-transcribe | jq -r .text
 ```
 
-If you deployed the fallback, send `model=gpt-4o-mini-transcribe`. **Verify:** Microsoft's docs
-don't yet show gpt-transcribe's request fields on the v1 route. If it fails, record the response
-and deploy the fallback.
+Once gpt-transcribe is deployed, send `model=gpt-transcribe`. **Verify:** Microsoft's docs
+don't yet show gpt-transcribe's request fields on the v1 route.
 
 **Verify:** the transcription overview names the v1 route, but the transcription quickstart
 shows only the older deployment path. If the v1 route fails, record the response. The older
