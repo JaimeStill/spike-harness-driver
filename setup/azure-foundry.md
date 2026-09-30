@@ -51,9 +51,13 @@ marks `temperature` as supported. The client never sends `max_tokens` or `temper
 llama.cpp accepts `max_completion_tokens` and `reasoning_effort`, so one request shape serves
 every target.
 
-The client targets the v1 API, `https://<account>.openai.azure.com/openai/v1`. It has the same
-routes as the router's `/v1` (`/chat/completions`, `/embeddings`, `/audio/transcriptions`) and
-takes no `api-version`, so one base URL is all the client needs to switch targets.
+The client targets the v1 API, `https://<account>.openai.azure.com/openai/v1`, for chat and
+embeddings. Those routes match the router's `/v1` and take no `api-version`. Transcription is
+the exception: on 2026-09-30 the v1 `/audio/transcriptions` route returned 404
+`DeploymentNotFound` for a deployment that existed, with or without `api-version=preview`. The
+older deployment route works:
+`https://<account>.openai.azure.com/openai/deployments/<deployment>/audio/transcriptions?api-version=2025-04-01-preview`.
+`clutch` therefore gives Azure audio a second client with that base URL and query.
 
 ## Connection details, and keeping them out of the repository
 
@@ -196,17 +200,17 @@ curl -s "$AZURE_OPENAI_BASE_URL/embeddings" \
 | jq '.data[0].embedding | length'
 ```
 
-Transcription:
+Transcription, on the older deployment route (expect "The access code is 7429."):
 
 ```bash
-curl -s "$AZURE_OPENAI_BASE_URL/audio/transcriptions" \
+curl -s "${AZURE_OPENAI_BASE_URL%/v1}/deployments/gpt-4o-mini-transcribe/audio/transcriptions?api-version=2025-04-01-preview" \
   -H "Authorization: Bearer $TOKEN" \
   -F file=@clutch/examples/media/phrase.wav \
   -F model=gpt-4o-mini-transcribe | jq -r .text
 ```
 
-Once gpt-transcribe is deployed, send `model=gpt-transcribe`. **Verify:** Microsoft's docs
-don't yet show gpt-transcribe's request fields on the v1 route.
+The same call to `$AZURE_OPENAI_BASE_URL/audio/transcriptions` returns 404
+`DeploymentNotFound`. Once gpt-transcribe is deployed, put its name in the path instead.
 
 **Verify:** the transcription overview names the v1 route, but the transcription quickstart
 shows only the older deployment path. If the v1 route fails, record the response. The older
