@@ -133,6 +133,9 @@ func (i *Infrastructure) Driver() (harness.Driver, error) {
 			SessionDir: filepath.Join(i.cfg.State, "pi"),
 			// Beside Pi's sessions, so the files a session's history names last as long.
 			CacheDir: filepath.Join(i.cfg.State, "cache"),
+			// Scenarios swap the models a router has loaded between runs, and Pi in RPC mode
+			// selects only from the catalog it last saved, so each session refreshes it first.
+			RefreshModels: true,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown harness %q (known: pi)", i.cfg.Harness)

@@ -42,6 +42,28 @@ type launch struct {
 	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
 }
 
+// refreshesEnv names the file where the fake appends a line for each "pi update --models" it
+// runs, so a test can see the refresh ran, and ran before Pi started.
+const refreshesEnv = "PI_FAKE_REFRESHES"
+
+// fakeRefresh plays "pi update --models": it records the refresh, and in mode "refreshfail"
+// fails the way Pi does when a provider can't be reached.
+func fakeRefresh(mode string) int {
+	if mode == "refreshfail" {
+		fmt.Fprintln(os.Stderr, "Error: Could not refresh model catalogs: llama.cpp: fetch failed")
+		return 1
+	}
+	if file := os.Getenv(refreshesEnv); file != "" {
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = f.WriteString("refresh\n")
+			_ = f.Close()
+		}
+	}
+	fmt.Println("Model catalogs refreshed")
+	return 0
+}
+
 // promptsEnv names the file where the fake appends each prompt command it receives, one JSON
 // line each.
 const promptsEnv = "PI_FAKE_PROMPTS"
@@ -242,6 +264,9 @@ func (j *fakeJournal) since(since string) (string, bool) {
 // then ends the way the captured aborted.jsonl transcript does, including answering the abort
 // only after agent_settled.
 func fakePi(mode string) int {
+	if len(os.Args) > 2 && os.Args[1] == "update" && os.Args[2] == "--models" {
+		return fakeRefresh(mode)
+	}
 	recordLaunch(os.Args[1:])
 	journal := newFakeJournal(os.Args[1:])
 	dialogs := &fakeDialogs{waiting: map[string]chan dialogAnswer{}}

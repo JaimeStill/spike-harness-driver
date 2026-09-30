@@ -1,9 +1,12 @@
 package pi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"time"
 
@@ -40,6 +43,12 @@ type Driver struct {
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
 	// seconds.
 	WaitDelay time.Duration
+	// RefreshModels runs "pi update --models" before each Pi process starts. Pi in RPC mode
+	// never asks a provider for its models: set_model chooses from the catalog Pi last saved,
+	// which only the interactive TUI and "pi update --models" refresh. For llama.cpp's router
+	// that catalog holds only the models loaded when it was saved, so a model loaded since
+	// can't be selected until the catalog is refreshed.
+	RefreshModels bool
 }
 
 var _ harness.Driver = Driver{}
@@ -57,6 +66,11 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	name := d.Command
 	if name == "" {
 		name = "pi"
+	}
+	if d.RefreshModels {
+		if err := d.refreshModels(ctx, name); err != nil {
+			return nil, err
+		}
 	}
 	b, err := newBridge(opts, d.CacheDir)
 	if err != nil {
@@ -89,6 +103,19 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		return nil, err
 	}
 	return s, nil
+}
+
+// refreshModels refreshes Pi's saved model catalog, with the environment Pi will run in, so
+// the catalog reflects the provider the session's Pi will reach.
+func (d Driver) refreshModels(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, name, "update", "--models")
+	cmd.Env = append(os.Environ(), d.Env...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pi: update --models: %w: %s", err, bytes.TrimSpace(out.Bytes()))
+	}
+	return nil
 }
 
 func handshake(ctx context.Context, c *stdio.Client, opts harness.Options) (string, error) {

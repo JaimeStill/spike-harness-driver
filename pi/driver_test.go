@@ -164,6 +164,48 @@ func TestPromptCarriesImages(t *testing.T) {
 	}
 }
 
+func TestRefreshModelsRunsBeforePiStarts(t *testing.T) {
+	dir := t.TempDir()
+	refreshes, launch := filepath.Join(dir, "refreshes"), filepath.Join(dir, "launch.json")
+	d := fakeDriver("ok")
+	d.RefreshModels = true
+	d.Env = append(d.Env, refreshesEnv+"="+refreshes, launchEnv+"="+launch)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeSession(t, s)
+	got, err := os.ReadFile(refreshes)
+	if err != nil || string(got) != "refresh\n" {
+		t.Fatalf("refreshes = %q, %v; want one refresh", got, err)
+	}
+	if _, err := os.Stat(launch); err != nil {
+		t.Fatalf("Pi didn't start after the refresh: %v", err)
+	}
+}
+
+func TestAFailedRefreshFailsOpen(t *testing.T) {
+	launch := filepath.Join(t.TempDir(), "launch.json")
+	d := fakeDriver("refreshfail")
+	d.RefreshModels = true
+	d.Env = append(d.Env, launchEnv+"="+launch)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
+	if err == nil {
+		_ = s.Close()
+		t.Fatal("Open succeeded, want the refresh's error")
+	}
+	if !strings.Contains(err.Error(), "update --models") || !strings.Contains(err.Error(), "fetch failed") {
+		t.Fatalf("Open = %v, want the refresh's command and Pi's message", err)
+	}
+	if _, err := os.Stat(launch); !os.IsNotExist(err) {
+		t.Fatalf("Pi started after a failed refresh: %v", err)
+	}
+}
+
 func TestSendWhileOpenIsBusy(t *testing.T) {
 	s := open(t, "ok")
 	defer closeSession(t, s)
