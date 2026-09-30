@@ -1,8 +1,13 @@
 package pi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +118,49 @@ func TestTwoExchangesInOneSession(t *testing.T) {
 	}
 	if _, err := s.Send(t.Context(), harness.Request{Text: "again"}); !errors.Is(err, harness.ErrClosed) {
 		t.Fatalf("Send after Close = %v, want ErrClosed", err)
+	}
+}
+
+func TestPromptCarriesImages(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "prompts.jsonl")
+	d := fakeDriver("ok")
+	d.Env = append(d.Env, promptsEnv+"="+file)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSession(t, s)
+
+	png := []byte("\x89PNG image bytes")
+	x, err := s.Send(t.Context(), harness.Request{
+		Text:   "What is in this image?",
+		Images: []harness.Image{{MediaType: "image/png", Data: png}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(t, x, 0, nil)
+	if _, err := x.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Message string            `json:"message"`
+		Images  []json.RawMessage `json:"images"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &got); err != nil {
+		t.Fatalf("prompt line %s: %v", raw, err)
+	}
+	want := `{"type":"image","data":"` + base64.StdEncoding.EncodeToString(png) +
+		`","mimeType":"image/png"}`
+	if got.Message != "What is in this image?" || len(got.Images) != 1 || string(got.Images[0]) != want {
+		t.Fatalf("Pi was prompted with %s, want the message and the image %s", raw, want)
 	}
 }
 

@@ -42,6 +42,23 @@ type launch struct {
 	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
 }
 
+// promptsEnv names the file where the fake appends each prompt command it receives, one JSON
+// line each.
+const promptsEnv = "PI_FAKE_PROMPTS"
+
+func recordPrompt(line []byte) {
+	file := os.Getenv(promptsEnv)
+	if file == "" {
+		return
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = f.Write(append(append([]byte(nil), line...), '\n'))
+}
+
 func recordLaunch(args []string) {
 	file := os.Getenv(launchEnv)
 	if file == "" {
@@ -280,6 +297,7 @@ func fakePi(mode string) int {
 				respond(c, "")
 			}()
 		case "prompt":
+			recordPrompt(in.Bytes())
 			runMu.Lock()
 			if running {
 				runMu.Unlock()

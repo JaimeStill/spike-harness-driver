@@ -108,12 +108,21 @@ type dialogAnswer struct {
 
 // command is one line written to Pi's stdin. Fields a command doesn't use stay empty.
 type command struct {
-	ID       string `json:"id,omitempty"`
+	ID       string  `json:"id,omitempty"`
+	Type     string  `json:"type"`
+	Provider string  `json:"provider,omitempty"`
+	ModelID  string  `json:"modelId,omitempty"`
+	Message  string  `json:"message,omitempty"`
+	Images   []image `json:"images,omitempty"`
+	Since    string  `json:"since,omitempty"`
+}
+
+// image is an image a prompt carries: its data in base64, with no data: prefix. Pi replaces it
+// with a note for a model whose input doesn't include images, and still accepts the prompt.
+type image struct {
 	Type     string `json:"type"`
-	Provider string `json:"provider,omitempty"`
-	ModelID  string `json:"modelId,omitempty"`
-	Message  string `json:"message,omitempty"`
-	Since    string `json:"since,omitempty"`
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
 }
 
 // state is the data of a get_state response, as far as the driver reads it.
