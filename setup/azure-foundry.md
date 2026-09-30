@@ -18,7 +18,7 @@ disagree are marked **Verify**.
 |---|---|---|
 | Resource group | `rg-spike-harness` | Holds everything, so cleanup is one delete |
 | Resource | kind `AIServices`, SKU `S0`, region `eastus2`, with a custom subdomain | Entra ID auth requires the custom subdomain. eastus2 offers all three models as Global Standard |
-| Vision chat | deployment `gpt-5.6-luna`, version `2026-07-09`, Global Standard | GA until 2028-01-11. The newest small model that Azure Government also offers (Data Zone Standard). $0.20 / $1.20 per 1M tokens |
+| Vision chat | deployment `gpt-6-luna`, version `2026-09-22`, Global Standard | GA since 2026-09-22, the newest small model. $0.10 / $0.50 per 1M tokens |
 | Embeddings | deployment `text-embedding-3-small`, version `1`, Global Standard | GA until 2028-02-09 (2027-04-15 in Azure Government). No newer OpenAI embedding model exists. 1536 dimensions, with `dimensions` supported. $0.02 per 1M tokens |
 | Transcription | deployment `gpt-transcribe`, version `2026-07-28`, Global Standard | GA until 2028-02-01, and Microsoft's recommended offline model. About $0.27 per audio hour. The fallback is `gpt-4o-mini-transcribe`, version `2025-12-15` (GA until 2027-06-15) |
 
@@ -30,16 +30,19 @@ Models passed over:
 - **gpt-4.1-mini** is Legacy in the catalog and Deprecated in the retirement schedule, retiring
   2027-04-14. Microsoft's policy blocks new deployments of a Deprecated version in a
   subscription that never deployed it.
-- **gpt-6-luna** is cheaper ($0.10 / $0.50) and newer, but Azure Government doesn't offer it,
-  and its retirement date isn't published.
+- **gpt-5.6-luna** (2026-07-09, GA until 2028-01-11, $0.20 / $1.20) is the model Azure
+  Government offers. The spike runs on gpt-6-luna, and a deployment in Azure Government
+  changes only configuration: the model ID, base URL, and token scope. See the last section.
 - **whisper** retires 2026-12-15, and the 2025-03-20 versions of the gpt-4o transcribe models
   retire 2026-10-15. Pin versions: a fallback that deploys the older version dies within weeks.
 - **Cohere embed-v4** isn't offered in Azure Government.
 
-gpt-5.6-luna is a reasoning model. On `/chat/completions` it takes `max_completion_tokens`,
-never `max_tokens`, and rejects `temperature` and `top_p`. With `tools` it needs
-`reasoning_effort: "none"`. llama.cpp accepts `max_completion_tokens` and `reasoning_effort`
-too, so the client sends the same shape to both targets.
+gpt-6-luna is a reasoning model, as gpt-5.6-luna is. On `/chat/completions` both take
+`max_completion_tokens`, never `max_tokens`. The GPT-5 models reject `temperature` and
+`top_p`, and gpt-5.6 needs `reasoning_effort: "none"` alongside `tools`. Microsoft's GPT-6 table
+marks `temperature` as supported. The client never sends `max_tokens` or `temperature`, and
+llama.cpp accepts `max_completion_tokens` and `reasoning_effort`, so one request shape serves
+every target.
 
 The client targets the v1 API, `https://<account>.openai.azure.com/openai/v1`. It has the same
 routes as the router's `/v1` (`/chat/completions`, `/embeddings`, `/audio/transcriptions`) and
@@ -101,7 +104,7 @@ az cognitiveservices account create -n $ACCT -g $RG -l $LOC \
 
 ```bash
 az cognitiveservices account list-models -n $ACCT -g $RG \
-  | jq -r '.[] | select(.name | test("gpt-5.6-luna|text-embedding-3-small|transcribe"))
+  | jq -r '.[] | select(.name | test("gpt-6-luna|text-embedding-3-small|transcribe"))
            | [.name, .version, ([.skus[].name] | join(","))] | @tsv'
 ```
 
@@ -114,7 +117,7 @@ dep() {
     --deployment-name "$1" --model-name "$1" --model-version "$2" \
     --model-format OpenAI --sku-name "$3" --sku-capacity "$4"
 }
-dep gpt-5.6-luna           2026-07-09 GlobalStandard 10
+dep gpt-6-luna             2026-09-22 GlobalStandard 10
 dep text-embedding-3-small 1          GlobalStandard 10
 dep gpt-transcribe         2026-07-28 GlobalStandard 1
 # Fallback, if gpt-transcribe is refused or fails its smoke test:
@@ -156,7 +159,7 @@ Vision:
 ```bash
 base64 -w0 clutch/examples/media/shapes.png \
 | jq -n --rawfile img /dev/stdin '{
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   reasoning_effort: "low",
   messages: [{role: "user", content: [
     {type: "text", text: "Name each shape in this image and its color."},
@@ -255,11 +258,12 @@ A deleted account is soft-deleted, and purging it releases the name.
   `az login`.
 - **Deployment types:** only Data Zone Standard, Standard, and Provisioned. There is no Global
   Standard.
-- **Models:** it offers `gpt-5.6-luna` and `text-embedding-3-small` as Data Zone Standard in
-  both regions. `text-embedding-3-small` retires there on 2027-04-15, ten months before
-  commercial. It offers **no transcription model**: no whisper, gpt-4o-transcribe, or
-  gpt-transcribe. Audio at that level needs Azure Speech or a
-  model the service hosts itself.
+- **Models:** it doesn't offer gpt-6-luna. It offers `gpt-5.6-luna`, which takes the same
+  request shape, and `text-embedding-3-small`, both as Data Zone Standard in both regions. A
+  client there passes `--vision-model gpt-5.6-luna` and changes no code.
+  `text-embedding-3-small` retires there on 2027-04-15, ten months before commercial.
+- **No transcription model:** Azure Government offers no whisper, gpt-4o-transcribe, or
+  gpt-transcribe. Audio at that level needs Azure Speech or a model the service hosts itself.
 - **Secret and Top Secret:** these clouds don't publish their endpoint suffixes, token scope, or
   sign-in authority. The client therefore takes the base URL and the scope from configuration,
   and nothing is fixed to `.com`.
