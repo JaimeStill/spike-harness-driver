@@ -42,28 +42,6 @@ type launch struct {
 	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
 }
 
-// refreshesEnv names the file where the fake appends a line for each "pi update --models" it
-// runs, so a test can see the refresh ran, and ran before Pi started.
-const refreshesEnv = "PI_FAKE_REFRESHES"
-
-// fakeRefresh plays "pi update --models": it records the refresh, and in mode "refreshfail"
-// fails the way Pi does when a provider can't be reached.
-func fakeRefresh(mode string) int {
-	if mode == "refreshfail" {
-		fmt.Fprintln(os.Stderr, "Error: Could not refresh model catalogs: llama.cpp: fetch failed")
-		return 1
-	}
-	if file := os.Getenv(refreshesEnv); file != "" {
-		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, _ = f.WriteString("refresh\n")
-			_ = f.Close()
-		}
-	}
-	fmt.Println("Model catalogs refreshed")
-	return 0
-}
-
 // promptsEnv names the file where the fake appends each prompt command it receives, one JSON
 // line each.
 const promptsEnv = "PI_FAKE_PROMPTS"
@@ -267,10 +245,16 @@ func (j *fakeJournal) since(since string) (string, bool) {
 // the captured plain.jsonl transcript. The long prompt streams deltas until an abort arrives,
 // then ends the way the captured aborted.jsonl transcript does, including answering the abort
 // only after agent_settled.
+// lateModel is a model the fake Pi lists only lateModelDelay after it starts, as Pi's
+// catalog gains a model loaded since the catalog was saved. absentModel is never listed.
+const (
+	lateModel      = "late-model"
+	lateModelDelay = 300 * time.Millisecond
+	absentModel    = "absent-model"
+)
+
 func fakePi(mode string) int {
-	if len(os.Args) > 2 && os.Args[1] == "update" && os.Args[2] == "--models" {
-		return fakeRefresh(mode)
-	}
+	started := time.Now()
 	recordLaunch(os.Args[1:])
 	journal := newFakeJournal(os.Args[1:])
 	dialogs := &fakeDialogs{waiting: map[string]chan dialogAnswer{}}
@@ -305,6 +289,12 @@ func fakePi(mode string) int {
 			}
 			dialogs.answer(a)
 		case "set_model":
+			// The late model appears as Pi's background catalog refresh would add it, a moment
+			// after start; the absent model never does.
+			if c.ModelID == absentModel || (c.ModelID == lateModel && time.Since(started) < lateModelDelay) {
+				emit(fmt.Sprintf(`{"id":%q,"type":"response","command":"set_model","success":false,"error":"Model not found: %s/%s"}`, c.ID, c.Provider, c.ModelID))
+				continue
+			}
 			journal.setModel()
 			respond(c, "")
 		case "clear_queue":

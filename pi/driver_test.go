@@ -164,48 +164,6 @@ func TestPromptCarriesImages(t *testing.T) {
 	}
 }
 
-func TestRefreshModelsRunsBeforePiStarts(t *testing.T) {
-	dir := t.TempDir()
-	refreshes, launch := filepath.Join(dir, "refreshes"), filepath.Join(dir, "launch.json")
-	d := fakeDriver("ok")
-	d.RefreshModels = true
-	d.Env = append(d.Env, refreshesEnv+"="+refreshes, launchEnv+"="+launch)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	closeSession(t, s)
-	got, err := os.ReadFile(refreshes)
-	if err != nil || string(got) != "refresh\n" {
-		t.Fatalf("refreshes = %q, %v; want one refresh", got, err)
-	}
-	if _, err := os.Stat(launch); err != nil {
-		t.Fatalf("Pi didn't start after the refresh: %v", err)
-	}
-}
-
-func TestAFailedRefreshFailsOpen(t *testing.T) {
-	launch := filepath.Join(t.TempDir(), "launch.json")
-	d := fakeDriver("refreshfail")
-	d.RefreshModels = true
-	d.Env = append(d.Env, launchEnv+"="+launch)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
-	if err == nil {
-		_ = s.Close()
-		t.Fatal("Open succeeded, want the refresh's error")
-	}
-	if !strings.Contains(err.Error(), "update --models") || !strings.Contains(err.Error(), "fetch failed") {
-		t.Fatalf("Open = %v, want the refresh's command and Pi's message", err)
-	}
-	if _, err := os.Stat(launch); !os.IsNotExist(err) {
-		t.Fatalf("Pi started after a failed refresh: %v", err)
-	}
-}
-
 func TestTheLlamaProviderLoadsItsBuiltinExtension(t *testing.T) {
 	for _, tc := range []struct {
 		provider string
@@ -241,6 +199,35 @@ func TestTheLlamaProviderLoadsItsBuiltinExtension(t *testing.T) {
 				t.Fatalf("args %q: the bridge extension isn't loaded", args)
 			}
 		})
+	}
+}
+
+func TestSetModelWaitsForTheCatalogRefresh(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := fakeDriver("ok").Open(ctx, harness.Options{Provider: "llama.cpp", Model: lateModel})
+	if err != nil {
+		t.Fatalf("Open on a model Pi lists only after its refresh: %v", err)
+	}
+	closeSession(t, s)
+}
+
+func TestSetModelGivesUpOnAModelPiNeverLists(t *testing.T) {
+	defer func(w time.Duration) { catalogWait = w }(catalogWait)
+	catalogWait = 400 * time.Millisecond
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	s, err := fakeDriver("ok").Open(ctx, harness.Options{Provider: "llama.cpp", Model: absentModel})
+	if err == nil {
+		_ = s.Close()
+		t.Fatal("Open succeeded on a model Pi never lists")
+	}
+	if !strings.Contains(err.Error(), "Model not found: llama.cpp/"+absentModel) {
+		t.Fatalf("Open = %v, want Pi's Model not found error", err)
+	}
+	if took := time.Since(start); took < catalogWait || took > catalogWait+5*time.Second {
+		t.Fatalf("Open gave up after %v, want about catalogWait (%v)", took, catalogWait)
 	}
 }
 

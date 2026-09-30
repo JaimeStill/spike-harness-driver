@@ -1,12 +1,9 @@
 package pi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"slices"
 	"time"
 
@@ -51,12 +48,6 @@ type Driver struct {
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
 	// seconds.
 	WaitDelay time.Duration
-	// RefreshModels runs "pi update --models" before each Pi process starts. Pi in RPC mode
-	// never asks a provider for its models: set_model chooses from the catalog Pi last saved,
-	// which only the interactive TUI and "pi update --models" refresh. For llama.cpp's router
-	// that catalog holds only the models loaded when it was saved, so a model loaded since
-	// can't be selected until the catalog is refreshed.
-	RefreshModels bool
 }
 
 var _ harness.Driver = Driver{}
@@ -74,11 +65,6 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	name := d.Command
 	if name == "" {
 		name = "pi"
-	}
-	if d.RefreshModels {
-		if err := d.refreshModels(ctx, name); err != nil {
-			return nil, err
-		}
 	}
 	b, err := newBridge(opts, d.CacheDir)
 	if err != nil {
@@ -117,23 +103,39 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-// refreshModels refreshes Pi's saved model catalog, with the environment Pi will run in, so
-// the catalog reflects the provider the session's Pi will reach.
-func (d Driver) refreshModels(ctx context.Context, name string) error {
-	cmd := exec.CommandContext(ctx, name, "update", "--models")
-	cmd.Env = append(os.Environ(), d.Env...)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pi: update --models: %w: %s", err, bytes.TrimSpace(out.Bytes()))
+// catalogWait is how long setModel retries a model Pi doesn't list yet. Pi starts from the
+// model catalog it saved last, and refreshes a provider's catalog from the provider in the
+// background as it starts; for llama.cpp's router the saved catalog holds only the models
+// loaded when it was saved. A model loaded since appears once the refresh lands, which took
+// under a second against the router, so the wait covers that with room to spare. A test
+// shortens it.
+var catalogWait = 5 * time.Second
+
+// catalogPoll is how often setModel retries within catalogWait.
+const catalogPoll = 100 * time.Millisecond
+
+// setModel selects the session's model, retrying for up to catalogWait while Pi's background
+// refresh of its catalog may still add it. A model Pi still doesn't list by then fails with
+// Pi's own error.
+func setModel(ctx context.Context, c *stdio.Client, opts harness.Options) error {
+	cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
+	deadline := time.Now().Add(catalogWait)
+	for {
+		_, err := c.Call(ctx, cmd)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(catalogPoll):
+		}
 	}
-	return nil
 }
 
 func handshake(ctx context.Context, c *stdio.Client, opts harness.Options) (string, error) {
 	if opts.Model != "" {
-		cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
-		if _, err := c.Call(ctx, cmd); err != nil {
+		if err := setModel(ctx, c, opts); err != nil {
 			return "", err
 		}
 	}
