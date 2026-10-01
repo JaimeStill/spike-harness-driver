@@ -22,7 +22,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/catalog"
 	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 	"github.com/JaimeStill/spike-harness-driver/model"
-	"github.com/JaimeStill/spike-harness-driver/pi"
 )
 
 // modelTimeout bounds one direct model request, from sending it to reading its response. The
@@ -59,7 +58,7 @@ func newInfrastructure(cfg *Config) *Infrastructure {
 // directories hold for Options, so a bad directory fails the command before any harness starts
 // rather than when a session opens.
 func (i *Infrastructure) Validate() error {
-	if _, err := i.Driver(); err != nil {
+	if _, err := lookupHarness(i.cfg.Harness); err != nil {
 		return err
 	}
 	if _, err := lookupTarget(i.cfg.Target); err != nil {
@@ -127,24 +126,32 @@ func loadTools(dirs []string) ([]harness.Tool, error) {
 
 // Driver returns the adapter for the harness the flags name.
 func (i *Infrastructure) Driver() (harness.Driver, error) {
-	switch i.cfg.Harness {
-	case "pi":
-		return pi.Driver{
-			SessionDir: filepath.Join(i.cfg.State, "pi"),
-			// Beside Pi's sessions, so the files a session's history names last as long.
-			CacheDir: filepath.Join(i.cfg.State, "cache"),
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown harness %q (known: pi)", i.cfg.Harness)
+	h, err := lookupHarness(i.cfg.Harness)
+	if err != nil {
+		return nil, err
 	}
+	return h.driver(i.cfg.State), nil
 }
+
+// spec returns the harness the flags name. Validate has already failed for a name with no
+// adapter, so an unknown one gives the zero harnessSpec, whose empty defaults nothing reads.
+func (i *Infrastructure) spec() harnessSpec {
+	h, _ := lookupHarness(i.cfg.Harness)
+	return h
+}
+
+// provider is the harness's model provider: --provider, or the harness's own.
+func (i *Infrastructure) provider() string { return cmp.Or(i.cfg.Provider, i.spec().provider) }
+
+// Profile returns how the scenarios talk to the harness the flags name.
+func (i *Infrastructure) Profile() scenario.Profile { return i.spec().profile }
 
 // Options returns the session options the flags name, with the store that keeps exchange
 // records and the skills and tools Validate loaded.
 func (i *Infrastructure) Options() harness.Options {
 	return harness.Options{
-		Provider: i.cfg.Provider,
-		Model:    i.cfg.Model,
+		Provider: i.provider(),
+		Model:    cmp.Or(i.cfg.Model, i.spec().model),
 		Store:    i.Store(),
 		Tools:    i.tools,
 		Skills:   i.skills,
@@ -163,7 +170,7 @@ func (i *Infrastructure) Needs() scenario.Needs {
 	executable := scenario.Need{
 		What: "the harness executable on the PATH",
 		Check: func(context.Context) error {
-			_, err := exec.LookPath(i.cfg.Harness)
+			_, err := exec.LookPath(i.spec().command)
 			return err
 		},
 	}
@@ -209,7 +216,7 @@ func (i *Infrastructure) llamaNeed(provider, target bool) scenario.Need {
 	return scenario.Need{
 		What: "LLAMA_BASE_URL set when " + strings.Join(when, " or ") + " is llama.cpp",
 		Check: func(context.Context) error {
-			used := (provider && i.cfg.Provider == providerLlama) || (target && i.cfg.Target == targetLlama)
+			used := (provider && i.provider() == providerLlama) || (target && i.cfg.Target == targetLlama)
 			if used && os.Getenv("LLAMA_BASE_URL") == "" {
 				return errors.New("LLAMA_BASE_URL is not set")
 			}
@@ -296,7 +303,7 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		EmbedModel:    cmp.Or(i.cfg.EmbedModel, t.embed),
 		AudioModel:    cmp.Or(i.cfg.AudioModel, t.audio),
 		AudioInChat:   t.audioInChat,
-		HarnessVision: i.cfg.HarnessVisionModel,
+		HarnessVision: cmp.Or(i.cfg.HarnessVisionModel, i.spec().vision),
 	}
 	switch t.name {
 	case targetLlama:

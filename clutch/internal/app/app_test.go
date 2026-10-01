@@ -52,6 +52,25 @@ func TestUnknownHarnessFailsBeforeTheCommandRuns(t *testing.T) {
 	}
 }
 
+func TestHarnessIsValidated(t *testing.T) {
+	code, out, errs := execute(t, "--harness", "nope", "list")
+	if code != 1 || !strings.Contains(errs, `unknown harness "nope" (known: pi, claude)`) || out != "" {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+	for _, name := range []string{"pi", "claude"} {
+		if code, _, errs := execute(t, "--harness", name, "list"); code != 0 {
+			t.Errorf("--harness %s: exit %d, stderr %q", name, code, errs)
+		}
+	}
+}
+
+func TestHelpListsTheHarnesses(t *testing.T) {
+	_, out, _ := execute(t, "--help")
+	if !strings.Contains(out, "pi | claude") {
+		t.Errorf("help lacks the harnesses:\n%s", out)
+	}
+}
+
 func TestSourcesThatDontLoadFailBeforeTheCommandRuns(t *testing.T) {
 	empty := t.TempDir()
 	badSkill := t.TempDir()

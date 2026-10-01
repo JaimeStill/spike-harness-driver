@@ -144,16 +144,35 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 	return func() (scenario.Models, error) { return m, nil }
 }
 
+// profile returns a function giving p, as Scenarios takes.
+func profile(p scenario.Profile) func() scenario.Profile { return func() scenario.Profile { return p } }
+
 // TestVisionPastItsHarnessStep runs the vision scenario's steps after the first, which the stub
 // harness's fixed reply keeps TestScenariosOverAStubHarness from reaching: the direct client's
 // image request, and the text-only harness session, whose reply must not name the shapes.
 func TestVisionPastItsHarnessStep(t *testing.T) {
+	visionSteps(t, scenario.Pi, []string{"model vision on target stub", "blue square", "the exchange succeeded without the image"})
+}
+
+// TestVisionSkipsTheDroppedImageStepWhereItDoesntApply shows a harness whose models all take
+// images keeps the step and notes why it did nothing, instead of running a text-only session.
+func TestVisionSkipsTheDroppedImageStepWhereItDoesntApply(t *testing.T) {
+	out := visionSteps(t, scenario.Claude, []string{"model vision on target stub", "skipped: every model Claude Code runs takes images"})
+	if strings.Contains(out, "the exchange succeeded without the image") {
+		t.Errorf("the dropped-image step ran:\n%s", out)
+	}
+}
+
+// visionSteps runs the vision scenario's steps after the first under p, checks the narration
+// holds each of want, and returns it.
+func visionSteps(t *testing.T, p scenario.Profile, want []string) string {
+	t.Helper()
 	svc := session.New(
 		func() (harness.Driver, error) { return harnesstest.Driver{Stream: "essay"}, nil },
 		func() harness.Options { return harness.Options{Store: filestore.New(t.TempDir())} },
 	)
 	var vision scenario.Scenario
-	for _, s := range scenario.Scenarios(svc, stubModels(t), scenario.Needs{}) {
+	for _, s := range scenario.Scenarios(svc, stubModels(t), profile(p), scenario.Needs{}) {
 		if s.Name == "vision" {
 			vision = s
 		}
@@ -166,10 +185,51 @@ func TestVisionPastItsHarnessStep(t *testing.T) {
 			t.Fatalf("step %d: %v\n%s", i+2, err, out.String())
 		}
 	}
-	for _, want := range []string{"model vision on target stub", "blue square", "the exchange succeeded without the image"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("narration lacks %q:\n%s", want, out.String())
+	for _, w := range want {
+		if !strings.Contains(out.String(), w) {
+			t.Errorf("narration lacks %q:\n%s", w, out.String())
 		}
+	}
+	return out.String()
+}
+
+// TestSkillUsesTheProfile shows the skill scenario invokes the skill with the profile's prefix
+// and offers the profile's skill tool.
+func TestSkillUsesTheProfile(t *testing.T) {
+	for _, p := range []scenario.Profile{scenario.Pi, scenario.Claude} {
+		t.Run(p.Name, func(t *testing.T) {
+			store := filestore.New(t.TempDir())
+			var opened []harness.Options
+			svc := session.New(
+				func() (harness.Driver, error) {
+					return harnesstest.Driver{Stream: "essay", Opened: func(o harness.Options) { opened = append(opened, o) }}, nil
+				},
+				func() harness.Options { return harness.Options{Store: store} },
+			)
+			var skill scenario.Scenario
+			for _, s := range scenario.Scenarios(svc, stubModels(t), profile(p), scenario.Needs{}) {
+				if s.Name == "skill" {
+					skill = s
+				}
+			}
+			steps, cleanup := skill.Steps()
+			defer func() { _ = cleanup() }()
+			rep, out := reporter()
+			// The stub's fixed reply fails each step's check, after the exchange has run.
+			for _, step := range steps[:2] {
+				_ = step.Action(t.Context(), rep)
+			}
+			recs, err := store.Records(t.Context(), harnesstest.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(recs, func(r harness.Record) bool { return strings.HasPrefix(r.Request.Text, p.SkillPrefix+"clutch-motto ") }) {
+				t.Errorf("no recorded prompt starts with %sclutch-motto:\n%s", p.SkillPrefix, out.String())
+			}
+			if len(opened) != 2 || !slices.Equal(opened[1].HarnessTools, []string{p.SkillTool}) {
+				t.Errorf("opened %+v, want a second session whose only harness tool is %s", opened, p.SkillTool)
+			}
+		})
 	}
 }
 
@@ -193,7 +253,7 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 		// Steps 1 and 2 go to the stub endpoint, which answers them correctly.
 		"audio": "step 3: the model never called the transcribe_recording tool",
 	}
-	scenarios := scenario.Scenarios(svc, stubModels(t), scenario.Needs{})
+	scenarios := scenario.Scenarios(svc, stubModels(t), profile(scenario.Pi), scenario.Needs{})
 	for _, s := range scenarios {
 		t.Run(s.Name, func(t *testing.T) {
 			opened = nil

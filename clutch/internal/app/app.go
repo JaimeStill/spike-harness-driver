@@ -26,7 +26,7 @@ func New(stdout, stderr io.Writer) *App {
 	out := output.New(stdout, stderr, func() bool { return cfg.All })
 	infra := newInfrastructure(cfg)
 	dom := newDomain(infra)
-	scenarios := scenario.Scenarios(dom.Session, infra.Models, infra.Needs())
+	scenarios := scenario.Scenarios(dom.Session, infra.Models, infra.Profile, infra.Needs())
 
 	root := newRoot(cfg, infra, scenarios)
 	root.SetOut(stdout)

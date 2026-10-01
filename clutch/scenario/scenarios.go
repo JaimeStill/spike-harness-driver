@@ -12,17 +12,17 @@ import (
 
 // Scenarios returns every scenario in presentation order, running exchanges through svc and
 // direct model requests through the clients models returns. models is called when a scenario
-// runs, so it can follow flags parsed after the scenarios are built. Each scenario checks the
-// needs of its kind first.
-func Scenarios(svc *session.Service, models func() (Models, error), needs Needs) []Scenario {
+// runs, so it can follow flags parsed after the scenarios are built, as profile does for the
+// harness the flags name. Each scenario checks the needs of its kind first.
+func Scenarios(svc *session.Service, models func() (Models, error), profile func() Profile, needs Needs) []Scenario {
 	return []Scenario{
 		exchangeScenario(svc, needs.Harness),
 		cancelScenario(svc, needs.Harness),
 		resumeScenario(svc, needs.Harness),
 		toolScenario(svc, needs.Harness),
-		skillScenario(svc, needs.Harness),
+		skillScenario(svc, profile, needs.Harness),
 		structuredScenario(svc, needs.Harness),
-		visionScenario(svc, models, needs.Both),
+		visionScenario(svc, models, profile, needs.Both),
 		embedScenario(models, needs.Models),
 		audioScenario(svc, models, needs.Both),
 	}

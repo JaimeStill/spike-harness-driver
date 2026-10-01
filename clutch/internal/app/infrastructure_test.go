@@ -3,9 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -123,6 +126,62 @@ func TestModelsTakeTheTargetsDefaultsUnlessOverridden(t *testing.T) {
 	m, err := newInfrastructure(flagged(t, "--harness-vision-model", "h")).Models()
 	if err != nil || m.HarnessVision != "h" {
 		t.Errorf("Models = %+v, %v", m, err)
+	}
+}
+
+func TestHarnessDefaultsFollowTheHarnessUnlessOverridden(t *testing.T) {
+	t.Setenv("LLAMA_BASE_URL", "http://router.test:8080/")
+	cases := []struct {
+		args                  []string
+		provider, model, wide string
+		skillTool             string
+	}{
+		{nil, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{[]string{"--harness", "pi"}, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{[]string{"--harness", "claude"}, "anthropic", "haiku", "haiku", "Skill"},
+		{[]string{"--harness", "claude", "--model", "sonnet"}, "anthropic", "sonnet", "haiku", "Skill"},
+		{[]string{"--harness", "claude", "--harness-vision-model", "opus"}, "anthropic", "haiku", "opus", "Skill"},
+		{[]string{"--provider", "p", "--model", "m"}, "p", "m", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+	}
+	for _, c := range cases {
+		infra := newInfrastructure(flagged(t, c.args...))
+		opts := infra.Options()
+		if opts.Provider != c.provider || opts.Model != c.model {
+			t.Errorf("%v: options %q on %q, want %q on %q", c.args, opts.Model, opts.Provider, c.model, c.provider)
+		}
+		m, err := infra.Models()
+		if err != nil || m.HarnessVision != c.wide {
+			t.Errorf("%v: HarnessVision = %q, %v, want %q", c.args, m.HarnessVision, err, c.wide)
+		}
+		if got := infra.Profile().SkillTool; got != c.skillTool {
+			t.Errorf("%v: skill tool %q, want %q", c.args, got, c.skillTool)
+		}
+	}
+}
+
+func TestDriverIsBuiltPerHarness(t *testing.T) {
+	for name, want := range map[string]string{"pi": "pi.Driver", "claude": "claude.Driver"} {
+		d, err := newInfrastructure(flagged(t, "--harness", name, "--state", t.TempDir())).Driver()
+		if err != nil || fmt.Sprintf("%T", d) != want {
+			t.Errorf("--harness %s: Driver = %T, %v, want %s", name, d, err, want)
+		}
+	}
+	if _, err := newInfrastructure(flagged(t, "--harness", "nope")).Driver(); err == nil {
+		t.Error("Driver built an adapter for an unknown harness")
+	}
+}
+
+func TestNeedsLooksUpTheHarnessExecutable(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, ok := range map[string]bool{"claude": true, "pi": false} {
+		err := newInfrastructure(flagged(t, "--harness", name)).Needs().Harness[0].Check(t.Context())
+		if (err == nil) != ok {
+			t.Errorf("--harness %s: %v", name, err)
+		}
 	}
 }
 

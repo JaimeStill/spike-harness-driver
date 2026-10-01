@@ -30,9 +30,10 @@ var colorWords = []string{
 }
 
 // visionScenario sends one image three ways: to a harness session on a model that takes
-// images, to the direct client, and to a harness session on the text-only default model,
-// which shows what Pi does with an image such a model can't take.
-func visionScenario(svc *session.Service, models func() (Models, error), needs []Need) Scenario {
+// images, to the direct client, and, for a harness that drops an image a text-only model can't
+// take, to a harness session on the text-only default model, which shows what it does with one.
+// A harness whose models all take images skips that step, as the profile says.
+func visionScenario(svc *session.Service, models func() (Models, error), profile func() Profile, needs []Need) Scenario {
 	return Scenario{
 		Name:    "vision",
 		Summary: "An image read through the harness and the direct client, and dropped for a text-only model",
@@ -93,7 +94,12 @@ func visionScenario(svc *session.Service, models func() (Models, error), needs [
 				{
 					Intent: "Send the same image to a harness session on the text-only default model",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						rep.Note("for a model without image input, Pi replaces the image with \"(image omitted: model does not support images)\" and runs the exchange anyway")
+						p := profile()
+						if !p.DropsImage {
+							rep.Note("skipped: every model %s runs takes images, so there is no text-only model to drop one", p.Name)
+							return nil
+						}
+						rep.Note("for a model without image input, %s replaces the image with \"(image omitted: model does not support images)\" and runs the exchange anyway", p.Name)
 						o, err := ask(ctx, rep, "")
 						if err != nil {
 							return err
@@ -101,7 +107,7 @@ func visionScenario(svc *session.Service, models func() (Models, error), needs [
 						if namesShapes(o.Result.Text) == nil {
 							return fmt.Errorf("the text-only model named every shape and its color: %q", o.Result.Text)
 						}
-						rep.Note("the exchange succeeded without the image: Pi dropped it quietly, and the reply can't name the shapes")
+						rep.Note("the exchange succeeded without the image: %s dropped it quietly, and the reply can't name the shapes", p.Name)
 						return nil
 					},
 				},
