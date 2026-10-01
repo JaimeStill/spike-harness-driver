@@ -1,0 +1,11 @@
+# The image builds clutch from the Go sources alone.
+.git
+.claude
+.env*
+context
+deploy
+setup
+references.local.toml
+bin
+**/*.test
+coverage.out
