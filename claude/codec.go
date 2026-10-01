@@ -14,20 +14,20 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// serverName is the name the driver's SDK MCP server goes by. Claude Code names the server's
-// tools mcp__<server>__<tool>.
+// serverName is the name of the driver's MCP server. Claude Code names the server's tools
+// mcp__<server>__<tool>.
 const serverName = "driver"
 
 // toolPrefix starts the name Claude Code gives each of the driver's tools.
 const toolPrefix = "mcp__" + serverName + "__"
 
-// codec translates Claude Code's stream-json protocol. Unlike Pi's, it keeps state across
-// lines, which the Client's one reader goroutine makes safe: the arguments of each respond call,
-// which become the structured response once Claude Code reports the call's result, and the
-// last rate-limit notice, which explains a turn the limit refused.
+// codec translates Claude Code's stream-json protocol. Unlike Pi's codec, it keeps state across
+// lines, which is safe because the Client has one reader goroutine. It keeps the arguments of each
+// respond call, which become the structured response once Claude Code reports the call's result,
+// and the last rate-limit notice, which explains a turn the limit refused.
 type codec struct {
-	// responds maps each respond call's tool_use ID to its arguments, and calls each other
-	// call's to its tool's name, which Claude Code's tool results don't carry.
+	// responds maps each respond call's tool_use ID to its arguments. calls maps the ID of every
+	// other call to its tool's name, which Claude Code's tool results don't carry.
 	responds map[string]json.RawMessage
 	calls    map[string]string
 	limit    *harness.LimitStatus
@@ -37,8 +37,8 @@ func newCodec() *codec {
 	return &codec{responds: map[string]json.RawMessage{}, calls: map[string]string{}}
 }
 
-// Encode renders a control request, stamped with id, or a user message, which Claude Code
-// doesn't answer.
+// Encode renders a control request, which carries id as its request_id, or a user message, which
+// carries none because Claude Code doesn't answer it.
 func (c *codec) Encode(id string, cmd any) ([]byte, error) {
 	switch cmd := cmd.(type) {
 	case controlRequest:
@@ -185,9 +185,9 @@ func (c *codec) toolCalls(raw []byte) ([]harness.Event, error) {
 	return events, nil
 }
 
-// toolResults maps a user message's tool_result blocks to EventToolResult, and a respond
-// call's result to the structured response: its arguments when the driver accepted them,
-// which mcpbridge validated against the exchange's schema, or the rejection the model saw.
+// toolResults maps a user message's tool_result blocks to EventToolResult. A respond call's result
+// becomes the structured response when mcpbridge accepted its arguments, which it validated against
+// the exchange's schema, and an EventStructuredRejected with the rejection the model saw otherwise.
 func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 	blocks, err := blocksOf(raw)
 	if err != nil {

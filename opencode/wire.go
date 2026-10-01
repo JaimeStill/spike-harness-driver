@@ -42,7 +42,7 @@ type contentBlock struct {
 	MimeType string `json:"mimeType,omitempty"`
 }
 
-// mcpServer names an MCP server for a session: the driver's tool server, over HTTP.
+// mcpServer names an MCP server for a session: the driver's own, over HTTP.
 type mcpServer struct {
 	Type    string       `json:"type"`
 	Name    string       `json:"name"`

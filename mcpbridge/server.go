@@ -83,8 +83,8 @@ type Server struct {
 	tools []tool
 
 	mu sync.Mutex
-	// schema is respond's input schema, resolved its compiled form, and respond its name;
-	// all are zero while no structured response is expected.
+	// schema is respond's input schema, resolved is its compiled form, and respond is its name; all
+	// are zero while no structured response is expected.
 	schema   json.RawMessage
 	resolved *jsonschema.Resolved
 	respond  string
@@ -105,9 +105,9 @@ type tool struct {
 	resolved *jsonschema.Resolved
 }
 
-// New returns a server offering tools. Each tool must be valid, its name unique and not
-// begin with "respond", and its schema one jsonschema-go can compile, since the bridge validates each
-// call's arguments against it.
+// New returns a server offering tools. Each tool must be valid, its name unique and not begin with
+// "respond", and its schema one jsonschema-go can compile, since the bridge validates each call's
+// arguments against it.
 func New(tools []harness.Tool, opts Options) (*Server, error) {
 	s := &Server{name: opts.Name, opts: opts, servers: map[*mcp.Server]struct{}{}, listed: make(chan struct{})}
 	if s.name == "" {
@@ -240,9 +240,10 @@ func (s *Server) installRespond(srv *mcp.Server) {
 }
 
 // routeRespond sends every call to a respond tool's name to handleRespond, whether or not the
-// server still lists that name, and counts the tools/list requests answered, for WaitListed. A call to a name the schema replaced or removed would
-// otherwise fail as a protocol error, for an unknown tool, which a harness may not show the
-// model; as a failed call, it tells the model what to do instead.
+// server still lists that name, and counts the answered tools/list requests, for WaitListed. A call
+// to a name the schema replaced or removed would otherwise fail as a protocol error for an unknown
+// tool, which a harness may not show the model; as a failed call, it tells the model what to do
+// instead.
 func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		if call, ok := req.(*mcp.CallToolRequest); ok && call.Params != nil && IsRespond(call.Params.Name) {

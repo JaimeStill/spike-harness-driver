@@ -2,11 +2,10 @@
 // extension, a plugin, or a skill that exists only as an fs.FS, in a directory the harness
 // reads them from.
 //
-// Each entry is written once, under a name its content decides, so sessions share it, and a
-// session resumed in a new process still finds the files its history names: changed content
-// gets a new directory, and no session's files change under it. The harness runs or follows
-// what the cache holds, so the root must belong to the current user and be writable by no one
-// else, and an entry is used only while its content still has the digest it is named by.
+// Each entry is written once, under a name its content decides, so sessions share it, and a session
+// resumed in a new process still finds the files its history names: changed content gets a new
+// directory, and no session's files change under it. The harness runs or follows what the cache
+// holds, so the root must belong to the current user and be writable by no one else.
 package cache
 
 import (
@@ -29,15 +28,14 @@ func FS(root, name string, fsys fs.FS) (string, error) {
 	return Dir(root, name, digest, func(dir string) error { return os.CopyFS(dir, fsys) })
 }
 
-// Dir returns the directory root/name-digest, which write fills the first time. It writes
-// to a temporary name it then renames, so a concurrent writer of the same content never sees
-// the directory half written. The same content always gets the same directory, and changed
-// content a new one, so no session's files change under it.
+// Dir returns the directory root/name-digest, which write fills the first time. It writes to a
+// temporary name it then renames, so a concurrent writer of the same content never sees the
+// directory half written.
 //
-// A driver runs what the cache holds, as Pi loads its bridge as code. So root must belong to
-// the current user and be writable by no one else, which keeps anyone else from planting a
-// directory under a name the driver would trust, and a directory found under the right name
-// is used only when its content still has the digest it is named by.
+// A driver runs what the cache holds, as Pi loads its bridge as code, so anyone else able to write
+// under root could plant a directory under a name the driver would trust. Dir therefore requires
+// root to belong to the current user and be writable by no one else, and uses a directory found
+// under the right name only when its content still has the digest it is named by.
 func Dir(root, name, digest string, write func(dir string) error) (string, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err

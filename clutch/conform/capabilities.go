@@ -46,7 +46,7 @@ func (c Capability) execute(ctx context.Context, e *env) (Status, string) {
 	}
 }
 
-// Capabilities are the capabilities the suite checks, in the matrix's column order.
+// Capabilities lists the capabilities the suite checks, in the matrix's column order.
 var Capabilities = []Capability{
 	{Name: "exchange", run: checkExchange},
 	{Name: "cancel", run: checkCancel},
@@ -66,9 +66,9 @@ type env struct {
 	events     func(Cell, string, harness.Event)
 }
 
-// Prompts. Each one that has a structured answer asks for it outright: a model asked to reply
-// in text and in a structured response at once is being told two things. The values asked for
-// are ones the checks compare exactly, so no check reads the model's wording.
+// Prompts. Each prompt that wants a structured answer asks for it outright, because a model asked
+// to reply in both text and a structured response is told two things. The checks compare the values
+// asked for exactly, so no check reads the model's wording.
 const (
 	exchangePrompt = "Reply with one short sentence: what is Go?"
 	cancelPrompt   = "Write a 600-word essay about the history of the Unix operating system."
@@ -219,8 +219,7 @@ func checkCancel(ctx context.Context, e *env) (string, error) {
 	return reason, err
 }
 
-// codeWords are the words a code word is made of: common ones, so a model copies them as
-// written.
+// codeWords are the common words a code word is made of, so a model copies them as written.
 var codeWords = []string{"amber", "falcon", "harbor", "meadow", "copper", "lantern", "willow", "summit", "ember", "cobalt"}
 
 // newCodeWord returns a code word no earlier run used, for the resume capability: two words and

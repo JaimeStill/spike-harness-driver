@@ -1,7 +1,7 @@
-Stream-json transcripts of Claude Code 2.1.286 on claude-haiku-4-5, captured by a probe on
-2026-10-01 and replayed through the codec. Local paths are replaced with /work, thinking
-signatures with "sig", and the init message's lists of the user's commands are dropped; the
-control requests and responses are left out, since the codec tests cover them on their own.
+Stream-json transcripts of Claude Code 2.1.286 on claude-haiku-4-5, captured by a probe and
+replayed through the codec. Local paths are replaced with /work, thinking signatures with "sig",
+and the init message's lists of the user's commands are dropped. The control requests and
+responses are left out; the codec tests cover them separately.
 
 - tools.jsonl: a turn that calls the driver's echo tool, then its respond tool (renamed
   respond_0f3a9c21, the name mcpbridge gives a schema), then answers.

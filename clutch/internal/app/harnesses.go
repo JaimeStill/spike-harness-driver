@@ -21,10 +21,10 @@ const (
 	harnessOpenCode = "opencode"
 )
 
-// harnessSpec holds a harness's name, the executable it runs, the version the conformance
-// suite pins it to, what --provider, --model, and --harness-vision-model take when their flags
-// aren't set, the providers the conformance suite runs it over, how the scenarios talk to it,
-// and how its driver is built from the flags.
+// harnessSpec describes one harness: its name, its executable, the version the conformance suite
+// pins, the defaults for --provider, --model, and --harness-vision-model when their flags are
+// unset, the providers the conformance suite runs it over, how the scenarios talk to it, and how to
+// build its driver from the flags.
 type harnessSpec struct {
 	name, command           string
 	pinned                  string
@@ -34,9 +34,9 @@ type harnessSpec struct {
 	driver                  func(i *Infrastructure) (harness.Driver, error)
 }
 
-// harnesses are the harnesses, in the order help and errors list them. Adding one is an entry
-// here, a profile in the scenario package, and the adapter's import. init builds the table,
-// since its builders read the flags through the Infrastructure, which looks the table up.
+// harnesses is the table of supported harnesses, in the order help and errors list them. Adding one
+// is an entry here, a profile in the scenario package, and the adapter's import. init builds the
+// table, since its builders read the flags through the Infrastructure, which looks the table up.
 var harnesses []harnessSpec
 
 func init() {

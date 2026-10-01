@@ -27,13 +27,12 @@
 //
 // # Isolation, models, and sessions
 //
-// OpenCode reads its configuration, data, state, and cache from the XDG directories under the
-// driver's StateDir, so the user's own stay out; --pure keeps the user's plugins out; and the
-// environment keeps out the user's Claude Code files and outside skills, and stops OpenCode
-// fetching its model catalog or updating itself. The configuration, in
-// OPENCODE_CONFIG_CONTENT, enables only the session's provider, with the session's model
-// listed, since OpenCode selects only a model its configuration or catalog lists; a listed
-// model is selectable at once. When HarnessTools is set, the configuration allows those tools
+// OpenCode reads its configuration, data, state, and cache from XDG directories under the driver's
+// StateDir, so the user's own stay out. --pure keeps the user's plugins out, and the environment
+// keeps out the user's Claude Code files and outside skills and stops OpenCode from fetching its
+// model catalog or updating itself. The configuration, in OPENCODE_CONFIG_CONTENT, enables only the
+// session's provider and lists the session's model, because OpenCode selects only a model its
+// configuration or catalog lists. When HarnessTools is set, the configuration allows those tools
 // and the driver's, and OpenCode denies the rest without asking.
 //
 // OpenCode keeps sessions in its database under StateDir and loads one by ID from any working

@@ -49,9 +49,9 @@ type imageSource struct {
 	Data      string `json:"data"`
 }
 
-// controlRequest is a request in either direction: the driver's of Claude Code, such as
-// initialize or interrupt, or Claude Code's of the driver, such as mcp_message or
-// can_use_tool. Only the fields of the subtypes the driver uses are named.
+// controlRequest is a control request in either direction: the driver's to Claude Code, such as
+// initialize or interrupt, or Claude Code's to the driver, such as mcp_message or can_use_tool.
+// Only the fields of the subtypes the driver uses are named.
 type controlRequest struct {
 	Subtype string `json:"subtype"`
 
@@ -120,7 +120,7 @@ type result struct {
 	Usage          *usage   `json:"usage"`
 }
 
-// usage is a result's, summed over the turn's model requests.
+// usage is a result's token counts, summed over the turn's model requests.
 type usage struct {
 	Input      int `json:"input_tokens"`
 	Output     int `json:"output_tokens"`

@@ -7,7 +7,7 @@
 // The driver writes user messages, which Claude Code doesn't answer, and control requests,
 // which it answers by request_id: initialize at start, and interrupt to cancel. Claude Code
 // writes the turn's events and control requests of its own, which the driver answers: the MCP
-// messages of the driver's tool server, and permission checks for tools. A turn starts at the
+// messages of the driver's MCP server, and permission checks for tools. A turn starts at the
 // system init message and ends at its result, which carries the turn's text and its usage
 // summed over the turn's model requests; an interrupted turn ends with a result whose terminal
 // reason starts with "aborted".
@@ -40,6 +40,8 @@
 // session's entries. In its place, Open fails with harness.ErrJournalMismatch for an ID with no
 // transcript that the store holds records of, which Claude Code lost.
 //
-// Usage limits: Claude Code reports where the subscription stands with rate_limit_event, which
+// # Usage limits
+//
+// Claude Code reports where the subscription stands with rate_limit_event, which
 // becomes harness.EventLimit, and a turn the limit refused becomes a *harness.LimitError.
 package claude

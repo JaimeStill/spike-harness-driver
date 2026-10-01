@@ -28,8 +28,8 @@ type Provider struct {
 	NPM string
 	// BaseURL is the endpoint's OpenAI-compatible base URL, ending in /v1 or its equivalent.
 	BaseURL string
-	// APIKey is sent as a bearer token, which an Entra ID token for Azure can be too.
-	// @ai-sdk/openai requires one.
+	// APIKey is sent as a bearer token; for Azure it is an Entra ID token. @ai-sdk/openai requires
+	// one.
 	APIKey string
 	// Headers are sent with every request.
 	Headers map[string]string

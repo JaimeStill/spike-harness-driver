@@ -63,8 +63,8 @@ type Event struct {
 	Structured json.RawMessage
 	// Limit is set on EventLimit.
 	Limit *LimitStatus
-	// Err is set on EventError and EventStructuredRejected. It is the error itself, so callers can match it with
-	// errors.Is, and an Event therefore doesn't serialize directly.
+	// Err is set on EventError and EventStructuredRejected. It is the error itself, so callers can
+	// match it with errors.Is, and an Event therefore doesn't serialize directly.
 	Err error
 	// Raw is the harness's own record the event came from, when there is one.
 	Raw json.RawMessage

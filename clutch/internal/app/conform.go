@@ -73,14 +73,13 @@ func selectCells(names, providers []string) ([]cellKey, error) {
 	return keys, nil
 }
 
-// newCell builds the cell for one harness over one provider from a copy of base, the flags
-// the command was run with. The copy takes the cell's harness and provider and leaves --model
-// and --harness-vision-model empty, since a model ID belongs to one provider, so each cell runs
-// on its harness's own defaults. It drops --skills and --tools, which would add to what the
-// capabilities offer a session, and keeps --target, --state, and the Azure scope. The cell
-// builds its driver, options, and models through its own Infrastructure, the code path every
-// other command uses, so a per-harness default and the azure provider's setup apply as they do
-// there.
+// newCell builds the cell for one harness over one provider from a copy of base, the flags the
+// command was run with. The copy takes the cell's harness and provider and empties --model and
+// --harness-vision-model, since a model ID belongs to one provider, so each cell runs on its
+// harness's own defaults. It drops --skills and --tools, which would add to what the capabilities
+// offer a session, and keeps --target, --state, and the Azure scope. The cell builds its driver,
+// options, and models through its own Infrastructure, the code path every other command uses, so
+// the per-harness defaults and the azure provider's setup apply as they do there.
 func newCell(base Config, k cellKey) (conform.Cell, error) {
 	h, err := lookupHarness(k.harness)
 	if err != nil {

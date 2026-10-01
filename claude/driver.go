@@ -167,9 +167,9 @@ func (d Driver) sessionID(id string) (string, bool, error) {
 	return id, held, err
 }
 
-// holds reports whether Claude Code keeps a transcript of session id, in any project: Claude
-// Code keeps a session's transcript under a directory named after its working directory, and
-// resumes it from any.
+// holds reports whether Claude Code keeps a transcript of session id in any project. Claude Code
+// stores a transcript under a directory named after the session's working directory, and resumes
+// the session from any directory.
 func (d Driver) holds(id string) (bool, error) {
 	dir := d.ConfigDir
 	if dir == "" {
@@ -186,10 +186,10 @@ func (d Driver) holds(id string) (bool, error) {
 	return len(matches) > 0, err
 }
 
-// lost fails with harness.ErrJournalMismatch when the caller names a session Claude Code
-// keeps no transcript of, but the store holds exchange records for: Claude Code lost the
-// session, and opening it would start a fresh one under the same ID, silently. It stands in
-// for the journal check a harness.Journal gives, which Claude Code's stream doesn't offer.
+// lost fails with harness.ErrJournalMismatch when the caller names a session that Claude Code keeps
+// no transcript of but the store holds exchange records for. Claude Code lost the session, and
+// opening it would silently start a fresh one under the same ID. lost stands in for the journal
+// check a harness.Journal gives, which Claude Code's stream doesn't offer.
 func lost(ctx context.Context, opts harness.Options, id string, resume bool) error {
 	if resume || opts.SessionID == "" || opts.Store == nil {
 		return nil

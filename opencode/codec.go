@@ -12,7 +12,7 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// serverName is the name the driver's MCP server goes by. OpenCode names the server's tools
+// serverName is the name of the driver's MCP server. OpenCode names the server's tools
 // <server>_<tool>.
 const serverName = "driver"
 
@@ -21,8 +21,8 @@ const toolPrefix = serverName + "_"
 
 // codec translates ACP as OpenCode speaks it. ACP's updates carry no request ID, but OpenCode
 // sends every update of a turn before it answers the turn's session/prompt, so the codec ends
-// the turn when it decodes that answer, in stream order. It keeps state across lines: which
-// requests are prompts and which a load, the turn's text, and the tool calls under way. Encode
+// the turn when it decodes that answer, in stream order. It keeps state across lines: the ids
+// of the prompt and load requests in flight, the turn's text, and the tool calls under way. Encode
 // runs on callers' goroutines and Decode on the reader's, so the state is locked.
 type codec struct {
 	mu sync.Mutex
@@ -69,7 +69,7 @@ func (c *codec) Encode(id string, cmd any) ([]byte, error) {
 }
 
 // Reply answers one of OpenCode's requests: an error answer is a JSON-RPC error, and anything
-// else the result. The request's id is echoed as it arrived.
+// else is the result. The request's id is echoed as it arrived.
 func (c *codec) Reply(req stdio.Request, answer any) ([]byte, error) {
 	msg := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(req.ID)}
 	if err, ok := answer.(error); ok {
@@ -264,8 +264,8 @@ func chunkText(content json.RawMessage) (string, bool) {
 	return b.Text, true
 }
 
-// toolName is a tool call's tool: a driver tool's own name, without the prefix OpenCode gives
-// the driver's server, and a harness tool's name as it is.
+// toolName is the name a tool event carries: a driver tool's own name, without the prefix OpenCode
+// gives the driver's server, and a harness tool's name as it is.
 func toolName(title string) string {
 	return strings.TrimPrefix(title, toolPrefix)
 }

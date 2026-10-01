@@ -22,12 +22,12 @@
 // schema, changes with the schema, because Claude Code caches a tool's schema by its name; a
 // call to a name the schema replaced or removed fails, and tells the model which to call.
 //
-// The bridge validates a response in Go, against the schema set when the call arrives, so it
-// doesn't rely on the harness to: a valid call reaches Options.OnStructured; an invalid one
-// reaches Options.OnRejected, and the model receives the validation error as a failed call,
-// so it can correct the response and call respond again. The bridge validates every tool's
-// arguments the same way, which keeps the promise harness.ToolHandler makes that its
-// arguments match the tool's schema.
+// The bridge validates a response itself, in Go, against the schema set when the call arrives, so
+// it doesn't rely on the harness to. A valid call reaches Options.OnStructured. An invalid one
+// reaches Options.OnRejected, and the model receives the validation error as a failed call, so it
+// can correct the response and call respond again. The bridge validates every tool's arguments the
+// same way, which keeps the promise harness.ToolHandler makes that its arguments match the tool's
+// schema.
 //
 // Adding, replacing, or removing respond changes the server's tool list, and go-sdk tells
 // each connected session with notifications/tools/list_changed. A session that negotiated

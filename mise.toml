@@ -1,8 +1,8 @@
-# The versions clutch's conformance suite (`clutch conform`) pins for the harnesses it drives.
-# The suite skips a harness whose version differs unless --any-version is passed, so these move
-# together with the pins in clutch/internal/app/harnesses.go.
+# These are the harness versions clutch's conformance suite (`clutch conform`) pins. The suite skips
+# a harness at any other version unless --any-version is passed, so keep them in step with the pins
+# in clutch/internal/app/harnesses.go.
 #
-# Claude Code is not here: it is a native install, which the driver keeps from updating itself
+# Claude Code is absent because it is a native install, which the driver keeps from updating itself
 # (DISABLE_AUTOUPDATER), so the version on the PATH is the one the suite sees.
 [tools]
 pi = "0.99.2"

@@ -70,8 +70,8 @@ func (c *connection) Prompt(ctx context.Context, req harness.Request) error {
 	return nil
 }
 
-// Cancel notifies session/cancel. OpenCode aborts the turn and answers its session/prompt with
-// stop reason "cancelled".
+// Cancel sends the session/cancel notification. OpenCode aborts the turn and answers its
+// session/prompt with stop reason "cancelled".
 func (c *connection) Cancel(context.Context) error {
 	return c.client.Notify(call{Method: "session/cancel", Params: map[string]string{"sessionId": c.sessionID}})
 }
@@ -79,7 +79,7 @@ func (c *connection) Cancel(context.Context) error {
 func (c *connection) Events() <-chan harness.Event { return c.client.Events() }
 func (c *connection) Err() error                   { return c.client.Err() }
 
-// Close ends OpenCode, the tool server's endpoint, and the session's temporary files.
+// Close ends OpenCode, the MCP server's endpoint, and the session's temporary files.
 func (c *connection) Close() error {
 	return errors.Join(c.client.Close(), c.endpoint.Close(), c.remove())
 }

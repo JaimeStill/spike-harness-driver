@@ -18,7 +18,7 @@ import (
 )
 
 // connection is Claude Code's harness.Connection over a stdio.Client. It answers Claude Code's
-// control requests: the MCP messages of the driver's tool server, which it relays through an
+// control requests: the MCP messages of the driver's MCP server, which it relays through an
 // mcpbridge tunnel, and permission checks.
 type connection struct {
 	client  *stdio.Client
@@ -102,7 +102,7 @@ func (c *connection) Cancel(ctx context.Context) error {
 func (c *connection) Events() <-chan harness.Event { return c.client.Events() }
 func (c *connection) Err() error                   { return c.client.Err() }
 
-// Close ends Claude Code, the tool server's tunnel, and the session's files.
+// Close ends Claude Code, the MCP server's tunnel, and the session's files.
 func (c *connection) Close() error {
 	c.mu.Lock()
 	c.endRun()
@@ -110,10 +110,10 @@ func (c *connection) Close() error {
 	return errors.Join(closeErr(c.client.Close()), c.tunnel.Close(), c.remove())
 }
 
-// closeErr is the error of Claude Code's exit once Close asked for it. Claude Code exits with
-// status 1 at the end of its input when the last turn failed, an interrupted one included, and
-// that turn's exchange has already reported it, so status 1 is no error of the exit. A harness
-// killed after WaitDelay, or any other status, still is.
+// closeErr is the error of Claude Code's exit once Close asked for it. When the last turn failed,
+// an interrupted one included, Claude Code exits with status 1 at the end of its input. The
+// exchange of that turn has already reported the failure, so closeErr ignores status 1. A harness
+// killed after WaitDelay, or any other status, is still an error.
 func closeErr(err error) error {
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 {
@@ -122,9 +122,9 @@ func closeErr(err error) error {
 	return err
 }
 
-// outbound relays a message the tool server sends unasked, such as
-// notifications/tools/list_changed, to Claude Code as an mcp_message control request. It runs
-// on the server's goroutine, so it hands the message on and returns.
+// outbound relays a message the MCP server sends unasked, such as notifications/tools/list_changed,
+// to Claude Code as an mcp_message control request. It runs on the server's goroutine, so it hands
+// the message on and returns.
 func (c *connection) outbound(msg json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -153,7 +153,7 @@ func (c *connection) answer(ctx context.Context, req stdio.Request) any {
 // Agent SDKs send the same.
 var notificationAck = json.RawMessage(`{"jsonrpc":"2.0","result":{}}`)
 
-// relay passes one MCP message to the tool server and returns its response. A tool call runs
+// relay passes one MCP message to the MCP server and returns its response. A tool call runs
 // until Cancel ends the exchange's run, or until Claude Code exits.
 func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	if r.ServerName != serverName {
