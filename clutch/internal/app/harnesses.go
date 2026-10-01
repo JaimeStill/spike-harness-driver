@@ -82,7 +82,7 @@ func init() {
 		{
 			name:      harnessClaude,
 			command:   "claude",
-			pinned:    "2.1.286",
+			pinned:    "2.1.287",
 			provider:  claude.Provider,
 			model:     "haiku",
 			vision:    "haiku",
