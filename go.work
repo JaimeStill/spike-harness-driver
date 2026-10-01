@@ -2,7 +2,8 @@ go 1.27.1
 
 use (
 	.
-	./pi
+	./claude
 	./clutch
 	./mcpbridge
+	./pi
 )
