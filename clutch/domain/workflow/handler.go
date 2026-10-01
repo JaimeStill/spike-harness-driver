@@ -20,7 +20,7 @@ const maxWorkflow = 1 << 20
 //	GET    /runs/{id}/events  the run's events as Server-Sent Events, after Last-Event-ID
 //	DELETE /runs/{id}         cancel the run; 202
 //
-// A run outlives the request that started it: the runner runs it until it ends, and a client
+// A run outlives the request that started it. The runner runs it until it ends, and a client
 // follows it, or follows it again after a disconnect, through its events.
 func Handler(r *workflow.Runner, opts sse.Options) http.Handler {
 	mux := http.NewServeMux()

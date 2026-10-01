@@ -21,14 +21,14 @@ type Options struct {
 	Keepalive time.Duration
 }
 
-// Stream serves the run's events as a Server-Sent Events stream, starting after the cursor the
-// request names: its Last-Event-ID header, which a reconnecting client sends on its own, else
-// its after query parameter, else the start of the log. It returns when the run's last event
+// Stream serves the run's events as a Server-Sent Events stream, starting after the request's
+// cursor. The cursor is the Last-Event-ID header, which a reconnecting client sends on its own,
+// else the after query parameter, else the start of the log. It returns when the run's last event
 // has been written, when the runner stops following the run, when the request ends, or when a
 // write fails.
 //
-// Errors are reported as plain-text HTTP errors, which is only possible before the stream
-// starts: a bad cursor is a 400, an unknown run a 404, and anything else the runner returns a
+// Stream reports errors as plain-text HTTP errors, which is possible only before the stream
+// starts: a bad cursor is a 400, an unknown run a 404, and any other error from the runner a
 // 500.
 func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, runID string, opts Options) {
 	after, err := cursor(r)
@@ -61,8 +61,8 @@ func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, run
 	if keepalive <= 0 {
 		keepalive = DefaultKeepalive
 	}
-	// The ticker runs whether or not events flow: a comment among busy events costs little, and
-	// the stream's quiet stretches are never longer than one period.
+	// The ticker runs whether or not events flow. A comment among busy events costs little, and
+	// no quiet stretch of the stream outlasts one period.
 	tick := time.NewTicker(keepalive)
 	defer tick.Stop()
 

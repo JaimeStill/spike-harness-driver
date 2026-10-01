@@ -8,7 +8,7 @@ the Go build needs every module under `go.work`:
 docker build -f deploy/Containerfile -t clutch .
 ```
 
-It has two runtime targets:
+The Containerfile has two build targets, which differ in how they install Pi:
 
 - **`standalone`**, the default, uses Pi's standalone release: one executable with its runtime
   bundled, and its assets beside it. The download is checked against the SHA-256 from the
@@ -17,7 +17,7 @@ It has two runtime targets:
 - **`node`** (`--target node`) installs Pi from npm on `node:22-slim`. It exists to compare
   footprints.
 
-Neither image carries Claude Code or OpenCode. The image carries only the harness its
+Neither image carries Claude Code or OpenCode, because an image carries only the harness its
 workflows run on, and Pi is the default (`context/findings.md`, Harness comparison).
 
 ## Running it
@@ -40,7 +40,7 @@ curl -N localhost:8080/runs/<id>/events
   but Azure through Pi runs `az` for its token, and the image has no `az`
   (`context/findings.md`, Deployment).
 - **Stopping.** `docker stop` sends SIGTERM, which `tini` passes to `clutch`. `clutch` stops its
-  runs without ending them, closes the event streams, and exits. The next start resumes the
+  runs without ending them, closes the event streams, and exits, and the next start resumes the
   runs.
 - **`tini`** reaps any process a harness leaves behind. The driver kills each harness's process
-  group, but nothing kills it if the driver itself is killed.
+  group, but if the driver itself is killed, nothing does.

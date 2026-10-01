@@ -78,7 +78,7 @@ func resumeCommand(svc *Service, out *output.Output) *cobra.Command {
 		Short: "Take up a run a previous process left unfinished, and follow it to its end",
 		Long: "resume takes up a run whose log hasn't ended. Its finished steps keep their results,\n" +
 			"each session reopens as the harness session the log recorded, and a step whose\n" +
-			"exchange ended after the log last heard of it is adopted from the session's exchange\n" +
+			"exchange ended after the log last recorded it is adopted from the session's exchange\n" +
 			"records rather than run again. The run's events print from where the log stood.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -172,8 +172,8 @@ func showCommand(svc *Service, out *output.Output) *cobra.Command {
 	}
 }
 
-// follow prints the run's events after Seq after until the run ends or ctx does, then how it
-// stands. A run that didn't end done is an error, so the exit code says how it went.
+// follow prints the run's events with a Seq above after until the run ends or ctx does, then the
+// run's state. A run that didn't end done is an error, so the exit code says how it went.
 func follow(ctx context.Context, r *workflow.Runner, id string, after int, out *output.Output) error {
 	s, err := Follow(ctx, r, id, after, func(e workflow.Event) {
 		if line := EventLine(e); line != "" {
@@ -198,8 +198,8 @@ func follow(ctx context.Context, r *workflow.Runner, id string, after int, out *
 const resultWidth = 160
 
 // EventLine formats a run event as one line: the time, the logged event's number, its kind,
-// and its detail. Of an exchange's live events, it shows tool calls and results and errors,
-// and returns "" for the rest, such as text deltas: several steps stream at once, and the
+// and its detail. Of an exchange's live events, it shows tool calls, tool results, and errors,
+// and returns "" for the rest, such as text deltas. Several steps stream at once, and the
 // step's result carries its text.
 func EventLine(e workflow.Event) string {
 	head := fmt.Sprintf("%s #%-3d %-15s", e.Time.Local().Format("15:04:05.000"), e.Seq, e.Kind)

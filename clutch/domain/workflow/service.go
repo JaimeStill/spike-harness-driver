@@ -38,10 +38,10 @@ func Load(path string) (workflow.Workflow, error) {
 	return workflow.Load(f)
 }
 
-// Follow passes each of the run's events after Seq after to fn as it happens, until the run's
-// last event, and returns the run's state then. When ctx ends first, Follow shuts the Runner
-// down, which stops the run without ending it, and keeps following until the Runner lets go of
-// it; the state it returns is then unfinished, and the error is ctx's.
+// Follow passes each of the run's events with a Seq above after to fn as it happens, until the
+// run's last event, and returns the run's state then. When ctx ends first, Follow shuts the
+// Runner down, which stops the run without ending it, and keeps following until the Runner
+// stops running the run. The state it returns is then unfinished, and the error is ctx's.
 func Follow(ctx context.Context, r *workflow.Runner, id string, after int, fn func(workflow.Event)) (workflow.State, error) {
 	// The subscription outlives ctx, so the events of a shutdown still arrive.
 	events, err := r.Subscribe(context.WithoutCancel(ctx), id, after)

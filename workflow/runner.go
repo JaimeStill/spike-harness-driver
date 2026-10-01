@@ -37,8 +37,8 @@ type Store interface {
 	// Append adds e to its run's log. The Runner numbers a run's events itself and appends them
 	// one at a time, in order.
 	Append(ctx context.Context, e Event) error
-	// Events returns the run's logged events after Seq after, in order, and none for a run it
-	// has no log of.
+	// Events returns the run's logged events with a Seq above after, in order, and none for a
+	// run it has no log of.
 	Events(ctx context.Context, runID string, after int) ([]Event, error)
 	// Runs returns the IDs of the runs it holds logs of.
 	Runs(ctx context.Context) ([]string, error)
@@ -222,9 +222,10 @@ func (r *Runner) Wait(ctx context.Context, id string) (State, error) {
 	return r.fold(ctx, id)
 }
 
-// Subscribe returns the run's events after Seq after: the logged ones first, then, while the
-// Runner runs it, its events as they happen, its exchanges' live events included. The channel
-// closes after the run's last event, or when the Runner stops running it, or when ctx is done.
+// Subscribe returns a channel of the run's events with a Seq above after: the logged events
+// first, then, while the Runner runs the run, its events as they happen, including its
+// exchanges' live events. The channel closes after the run's last event, when the Runner stops
+// running the run, or when ctx is done.
 func (r *Runner) Subscribe(ctx context.Context, id string, after int) (<-chan Event, error) {
 	r.mu.Lock()
 	rn := r.runs[id]

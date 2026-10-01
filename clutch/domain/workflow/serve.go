@@ -16,8 +16,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow/sse"
 )
 
-// readHeaderTimeout bounds reading a request's headers. No other server timeout applies, since
-// an event stream lasts as long as its run.
+// readHeaderTimeout bounds reading a request's headers. The server sets no other timeout,
+// because an event stream lasts as long as its run.
 const readHeaderTimeout = 10 * time.Second
 
 // ServeCommand builds "serve", which serves the runs over HTTP until it is signalled.
@@ -39,9 +39,9 @@ func ServeCommand(svc *Service, out *output.Output) *cobra.Command {
 			"  DELETE /runs/{id}         cancel the run\n\n" +
 			"At start, it resumes every run the log under --state leaves unfinished, as after a\n" +
 			"crash or a restart. On SIGINT or SIGTERM it stops its runs without ending them, so\n" +
-			"the next serve resumes them, and closes its event streams. --limit bounds the\n" +
+			"the next serve resumes them, and it closes its event streams. --limit bounds the\n" +
 			"exchanges in flight across every run.\n\n" +
-			"The server has no authentication: it listens on loopback unless --addr says otherwise.",
+			"The server has no authentication, so it listens on loopback unless --addr says otherwise.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM)
@@ -85,7 +85,8 @@ func serve(ctx context.Context, svc *Service, out *output.Output, addr string, l
 	out.Printf("-- stopping: runs stay unfinished for the next serve to resume")
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	// The runner first, which closes the event streams; the server's Shutdown waits for them.
+	// Shut the runner down first, which closes the event streams; the server's Shutdown waits for
+	// them.
 	err = errors.Join(r.Shutdown(sctx), srv.Shutdown(sctx))
 	<-served // http.ErrServerClosed, once Shutdown has begun
 	return err
