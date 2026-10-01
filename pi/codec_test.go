@@ -74,12 +74,17 @@ func TestNormalize(t *testing.T) {
 		{
 			name:  "respond result is the structured response",
 			line:  `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[],"details":{"a":1},"terminate":true},"isError":false}`,
-			kinds: []harness.EventKind{harness.EventToolResult, harness.EventStructured}, tool: "respond",
+			kinds: []harness.EventKind{harness.EventStructured},
 		},
 		{
-			name:  "a failed respond call is no structured response",
-			line:  `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[]},"isError":true}`,
-			kinds: []harness.EventKind{harness.EventToolResult}, tool: "respond",
+			name:  "a failed respond call is a rejected structured response",
+			line:  `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[{"type":"text","text":"must have required property 'city'"}]},"isError":true}`,
+			kinds: []harness.EventKind{harness.EventStructuredRejected}, err: "pi: respond: must have required property 'city'",
+		},
+		{
+			name:  "respond's call is not a tool event",
+			line:  `{"type":"tool_execution_start","toolCallId":"r","toolName":"respond","args":{"a":1}}`,
+			kinds: []harness.EventKind{harness.EventHarness},
 		},
 		{
 			name:  "extension error",
@@ -137,7 +142,7 @@ func TestUsageCountsTheCache(t *testing.T) {
 func TestStructuredResponse(t *testing.T) {
 	line := `{"type":"tool_execution_end","toolCallId":"r","toolName":"respond","result":{"content":[],"details":{"a":1}},"isError":false}`
 	r, _ := decode([]byte(line))
-	ev := normalize(r, []byte(line))[1]
+	ev := normalize(r, []byte(line))[0]
 	if string(ev.Structured) != `{"a":1}` {
 		t.Fatalf("Structured = %s", ev.Structured)
 	}

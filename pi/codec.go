@@ -123,15 +123,20 @@ func normalize(r record, raw []byte) []harness.Event {
 			ev.Kind, ev.Text = harness.EventThinkingDelta, r.AssistantMessageEvent.Delta
 		}
 	case "tool_execution_start":
+		// respond is how the driver gets a structured response, not a tool of the session's:
+		// its call surfaces only as its outcome.
+		if r.ToolName == respondTool {
+			break
+		}
 		ev.Kind = harness.EventToolCall
 		ev.Tool = &harness.ToolEvent{CallID: r.ToolCallID, Name: r.ToolName, Args: r.Args}
 	case "tool_execution_end":
+		if r.ToolName == respondTool {
+			return []harness.Event{structured(r.Result, r.IsError, raw)}
+		}
 		ev.Kind = harness.EventToolResult
 		ev.Tool = &harness.ToolEvent{
 			CallID: r.ToolCallID, Name: r.ToolName, Result: r.Result, IsError: r.IsError,
-		}
-		if r.ToolName == respondTool && !r.IsError {
-			return []harness.Event{ev, structured(r.Result, raw)}
 		}
 	case "extension_error":
 		ev.Kind, ev.Err = harness.EventError, extensionError(raw)
@@ -167,12 +172,21 @@ func messageEnd(m *message, raw []byte) []harness.Event {
 	return events
 }
 
-// structured is the respond tool's result as an EventStructured: the bridge returns the
-// arguments the model called respond with, which Pi validated against the exchange's schema,
-// as the result's details.
-func structured(result json.RawMessage, raw []byte) harness.Event {
+// structured is the respond tool's outcome. A successful call is an EventStructured: the
+// bridge returns the arguments the model called respond with, which Pi validated against the
+// exchange's schema, as the result's details. A failed call, whose arguments Pi rejected and
+// returned to the model, is an EventStructuredRejected with Pi's reason.
+func structured(result json.RawMessage, failed bool, raw []byte) harness.Event {
 	var r toolResult
-	if err := json.Unmarshal(result, &r); err != nil || len(r.Details) == 0 {
+	err := json.Unmarshal(result, &r)
+	if failed {
+		reason := messageText(r.Content)
+		if reason == "" {
+			reason = string(result)
+		}
+		return harness.Event{Kind: harness.EventStructuredRejected, Err: errors.New("pi: respond: " + reason), Raw: raw}
+	}
+	if err != nil || len(r.Details) == 0 {
 		// Still the exchange's missing structured response, so errors.Is matches it.
 		return harness.Event{Kind: harness.EventError, Err: fmt.Errorf("%w: pi: respond returned no details in %s", harness.ErrNoStructuredResponse, result), Raw: raw}
 	}

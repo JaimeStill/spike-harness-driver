@@ -18,12 +18,6 @@ const (
 	// asked for plain text instead contradicted the instruction the harness adds for a schema,
 	// and gpt-oss on llama.cpp then failed about half its runs with a malformed tool call.
 	greetingPrompt = "Provide the following greeting directly as a structured response: say hello."
-
-	// respondTool is the tool the Pi adapter's bridge offers for an exchange with a schema;
-	// its validated arguments are the structured response. The harness surface has no
-	// harness-neutral signal for a failed validation, so the narration counts respond's failed
-	// calls by name, which holds while Pi is the only adapter.
-	respondTool = "respond"
 )
 
 // capitalSchema, colorsSchema, and greetingSchema are the structured scenario's response
@@ -92,7 +86,7 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 				{
 					Intent: "Ask for a capital as {city, country}, and decode the response into a Go struct",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						rep.Note("the harness validates respond's arguments against the schema, so a failed call goes back to the model")
+						rep.Note("the response is validated against the schema, and a response that fails goes back to the model")
 						var v capital
 						if err := ask(ctx, rep, capitalPrompt, capitalSchema, &v); err != nil {
 							return err
@@ -164,16 +158,16 @@ func decode(structured json.RawMessage, v any) error {
 	return nil
 }
 
-// noteRetries notes how many times the run's last exchange called respond with arguments that
-// failed validation, each of which the harness returned to the model as a failed tool call.
+// noteRetries notes how many structured responses the run's last exchange offered that failed
+// validation against the schema, each of which the harness returned to the model to try again.
 func (r *run) noteRetries(rep *Reporter) {
 	n := 0
 	for _, ev := range r.events {
-		if ev.Kind == harness.EventToolResult && ev.Tool != nil && ev.Tool.Name == respondTool && ev.Tool.IsError {
+		if ev.Kind == harness.EventStructuredRejected {
 			n++
 		}
 	}
 	if n > 0 {
-		rep.Note("respond failed validation %d time(s); the model retried", n)
+		rep.Note("the structured response failed validation %d time(s); the model retried", n)
 	}
 }
