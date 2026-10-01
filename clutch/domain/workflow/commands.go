@@ -132,17 +132,15 @@ func listCommand(svc *Service, out *output.Output) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The runs that can be read print even when another's log can't, which is the error.
 			states, err := r.Runs(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if len(states) == 0 {
+			if len(states) == 0 && err == nil {
 				out.Printf("no runs")
 			}
 			for _, s := range states {
 				out.Printf("%s  %-9s %d/%d  %s  %s", s.RunID, s.Status, s.Done(), len(s.Workflow.Steps), s.Started.Local().Format(time.DateTime), s.Workflow.Name)
 			}
-			return nil
+			return err
 		},
 	}
 }

@@ -13,7 +13,8 @@ The Containerfile has two build targets, which differ in how they install Pi:
 - **`standalone`**, the default, uses Pi's standalone release: one executable with its runtime
   bundled, and its assets beside it. The download is checked against the SHA-256 from the
   release's `SHA256SUMS`, so moving the pin means changing `PI_VERSION` and `PI_SHA256`
-  together.
+  together. The base images are pinned by index digest as well as tag, in the
+  `*_IMAGE` arguments.
 - **`node`** (`--target node`) installs Pi from npm on `node:22-slim`. It exists to compare
   footprints.
 
@@ -41,6 +42,11 @@ curl -N localhost:8080/runs/<id>/events
   (`context/findings.md`, Deployment).
 - **Stopping.** `docker stop` sends SIGTERM, which `tini` passes to `clutch`. `clutch` stops its
   runs without ending them, closes the event streams, and exits, and the next start resumes the
-  runs.
+  runs. `clutch` allows itself 30 seconds for that, and Docker's default grace is 10, so stop it
+  with `docker stop -t 35` (or `--stop-timeout 35` on `docker run`). A container killed sooner
+  still resumes its runs; it only loses the clean stop.
+- **One state directory, one process.** The run log refuses an event out of sequence, so a second
+  process driving the same run fails rather than corrupting the log, but nothing coordinates two
+  processes. Give each container its own volume.
 - **`tini`** reaps any process a harness leaves behind. The driver kills each harness's process
   group, but if the driver itself is killed, nothing does.

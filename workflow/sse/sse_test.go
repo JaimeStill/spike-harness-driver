@@ -213,6 +213,8 @@ func TestStreamErrors(t *testing.T) {
 		"bad header":      {id, "/events", map[string]string{"Last-Event-ID": "x"}, http.StatusBadRequest},
 		"bad query":       {id, "/events?after=abc", nil, http.StatusBadRequest},
 		"negative cursor": {id, "/events?after=-1", nil, http.StatusBadRequest},
+		// An ended run with nothing after the cursor tells an EventSource to stop reconnecting.
+		"ended and caught up": {id, "/events?after=999", nil, http.StatusNoContent},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := get(t, r, c.run, c.target, c.header)

@@ -21,7 +21,10 @@ type script struct {
 	structured json.RawMessage
 	// gate, when set, holds the run until it closes or the run is cancelled.
 	gate chan struct{}
-	err  error
+	// slowCancel, when set, holds a cancellation's end until it closes, as a harness's cancel
+	// round trips do.
+	slowCancel chan struct{}
+	err        error
 }
 
 // fakeHarness opens sessions over scripted connections, keeps their exchange records, and
@@ -118,6 +121,12 @@ func (c *fakeConn) run(req harness.Request, s script, cancel chan struct{}) {
 		select {
 		case <-s.gate:
 		case <-cancel:
+			if s.slowCancel != nil {
+				select {
+				case <-s.slowCancel:
+				case <-c.done:
+				}
+			}
 			ended(harness.Event{Kind: harness.EventMessageEnd, StopReason: "aborted"}, harness.Event{Kind: harness.EventCancelled, StopReason: "aborted"})
 			return
 		case <-c.done:
@@ -540,5 +549,160 @@ func TestSubscribe(t *testing.T) {
 	}
 	if _, err := r.Subscribe(ctx, "nope", 0); !errors.Is(err, workflow.ErrUnknownRun) {
 		t.Errorf("unknown run: err = %v", err)
+	}
+}
+
+// chain is two steps, b after a, on two sessions.
+func chain() workflow.Workflow {
+	return workflow.Workflow{
+		Name:     "chain",
+		Sessions: []workflow.SessionSpec{{Name: "a"}, {Name: "b"}},
+		Steps: []workflow.Step{
+			{ID: "a", Session: "a", Prompt: "a"},
+			{ID: "b", Session: "b", After: []string{"a"}, Prompt: "b"},
+		},
+	}
+}
+
+// seed writes a log of events for run id into store, numbering them from 1.
+func seed(store *logStore, id string, events ...workflow.Event) {
+	for i, e := range events {
+		e.RunID, e.Seq = id, i+1
+		_ = store.Append(context.Background(), e)
+	}
+}
+
+func TestResumeEndsADecidedRun(t *testing.T) {
+	w := chain()
+	tests := []struct {
+		status workflow.Status
+		want   workflow.Status
+	}{
+		{workflow.StatusFailed, workflow.StatusFailed},
+		{workflow.StatusCancelled, workflow.StatusCancelled},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			store := newLogStore()
+			seed(store, "r",
+				workflow.Event{Kind: workflow.KindRunStarted, Workflow: &w},
+				workflow.Event{Kind: workflow.KindStepEnded, Step: "a", Status: tt.status, Err: "boom"},
+			)
+			h := newFakeHarness(func(harness.Request) script { return script{} })
+			r := workflow.NewRunner(h.open, store, 0)
+			if err := r.Resume(context.Background(), "r"); err != nil {
+				t.Fatal(err)
+			}
+			if s := wait(t, r, "r"); s.Status != tt.want {
+				t.Fatalf("status %s, want %s", s.Status, tt.want)
+			}
+			if n := h.count(""); n != 0 {
+				t.Errorf("%d prompts sent for a decided run", n)
+			}
+		})
+	}
+}
+
+func TestShutdownDuringTheFailureDrain(t *testing.T) {
+	slow := make(chan struct{})
+	h := newFakeHarness(func(req harness.Request) script {
+		if req.Text == "Review it." {
+			return script{err: errors.New("provider exploded")}
+		}
+		return script{gate: make(chan struct{}), slowCancel: slow}
+	})
+	store := newLogStore()
+	r := workflow.NewRunner(h.open, store, 0)
+	id, err := r.Start(context.Background(), load(t, review))
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, r, id, func(e workflow.Event) bool { return e.Kind == workflow.KindStepEnded && e.Step == "ra" })
+	// rb's cancellation is still in flight when the runner shuts down.
+	stopped := make(chan error, 1)
+	go func() { stopped <- r.Shutdown(context.Background()) }()
+	time.Sleep(20 * time.Millisecond)
+	close(slow)
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	kinds := store.kinds(id)
+	if kinds[len(kinds)-1] != workflow.KindRunEnded {
+		t.Fatalf("log = %v", kinds)
+	}
+	s, _ := workflow.Fold(store.logs[id])
+	if s.Status != workflow.StatusFailed {
+		t.Errorf("status %s", s.Status)
+	}
+	if err := r.Cancel(context.Background(), id); !errors.Is(err, workflow.ErrRunEnded) {
+		t.Errorf("Cancel after the end: %v", err)
+	}
+}
+
+func TestCancelAfterShutdown(t *testing.T) {
+	slow := make(chan struct{})
+	h := newFakeHarness(func(harness.Request) script { return script{gate: make(chan struct{}), slowCancel: slow} })
+	r := workflow.NewRunner(h.open, newLogStore(), 0)
+	id, err := r.Start(context.Background(), load(t, parallel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, r, id, started("d"))
+	stopped := make(chan error, 1)
+	go func() { stopped <- r.Shutdown(context.Background()) }()
+	time.Sleep(20 * time.Millisecond)
+	if err := r.Cancel(context.Background(), id); !errors.Is(err, workflow.ErrShutdown) {
+		t.Errorf("Cancel during Shutdown: %v", err)
+	}
+	close(slow)
+	<-stopped
+	if _, err := r.Start(context.Background(), load(t, parallel)); !errors.Is(err, workflow.ErrShutdown) {
+		t.Errorf("Start after Shutdown: %v", err)
+	}
+}
+
+func TestRunsSkipsABadLog(t *testing.T) {
+	w := chain()
+	store := newLogStore()
+	seed(store, "good", workflow.Event{Kind: workflow.KindRunStarted, Workflow: &w})
+	seed(store, "bad", workflow.Event{Kind: workflow.KindRunResumed})
+	r := workflow.NewRunner(newFakeHarness(nil).open, store, 0)
+	states, err := r.Runs(context.Background())
+	if len(states) != 1 || states[0].RunID != "good" {
+		t.Errorf("states = %+v", states)
+	}
+	if err == nil || !strings.Contains(err.Error(), "run bad") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestConcurrentResumes(t *testing.T) {
+	w := chain()
+	store := newLogStore()
+	seed(store, "r", workflow.Event{Kind: workflow.KindRunStarted, Workflow: &w})
+	h := newFakeHarness(func(harness.Request) script { return script{} })
+	r := workflow.NewRunner(h.open, store, 0)
+	errs := make(chan error, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() { errs <- r.Resume(context.Background(), "r") })
+	}
+	wg.Wait()
+	close(errs)
+	ok := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, workflow.ErrRunActive), errors.Is(err, workflow.ErrRunEnded):
+		default:
+			t.Errorf("Resume: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Errorf("%d Resumes took the run up", ok)
+	}
+	if s := wait(t, r, "r"); s.Status != workflow.StatusDone || h.count("a") != 1 {
+		t.Errorf("status %s, a sent %d times", s.Status, h.count("a"))
 	}
 }

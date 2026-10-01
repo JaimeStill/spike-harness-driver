@@ -138,9 +138,24 @@ func TestHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var states []workflow.State
-	if err := json.NewDecoder(resp.Body).Decode(&states); err != nil || len(states) != 2 {
-		t.Errorf("GET /runs: %v, %d runs", err, len(states))
+	var listing struct {
+		Runs   []workflow.State
+		Errors []string
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil || len(listing.Runs) != 2 || listing.Errors != nil {
+		t.Errorf("GET /runs: %v, %+v", err, listing)
+	}
+	// A run ID that can't name a log is an unknown run, and an ended run's caught-up stream is
+	// 204, so an EventSource stops reconnecting.
+	if code := do(t, http.MethodGet, srv.URL+"/runs/..%2Fescape"); code != http.StatusNotFound {
+		t.Errorf("GET an invalid run ID: %d", code)
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/runs/"+id+"/events", nil)
+	req.Header.Set("Last-Event-ID", fmt.Sprint(got[len(got)-1].Seq))
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusNoContent {
+		t.Errorf("a caught-up stream of an ended run: %v, %v", err, resp)
+	} else {
+		_ = resp.Body.Close()
 	}
 }
 

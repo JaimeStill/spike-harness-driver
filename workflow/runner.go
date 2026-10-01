@@ -35,7 +35,8 @@ type Opener func(ctx context.Context, spec SessionSpec, sessionID string) (*harn
 // Store keeps each run's log.
 type Store interface {
 	// Append adds e to its run's log. The Runner numbers a run's events itself and appends them
-	// one at a time, in order.
+	// one at a time, in order. Append should fail for an event whose Seq doesn't follow the
+	// log's last, which is how a second process driving the same run is caught.
 	Append(ctx context.Context, e Event) error
 	// Events returns the run's logged events with a Seq above after, in order, and none for a
 	// run it has no log of.
@@ -62,10 +63,13 @@ type Runner struct {
 
 	ctx      context.Context
 	shutdown context.CancelCauseFunc
-	wg       sync.WaitGroup
+	// wg counts the runs' loops. Each is added under mu while closed is false, so no Add races
+	// Shutdown's Wait.
+	wg sync.WaitGroup
 
-	mu   sync.Mutex
-	runs map[string]*run
+	mu     sync.Mutex
+	runs   map[string]*run
+	closed bool
 }
 
 // NewRunner returns a Runner that opens sessions with open and logs runs in store. limit bounds
@@ -85,10 +89,10 @@ func (r *Runner) Start(ctx context.Context, w Workflow) (string, error) {
 	if err := w.Validate(); err != nil {
 		return "", err
 	}
-	if err := r.ctx.Err(); err != nil {
-		return "", context.Cause(r.ctx)
+	rn, err := r.newRun(uuid.NewV7().String(), State{})
+	if err != nil {
+		return "", err
 	}
-	rn := r.newRun(uuid.NewV7().String(), State{})
 	if err := rn.log(Event{Kind: KindRunStarted, Workflow: &w}); err != nil {
 		r.drop(rn)
 		return "", err
@@ -101,10 +105,11 @@ func (r *Runner) Start(ctx context.Context, w Workflow) (string, error) {
 // their results. Each session reopens under the harness session ID the log recorded, and a step
 // that started but has no end is adopted from the session's exchange records when its exchange
 // ended, and runs again otherwise. A paused run stays paused until its log's Until.
+//
+// A log that records a failed or cancelled step but no end, as when a Shutdown or a crash
+// landed while the run was ending, ends the same way once its steps in flight are settled: the
+// outcome was decided before the runner stopped.
 func (r *Runner) Resume(ctx context.Context, id string) error {
-	if err := r.ctx.Err(); err != nil {
-		return context.Cause(r.ctx)
-	}
 	r.mu.Lock()
 	_, active := r.runs[id]
 	r.mu.Unlock()
@@ -118,7 +123,11 @@ func (r *Runner) Resume(ctx context.Context, id string) error {
 	if s.Status.Ended() {
 		return fmt.Errorf("%w: %s", ErrRunEnded, id)
 	}
-	rn := r.newRun(id, s)
+	rn, err := r.newRun(id, s)
+	if err != nil {
+		return err
+	}
+	rn.settle()
 	if s.Status != StatusPaused {
 		if err := rn.log(Event{Kind: KindRunResumed}); err != nil {
 			r.drop(rn)
@@ -159,6 +168,11 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 	r.mu.Unlock()
 	if rn != nil {
 		rn.cancel(ErrCancelled)
+		// A run already stopping for another reason, a Shutdown, isn't cancelled by this: the
+		// next runner resumes it.
+		if cause := context.Cause(rn.ctx); !errors.Is(cause, ErrCancelled) {
+			return cause
+		}
 		return nil
 	}
 	s, err := r.fold(ctx, id)
@@ -185,7 +199,8 @@ func (r *Runner) State(ctx context.Context, id string) (State, error) {
 	return r.fold(ctx, id)
 }
 
-// Runs returns the state of every run the Store holds, oldest first.
+// Runs returns the state of every run the Store holds, oldest first. A run whose log can't be
+// read or folded is left out, and the error names it, so one bad log doesn't hide the others.
 func (r *Runner) Runs(ctx context.Context) ([]State, error) {
 	ids, err := r.store.Runs(ctx)
 	if err != nil {
@@ -193,14 +208,16 @@ func (r *Runner) Runs(ctx context.Context) ([]State, error) {
 	}
 	slices.Sort(ids)
 	states := make([]State, 0, len(ids))
+	var errs []error
 	for _, id := range ids {
 		s, err := r.State(ctx, id)
 		if err != nil {
-			return nil, err
+			errs = append(errs, fmt.Errorf("run %s: %w", id, err))
+			continue
 		}
 		states = append(states, s)
 	}
-	return states, nil
+	return states, errors.Join(errs...)
 }
 
 // Wait blocks until the Runner stops running the run, and returns its state then: ended, or
@@ -265,6 +282,9 @@ func (r *Runner) Subscribe(ctx context.Context, id string, after int) (<-chan Ev
 // resumes them, and waits until their goroutines have closed their sessions or ctx is done. The
 // Runner starts nothing afterwards.
 func (r *Runner) Shutdown(ctx context.Context) error {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
 	r.shutdown(ErrShutdown)
 	done := make(chan struct{})
 	go func() {
@@ -319,7 +339,7 @@ func (r *Runner) release() {
 	}
 }
 
-func (r *Runner) newRun(id string, s State) *run {
+func (r *Runner) newRun(id string, s State) (*run, error) {
 	ctx, cancel := context.WithCancelCause(r.ctx)
 	steps, stop := context.WithCancel(ctx)
 	rn := &run{
@@ -331,27 +351,45 @@ func (r *Runner) newRun(id string, s State) *run {
 		wake:     make(chan struct{}, 1),
 		done:     make(chan struct{}),
 	}
+	// Checked and registered under one hold of mu, so two Resumes of one run can't both pass,
+	// and counted in wg before Shutdown can Wait.
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch {
+	case r.closed:
+		cancel(nil)
+		return nil, ErrShutdown
+	case r.runs[id] != nil:
+		cancel(nil)
+		return nil, fmt.Errorf("%w: %s", ErrRunActive, id)
+	}
 	r.runs[id] = rn
-	r.mu.Unlock()
-	return rn
+	r.wg.Add(1)
+	return rn, nil
 }
 
 func (r *Runner) launch(rn *run) {
-	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
 		rn.loop()
 	}()
 }
 
-// drop forgets a run that never launched.
+// drop forgets a run that never launched, closing any subscriber that attached meanwhile.
 func (r *Runner) drop(rn *run) {
 	rn.cancel(nil)
+	rn.mu.Lock()
+	rn.finished = true
+	for _, q := range rn.subs {
+		q.close()
+	}
+	rn.subs = nil
+	rn.mu.Unlock()
 	r.mu.Lock()
 	delete(r.runs, rn.id)
 	r.mu.Unlock()
 	close(rn.done)
+	r.wg.Done()
 }
 
 // run is one run the Runner is running.
@@ -407,6 +445,8 @@ func (rn *run) log(e Event) error {
 		return err
 	}
 	rn.state = next
+	// A subscriber that went away leaves its queue behind; this is where it is dropped.
+	rn.subs = slices.DeleteFunc(rn.subs, (*queue).gone)
 	for _, q := range rn.subs {
 		q.push(e)
 	}
@@ -435,6 +475,24 @@ func (rn *run) live(e Event) {
 // log that failed.
 func (rn *run) interrupted() bool {
 	return rn.ctx.Err() != nil && !errors.Is(context.Cause(rn.ctx), ErrCancelled)
+}
+
+// settle takes the outcome a resumed run's log already decided: a failed step fails the run,
+// and a cancelled step cancels it, once its steps in flight have ended.
+func (rn *run) settle() {
+	for _, st := range rn.state.Workflow.Steps {
+		switch s := rn.state.Steps[st.ID]; s.Status {
+		case StatusFailed:
+			if rn.failure == nil {
+				rn.failure = fmt.Errorf("step %q: %s", st.ID, s.Err)
+			}
+		case StatusCancelled:
+			rn.cancel(ErrCancelled)
+		}
+	}
+	if rn.failure != nil {
+		rn.stop()
+	}
 }
 
 // signal wakes the loop.
@@ -476,7 +534,15 @@ func (rn *run) loop() {
 				continue
 			}
 		} else {
-			for _, st := range rn.ready() {
+			ready := rn.ready()
+			if len(ready) == 0 && len(rn.inflight) == 0 {
+				// Nothing runs and nothing can start, yet the run isn't done: without this, the
+				// loop would wait for a wake that never comes.
+				rn.failure = errors.New("workflow: no step can start")
+				rn.mu.Unlock()
+				continue
+			}
+			for _, st := range ready {
 				if !rn.r.tryAcquire() {
 					break
 				}
@@ -495,9 +561,11 @@ func (rn *run) loop() {
 	failure := rn.failure
 	rn.mu.Unlock()
 	switch {
-	case rn.interrupted():
 	case failure != nil:
+		// The failure was decided before any Shutdown, so the run ends even when interrupted;
+		// only a log that can't be appended to keeps it from ending.
 		_ = rn.log(Event{Kind: KindRunEnded, Status: StatusFailed, Err: failure.Error()})
+	case rn.interrupted():
 	default:
 		_ = rn.log(Event{Kind: KindRunEnded, Status: StatusCancelled})
 	}
@@ -608,7 +676,9 @@ func (rn *run) adopt(ctx context.Context, sess *harness.Session, st Step, id uui
 		return false, err
 	}
 	i := slices.IndexFunc(recs, func(rec harness.Record) bool { return rec.ExchangeID == id })
-	if i < 0 || recs[i].Err != "" || recs[i].Result.StopReason == "aborted" {
+	// A stop reason is what tells a finished run from one that ended without a final message,
+	// as a cancellation can, so an exchange without one runs again.
+	if i < 0 || recs[i].Err != "" || recs[i].Result.StopReason == "" || recs[i].Result.StopReason == "aborted" {
 		return false, nil
 	}
 	res := recs[i].Result
@@ -681,11 +751,11 @@ func (rn *run) end(ctx context.Context, st Step, id uuid.UUID, res *harness.Resu
 }
 
 // release frees the step's session and wakes the loop. A session none of whose steps is left
-// to run closes, which ends its harness process.
+// to run closes, which ends its harness process, before the step leaves inflight: the loop
+// finishes only once inflight is empty, so Shutdown and Wait never return ahead of a closing
+// harness.
 func (rn *run) release(st Step) {
 	rn.mu.Lock()
-	delete(rn.inflight, st.ID)
-	delete(rn.busy, st.Session)
 	var idle *harness.Session
 	if !slices.ContainsFunc(rn.state.Workflow.Steps, func(s Step) bool {
 		return s.Session == st.Session && rn.state.Steps[s.ID].Status != StatusDone
@@ -697,5 +767,9 @@ func (rn *run) release(st Step) {
 	if idle != nil {
 		_ = idle.Close()
 	}
+	rn.mu.Lock()
+	delete(rn.inflight, st.ID)
+	delete(rn.busy, st.Session)
+	rn.mu.Unlock()
 	rn.signal()
 }

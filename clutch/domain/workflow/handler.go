@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/JaimeStill/spike-harness-driver/workflow"
+	"github.com/JaimeStill/spike-harness-driver/workflow/filestore"
 	"github.com/JaimeStill/spike-harness-driver/workflow/sse"
 )
 
@@ -15,7 +17,8 @@ const maxWorkflow = 1 << 20
 // Handler serves the runner's runs over HTTP:
 //
 //	POST   /runs              start a run of the workflow in the body; 201 with {"id": ...}
-//	GET    /runs              every run's state, oldest first
+//	GET    /runs              every run's state, oldest first, and the runs whose logs can't
+//	                          be read: {"runs": [...], "errors": [...]}
 //	GET    /runs/{id}         one run's state
 //	GET    /runs/{id}/events  the run's events as Server-Sent Events, after Last-Event-ID
 //	DELETE /runs/{id}         cancel the run; 202
@@ -39,12 +42,16 @@ func Handler(r *workflow.Runner, opts sse.Options) http.Handler {
 		reply(w, http.StatusCreated, map[string]string{"id": id})
 	})
 	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, req *http.Request) {
+		// A log that can't be read is reported beside the others, not in place of them.
 		states, err := r.Runs(req.Context())
+		listing := struct {
+			Runs   []workflow.State `json:"runs"`
+			Errors []string         `json:"errors,omitempty"`
+		}{Runs: states}
 		if err != nil {
-			fail(w, err)
-			return
+			listing.Errors = strings.Split(err.Error(), "\n")
 		}
-		reply(w, http.StatusOK, states)
+		reply(w, http.StatusOK, listing)
 	})
 	mux.HandleFunc("GET /runs/{id}", func(w http.ResponseWriter, req *http.Request) {
 		s, err := r.State(req.Context(), req.PathValue("id"))
@@ -73,7 +80,7 @@ func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, workflow.ErrUnknownRun):
 		status = http.StatusNotFound
-	case errors.Is(err, workflow.ErrRunEnded):
+	case errors.Is(err, workflow.ErrRunEnded), errors.Is(err, workflow.ErrRunActive), errors.Is(err, filestore.ErrSequence):
 		status = http.StatusConflict
 	case errors.Is(err, workflow.ErrInvalid):
 		status = http.StatusBadRequest

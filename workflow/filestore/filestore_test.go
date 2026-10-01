@@ -1,6 +1,8 @@
 package filestore_test
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -109,8 +111,9 @@ func TestInvalidRunIDs(t *testing.T) {
 		if err := s.Append(t.Context(), event(id, 1, workflow.KindRunStarted)); err == nil {
 			t.Errorf("Append(%q) succeeded", id)
 		}
-		if _, err := s.Events(t.Context(), id, 0); err == nil {
-			t.Errorf("Events(%q) succeeded", id)
+		// A run ID that can't name a file names no run.
+		if got, err := s.Events(t.Context(), id, 0); got != nil || err != nil {
+			t.Errorf("Events(%q) = %v, %v", id, got, err)
 		}
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
@@ -195,17 +198,62 @@ func TestACorruptMiddleLineIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = f.Close()
-	appendAll(t, s, evs[1])
 
 	if _, err := s.Events(t.Context(), "r1", 0); err == nil {
-		t.Error("Events with a corrupt middle line succeeded")
+		t.Error("Events with a corrupt final line that ends in a newline succeeded")
 	}
+	// Append reads the last event's Seq, so it refuses to append after a corrupt one.
+	if err := s.Append(t.Context(), evs[1]); err == nil {
+		t.Error("Append after a corrupt line succeeded")
+	}
+}
 
-	// A corrupt final line that ends in a newline is not a torn write, so it is an error too.
-	f, _ = os.OpenFile(filepath.Join(dir, "r2.jsonl"), os.O_WRONLY|os.O_CREATE, 0o600)
-	_, _ = f.WriteString("not json\n")
+func TestACompleteEventWithoutItsNewlineIsKept(t *testing.T) {
+	dir := t.TempDir()
+	s := filestore.New(dir)
+	evs := events("r1")
+	appendAll(t, s, evs[0])
+	line, err := json.Marshal(evs[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "r1.jsonl"), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(line); err != nil {
+		t.Fatal(err)
+	}
 	_ = f.Close()
-	if _, err := s.Events(t.Context(), "r2", 0); err == nil {
-		t.Error("Events with a corrupt terminated final line succeeded")
+
+	got, err := s.Events(t.Context(), "r1", 0)
+	if err != nil || !reflect.DeepEqual(got, evs[:2]) {
+		t.Fatalf("Events = %+v, %v; want the first two", got, err)
+	}
+	// The next Append follows that event rather than cutting it.
+	appendAll(t, s, evs[2])
+	got, err = s.Events(t.Context(), "r1", 0)
+	if err != nil || !reflect.DeepEqual(got, evs) {
+		t.Errorf("Events = %+v, %v; want all three", got, err)
+	}
+}
+
+func TestAnEventOutOfSequenceIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	evs := events("r1")
+	appendAll(t, filestore.New(dir), evs[:2]...)
+	// A second process, folded from the same two events, appends event 3; the first, which
+	// also holds two, then tries its own event 3.
+	appendAll(t, filestore.New(dir), evs[2])
+	err := filestore.New(dir).Append(t.Context(), evs[2])
+	if !errors.Is(err, filestore.ErrSequence) {
+		t.Fatalf("a duplicate Seq: err = %v", err)
+	}
+	if err := filestore.New(dir).Append(t.Context(), event("r2", 2, workflow.KindRunResumed)); !errors.Is(err, filestore.ErrSequence) {
+		t.Errorf("a first event that isn't Seq 1: err = %v", err)
+	}
+	got, _ := filestore.New(dir).Events(t.Context(), "r1", 0)
+	if !reflect.DeepEqual(got, evs) {
+		t.Errorf("Events = %+v", got)
 	}
 }

@@ -34,6 +34,14 @@ func (q *queue) push(events ...Event) {
 	q.wake()
 }
 
+// gone reports whether the queue has stopped delivering, because its subscriber's context
+// ended or it was closed and drained.
+func (q *queue) gone() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed && len(q.items) == 0
+}
+
 // close ends the queue once what it holds is delivered.
 func (q *queue) close() {
 	q.mu.Lock()

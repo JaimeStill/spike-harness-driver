@@ -29,11 +29,28 @@ type Options struct {
 //
 // Stream reports errors as plain-text HTTP errors, which is possible only before the stream
 // starts: a bad cursor is a 400, an unknown run a 404, and any other error from the runner a
-// 500.
+// 500. A run that has ended, with nothing after the cursor, answers 204 No Content.
 func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, runID string, opts Options) {
 	after, err := cursor(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// An ended run with nothing after the cursor answers 204: an EventSource reconnects after
+	// any stream that closes, and a status other than 200 is what tells it to stop. A run that
+	// hasn't ended still streams, even when no runner is running it, so a client keeps
+	// reconnecting until a restarted runner resumes it.
+	s, err := runner.State(r.Context(), runID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, workflow.ErrUnknownRun) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if s.Status.Ended() && after >= s.Seq {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	events, err := runner.Subscribe(r.Context(), runID, after)
