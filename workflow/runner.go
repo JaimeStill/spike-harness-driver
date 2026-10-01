@@ -290,22 +290,31 @@ func (r *Runner) fold(ctx context.Context, id string) (State, error) {
 	return Fold(events)
 }
 
-// acquire takes a slot for an exchange, waiting while the limit is reached.
-func (r *Runner) acquire(ctx context.Context) error {
+// tryAcquire takes a slot for an exchange if one is free. A run's loop takes the slot before it
+// launches a step, so its steps start in declaration order and none opens a session while it
+// would only wait for a slot.
+func (r *Runner) tryAcquire() bool {
 	if r.slots == nil {
-		return nil
+		return true
 	}
 	select {
 	case r.slots <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+		return true
+	default:
+		return false
 	}
 }
 
+// release frees a slot and wakes every run, since any of them may have a step waiting for one.
 func (r *Runner) release() {
-	if r.slots != nil {
-		<-r.slots
+	if r.slots == nil {
+		return
+	}
+	<-r.slots
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rn := range r.runs {
+		rn.signal()
 	}
 }
 
@@ -467,6 +476,9 @@ func (rn *run) loop() {
 			}
 		} else {
 			for _, st := range rn.ready() {
+				if !rn.r.tryAcquire() {
+					break
+				}
 				rn.inflight[st.ID], rn.busy[st.Session] = true, true
 				go rn.step(st)
 			}
@@ -542,16 +554,12 @@ func (rn *run) finish() {
 	close(rn.done)
 }
 
-// step runs one step: it takes a slot, opens the step's session if it isn't open, and either
-// adopts the step's exchange from the session's records or sends its prompt and follows the
-// exchange to its end.
+// step runs one step in the slot the loop took for it: it opens the step's session if it isn't
+// open, and either adopts the step's exchange from the session's records or sends its prompt
+// and follows the exchange to its end.
 func (rn *run) step(st Step) {
 	ctx := rn.steps
 	defer rn.release(st)
-	if err := rn.r.acquire(ctx); err != nil {
-		rn.end(ctx, st, uuid.Nil(), nil, err)
-		return
-	}
 	defer rn.r.release()
 	sess, err := rn.session(ctx, st.Session)
 	if err != nil {

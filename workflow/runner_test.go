@@ -330,6 +330,10 @@ func TestRunLimit(t *testing.T) {
 	if n := h.count(""); n != 2 {
 		t.Fatalf("%d prompts in flight under a limit of 2", n)
 	}
+	// The slots go to the steps in declaration order.
+	if h.count("a") != 1 || h.count("b") != 1 || len(h.opened) != 2 {
+		t.Errorf("prompts %q, opened %v", h.prompts, h.opened)
+	}
 	close(gate)
 	if s := wait(t, r, id); s.Status != workflow.StatusDone {
 		t.Fatalf("status %s", s.Status)
