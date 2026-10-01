@@ -2,5 +2,5 @@
 
 package cache
 
-// private checks nothing where Unix ownership and permissions don't apply.
-func private(string) error { return nil }
+// Private checks nothing where Unix ownership and permissions don't apply.
+func Private(string) error { return nil }

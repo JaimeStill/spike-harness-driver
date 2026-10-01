@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/claude"
 	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
@@ -61,11 +62,18 @@ func init() {
 					// Pi takes a provider beyond its built-in ones from the models.json in its agent
 					// directory, which then stands in for the user's ~/.pi/agent. Its key is the
 					// az command, which Pi runs for each request, so the token never goes stale.
+					// The models are the session's and, when it differs, the harness vision model,
+					// so either is selectable; every model clutch runs on Azure takes images and
+					// reasons.
+					models := []pi.Model{{ID: i.Options().Model, Image: true, Reasoning: true}}
+					if vision := i.harnessVision(); vision != models[0].ID {
+						models = append(models, pi.Model{ID: vision, Image: true, Reasoning: true})
+					}
 					d.AgentDir = filepath.Join(i.cfg.State, "pi-agent")
 					d.Providers = map[string]pi.Provider{providerAzure: {
 						BaseURL: os.Getenv("AZURE_OPENAI_BASE_URL"),
 						APIKey:  "!az account get-access-token --resource " + i.cfg.AzureScope + " --query accessToken -o tsv",
-						Models:  []pi.Model{{ID: i.Options().Model, Image: true, Reasoning: true}},
+						Models:  models,
 					}}
 				}
 				return d, nil
@@ -111,15 +119,22 @@ func init() {
 	}
 }
 
+// azTokenTimeout bounds fetching the Entra ID token an OpenCode session on Azure starts with.
+// The fetch runs az, which reaches Entra ID over the network, before any harness starts and
+// under no context of the command's, so an unreachable network would otherwise hang clutch
+// with nothing on screen. az answers in seconds when it can answer at all.
+const azTokenTimeout = 30 * time.Second
+
 // openCodeProviders are the endpoints an OpenCode session runs on, which the driver writes
 // into OpenCode's configuration. The router's are the harness vision model, listed as taking
 // images, and the session's model, which the driver lists as text only when it isn't the
 // vision model, so OpenCode sees what each model takes.
 //
 // On the azure provider, OpenCode talks to Azure's v1 API through @ai-sdk/openai: the
-// OpenAI-compatible package sends max_tokens, which Azure's reasoning models reject. Its key is
-// an Entra ID token, fetched once here: OpenCode's configuration takes no command, so a session
-// that outlives the token, about an hour, fails.
+// OpenAI-compatible package sends max_tokens, which Azure's reasoning models reject. Its models
+// are the session's and the harness vision model, both taking images, as every model clutch
+// runs on Azure does. Its key is an Entra ID token, fetched once here: OpenCode's configuration
+// takes no command, so a session that outlives the token, about an hour, fails.
 func (i *Infrastructure) openCodeProviders() (map[string]opencode.Provider, error) {
 	vision := i.harnessVision()
 	providers := map[string]opencode.Provider{
@@ -131,7 +146,9 @@ func (i *Infrastructure) openCodeProviders() (map[string]opencode.Provider, erro
 		},
 	}
 	if i.provider() == providerAzure {
-		token, err := i.azureToken().Token(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), azTokenTimeout)
+		defer cancel()
+		token, err := i.azureToken().Token(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +156,7 @@ func (i *Infrastructure) openCodeProviders() (map[string]opencode.Provider, erro
 			NPM:     "@ai-sdk/openai",
 			BaseURL: os.Getenv("AZURE_OPENAI_BASE_URL"),
 			APIKey:  token,
-			Models:  map[string]opencode.Model{i.Options().Model: {Image: true}},
+			Models:  map[string]opencode.Model{i.Options().Model: {Image: true}, vision: {Image: true}},
 		}
 	}
 	return providers, nil

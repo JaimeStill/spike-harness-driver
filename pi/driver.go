@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
+	"github.com/JaimeStill/spike-harness-driver/harness/cache"
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
@@ -55,7 +56,8 @@ type Driver struct {
 	WaitDelay time.Duration
 	// AgentDir, when set, is Pi's configuration directory in place of the user's ~/.pi/agent
 	// (PI_CODING_AGENT_DIR), which keeps the user's settings, logins, and model catalog out of
-	// the session. Providers are written into it. It must belong to the current user.
+	// the session. Providers are written into it. Pi runs commands its files name, so it must
+	// belong to the current user and be writable by no one else; Open fails otherwise.
 	AgentDir string
 	// Providers are endpoints Pi runs models on beyond its built-in providers, by provider ID,
 	// which the driver writes into AgentDir's models.json. They need AgentDir.
@@ -95,9 +97,14 @@ type Model struct {
 }
 
 // writeAgentDir writes the providers into dir's models.json, creating dir private to the
-// current user. Pi runs a "!" key as a command, so no one else may write the file.
+// current user. Pi runs a "!" key as a command, and its settings can load extensions, so no one
+// else may write the directory: one that exists already, writable by others or another user's,
+// is refused.
 func writeAgentDir(dir string, providers map[string]Provider) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("pi: agent directory: %w", err)
+	}
+	if err := cache.Private(dir); err != nil {
 		return fmt.Errorf("pi: agent directory: %w", err)
 	}
 	type model struct {

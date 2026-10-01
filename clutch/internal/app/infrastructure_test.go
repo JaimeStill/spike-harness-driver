@@ -448,6 +448,33 @@ func TestTheAzureProvider(t *testing.T) {
 		t.Errorf("opencode provider = %+v", oc)
 	}
 
+	// A harness vision model other than the session's is listed too, taking images, so a
+	// session can select it.
+	vision := "gpt-5-vision"
+	infra = newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--state", state,
+		"--azure-scope", "https://scope.test", "--harness-vision-model", vision))
+	if d, err = infra.Driver(); err != nil {
+		t.Fatal(err)
+	}
+	var piModels []string
+	for _, m := range d.(pi.Driver).Providers["azure"].Models {
+		if m.Image {
+			piModels = append(piModels, m.ID)
+		}
+	}
+	if !slices.Equal(piModels, []string{"gpt-5-mini", vision}) {
+		t.Errorf("pi's azure models taking images = %v, want the session's and the vision model", piModels)
+	}
+	infra = newInfrastructure(flagged(t, "--harness", "opencode", "--provider", "azure", "--state", state,
+		"--azure-scope", "https://scope.test", "--harness-vision-model", vision))
+	infra.az = az.run
+	if d, err = infra.Driver(); err != nil {
+		t.Fatal(err)
+	}
+	if ms := d.(opencode.Driver).Providers["azure"].Models; len(ms) != 2 || !ms["gpt-5-mini"].Image || !ms[vision].Image {
+		t.Errorf("opencode's azure models = %+v, want the session's and the vision model, taking images", ms)
+	}
+
 	// The scope reaches a command line, so one a shell would read is refused.
 	bad := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--azure-scope", "https://x; rm -rf ~"))
 	if err := bad.Validate(); err == nil {

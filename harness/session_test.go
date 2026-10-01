@@ -674,3 +674,18 @@ func TestToolValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillValidate(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"motto": true, "clutch-weather": true, "a.b": true,
+		"": false, ".": false, "..": false, "a/b": false, `a\b`: false, "../x": false,
+	} {
+		err := harness.Skill{Name: name}.Validate()
+		if (err == nil) != ok {
+			t.Errorf("%q: Validate = %v, want ok %v", name, err, ok)
+		}
+		if err != nil && !errors.Is(err, harness.ErrInvalidSkill) {
+			t.Errorf("%q: Validate = %v, want ErrInvalidSkill", name, err)
+		}
+	}
+}

@@ -41,7 +41,11 @@ type fake struct {
 	tools []string
 	// listing counts listings under way, which a turn waits for, as OpenCode applies a
 	// changed tool list before it runs the next prompt.
-	listing   sync.WaitGroup
+	listing sync.WaitGroup
+	// cancelled is closed by session/cancel to cancel the turn under way, and is nil while
+	// none is. A turn is under way from the moment its session/prompt is read, so a cancel
+	// read after it cancels it, and a cancel read while the session is idle is ignored, as
+	// OpenCode ignores it.
 	cancelled chan struct{}
 	next      int
 	waiting   map[string]chan json.RawMessage
@@ -82,7 +86,11 @@ func fakeOpenCode() int {
 			}
 			f.mu.Unlock()
 		case m.Method == "session/prompt":
-			f.prompts.Go(func() { f.prompt(m) })
+			cancelled := make(chan struct{})
+			f.mu.Lock()
+			f.cancelled = cancelled
+			f.mu.Unlock()
+			f.prompts.Go(func() { f.prompt(m, cancelled) })
 		default:
 			f.handle(m)
 		}
@@ -230,11 +238,21 @@ func (f *fake) ask(method string, params any) json.RawMessage {
 //
 //   - "tool:<name>:<args>" calls the driver's tool with the arguments;
 //   - "structured:<args>" calls the respond tool the fake last listed with the arguments;
-//   - "permit:<tool>" asks the driver whether the tool may run, and answers with the option;
+//   - "permit:<title>" asks the driver whether a call titled so may run, and answers with the
+//     option;
 //   - "image" answers with the media types of the prompt's images;
 //   - "stream" streams text until cancelled;
 //   - anything else answers "hello".
-func (f *fake) prompt(m rpcIn) {
+//
+// cancelled closes when session/cancel cancels the turn.
+func (f *fake) prompt(m rpcIn, cancelled chan struct{}) {
+	defer func() {
+		f.mu.Lock()
+		if f.cancelled == cancelled {
+			f.cancelled = nil
+		}
+		f.mu.Unlock()
+	}()
 	f.listing.Wait()
 	var p struct {
 		Prompt []contentBlock `json:"prompt"`
@@ -288,10 +306,6 @@ func (f *fake) prompt(m rpcIn) {
 		chunk(strings.Join(images, ","))
 		end("end_turn")
 	case text == "stream":
-		f.mu.Lock()
-		cancelled := make(chan struct{})
-		f.cancelled = cancelled
-		f.mu.Unlock()
 		for {
 			select {
 			case <-cancelled:

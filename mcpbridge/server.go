@@ -32,6 +32,13 @@ const reserved = "respond"
 // the model's structured response from its other tool calls.
 func IsRespond(name string) bool { return strings.HasPrefix(name, RespondPrefix) }
 
+// Accepted is the text of the result the bridge returns for a respond call it accepted: the
+// arguments are the structured response. Any other result of a respond call is a rejection,
+// whose text tells the model why. An adapter that reads respond's results from the harness's
+// event stream checks for it, so the bridge's verdict decides, not the harness's report of the
+// call's status alone.
+const Accepted = "Accepted."
+
 // DefaultName is the MCP server's name when Options.Name is empty.
 const DefaultName = "driver"
 
@@ -64,13 +71,16 @@ type Options struct {
 	// Name is the MCP server's name, which the harness shows the model as the tools' prefix.
 	// Empty means DefaultName.
 	Name string
-	// OnStructured receives the arguments of each respond call that matches the current
-	// schema. It runs on the call's goroutine, before the model learns the response was
-	// accepted. Nil drops them.
+	// OnStructured, optional, receives the arguments of each respond call that matches the
+	// current schema. It runs on the call's goroutine, before the model learns the response
+	// was accepted. Nil drops them. The adapters in this repository leave it nil: they read
+	// the verdict from the harness's event stream, as a respond call whose result is Accepted,
+	// so the response arrives in order with the turn's other events.
 	OnStructured func(value json.RawMessage)
-	// OnRejected receives the validation error of each respond call that doesn't match the
-	// current schema, or that names a respond tool other than the current one, as after the
-	// schema changed or was removed. Nil drops it.
+	// OnRejected, optional, receives the validation error of each respond call that doesn't
+	// match the current schema, or that names a respond tool other than the current one, as
+	// after the schema changed or was removed. Nil drops it. The adapters in this repository
+	// leave it nil, and read a rejection from the harness's event stream.
 	OnRejected func(err error)
 }
 
@@ -91,12 +101,12 @@ type Server struct {
 	// servers are the go-sdk servers of the open tunnels and endpoints.
 	servers map[*mcp.Server]struct{}
 
-	// gen counts the changes to respond. listedGen is the gen of the last tools/list answered,
-	// as it stood when the request arrived, so a listing already under way when respond
-	// changed doesn't count as the new one; listings counts the answered listings, and listed
-	// is closed and replaced at each, for WaitListed.
-	gen, listedGen, listings int
-	listed                   chan struct{}
+	// gen counts the changes to respond. listedGen is the highest gen a tools/list answered,
+	// as each stood when its request arrived, so a listing already under way when respond
+	// changed doesn't count as the new one. started counts the listings that have arrived,
+	// answered or not, and listed is closed and replaced at each answer, for WaitListed.
+	gen, listedGen, started int
+	listed                  chan struct{}
 }
 
 // tool is a session tool with its schema compiled for validating its arguments.
@@ -177,14 +187,18 @@ func (s *Server) SetSchema(schema json.RawMessage) error {
 // WaitListed waits until a harness has listed the tools since respond last changed, for up to
 // max, so a prompt sent next finds the current respond tool. A harness learns of the change by
 // notifications/tools/list_changed and lists the tools again in its own time; a prompt that
-// overtakes the listing reaches a model that sees the old tool. WaitListed returns at once when
-// no harness has listed the tools yet, since its first listing will be current, and returns nil
-// when max passes, since a call to a stale respond tool still tells the model the current name.
+// overtakes the listing reaches a model that sees the old tool.
+//
+// WaitListed returns at once when no harness has started a listing yet, since its first
+// listing will be current. A listing that started before the change doesn't count, even when
+// it is the first, still in flight: it may answer with the old tools, so WaitListed waits for
+// one that started after. It returns nil when max passes, since a call to a stale respond tool
+// still tells the model the current name.
 func (s *Server) WaitListed(ctx context.Context, max time.Duration) error {
 	deadline := time.After(max)
 	for {
 		s.mu.Lock()
-		done, listed := s.listings == 0 || s.listedGen >= s.gen, s.listed
+		done, listed := s.started == 0 || s.listedGen >= s.gen, s.listed
 		s.mu.Unlock()
 		if done {
 			return nil
@@ -240,7 +254,8 @@ func (s *Server) installRespond(srv *mcp.Server) {
 }
 
 // routeRespond sends every call to a respond tool's name to handleRespond, whether or not the
-// server still lists that name, and counts the answered tools/list requests, for WaitListed. A call
+// server still lists that name, and counts the tools/list requests started and answered, for
+// WaitListed. A call
 // to a name the schema replaced or removed would otherwise fail as a protocol error for an unknown
 // tool, which a harness may not show the model; as a failed call, it tells the model what to do
 // instead.
@@ -254,11 +269,11 @@ func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
 		}
 		s.mu.Lock()
 		gen := s.gen
+		s.started++
 		s.mu.Unlock()
 		res, err := next(ctx, method, req)
 		if err == nil {
 			s.mu.Lock()
-			s.listings++
 			s.listedGen = max(s.listedGen, gen)
 			close(s.listed)
 			s.listed = make(chan struct{})
@@ -317,7 +332,7 @@ func (s *Server) handleRespond(_ context.Context, req *mcp.CallToolRequest) (*mc
 	if s.opts.OnStructured != nil {
 		s.opts.OnStructured(args)
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Accepted."}}}, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: Accepted}}}, nil
 }
 
 // arguments returns a call's arguments, an empty object for a call that sent none or null.

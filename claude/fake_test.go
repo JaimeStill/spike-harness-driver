@@ -19,10 +19,12 @@ import (
 const fakeEnv = "CLAUDE_FAKE"
 
 // launchEnv and promptsEnv name files where the fake records its arguments and the user
-// messages it receives, one JSON line each, for a test to check.
+// messages it receives, one JSON line each, for a test to check. configEnv names a file where
+// it records the configuration directory it was given, $CLAUDE_CONFIG_DIR.
 const (
 	launchEnv  = "CLAUDE_FAKE_LAUNCH"
 	promptsEnv = "CLAUDE_FAKE_PROMPTS"
+	configEnv  = "CLAUDE_FAKE_CONFIG"
 )
 
 func TestMain(m *testing.M) {
@@ -57,6 +59,7 @@ type fake struct {
 func fakeClaude() int {
 	f := &fake{waiting: map[string]chan json.RawMessage{}, turns: make(chan []json.RawMessage, 8), done: make(chan struct{})}
 	record(launchEnv, os.Args[1:])
+	record(configEnv, os.Getenv("CLAUDE_CONFIG_DIR"))
 	go f.runTurns()
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(nil, 16<<20)

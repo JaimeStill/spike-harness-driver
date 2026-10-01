@@ -8,8 +8,11 @@ import (
 	"syscall"
 )
 
-// private fails unless dir belongs to the current user and no one else can write to it.
-func private(dir string) error {
+// Private fails unless dir belongs to the current user and no one else can write to it. A
+// driver checks a directory with it before a harness runs or follows what the directory holds,
+// such as a cache, or a harness configuration that names commands to run, since anyone else able
+// to write there could plant what the harness runs.
+func Private(dir string) error {
 	fi, err := os.Stat(dir)
 	if err != nil {
 		return err

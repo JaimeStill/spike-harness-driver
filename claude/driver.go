@@ -49,8 +49,10 @@ const Provider = "anthropic"
 type Driver struct {
 	// Command is the Claude Code executable. Empty means "claude" on the PATH.
 	Command string
-	// ConfigDir is Claude Code's configuration directory, where it keeps its sessions. Empty
-	// means $CLAUDE_CONFIG_DIR, or ~/.claude.
+	// ConfigDir is Claude Code's configuration directory, where it keeps its sessions and its
+	// login. When set, the driver passes it to Claude Code as CLAUDE_CONFIG_DIR, so a ConfigDir
+	// other than the user's needs a sign-in of its own, made with CLAUDE_CONFIG_DIR set to it.
+	// Empty means $CLAUDE_CONFIG_DIR, or ~/.claude.
 	ConfigDir string
 	// CacheDir is where the driver keeps the plugin that carries the session's skills, under a
 	// name its content decides, so a resumed session finds the skills its history names. It
@@ -72,8 +74,9 @@ var _ harness.Driver = Driver{}
 // Open starts Claude Code on the session opts.SessionID names, resuming it when Claude Code
 // holds it and creating it otherwise, or on a new session under a new ID when it names none.
 // opts.Tools reach the model through the driver's MCP server, opts.Skills through a plugin, and
-// opts.HarnessTools, when set, is Claude Code's list of built-in tools. ctx bounds the start-up
-// handshake only; the session lives until Close.
+// opts.HarnessTools, when set, is Claude Code's list of built-in tools; nil keeps Claude Code's
+// default tools, and the driver allows each of them. ctx bounds the start-up handshake only;
+// the session lives until Close.
 func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Session, error) {
 	if opts.Provider != "" && opts.Provider != Provider {
 		return nil, fmt.Errorf("claude: provider %q: Claude Code runs on %q only", opts.Provider, Provider)
@@ -130,9 +133,13 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		_ = remove()
 		return nil, fmt.Errorf("claude: %w", err)
 	}
+	// ConfigDir comes last, so the directory Claude Code uses is the one holds looked in.
+	env := slices.Concat(isolationEnv, d.Env)
+	if d.ConfigDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+d.ConfigDir)
+	}
 	p, err := stdio.Start(stdio.Spec{
-		Name: cmp.Or(d.Command, "claude"), Args: args, Dir: opts.Dir,
-		Env: slices.Concat(isolationEnv, d.Env), WaitDelay: d.WaitDelay,
+		Name: cmp.Or(d.Command, "claude"), Args: args, Dir: opts.Dir, Env: env, WaitDelay: d.WaitDelay,
 	})
 	if err != nil {
 		_ = conn.tunnel.Close()
@@ -221,8 +228,8 @@ func writePlugin(skills []harness.Skill, root, tmp string) (string, error) {
 		return "", fmt.Errorf("claude: plugin: %w", err)
 	}
 	for _, s := range skills {
-		if s.Name == "" || strings.ContainsAny(s.Name, `/\`) || s.Name == "." || s.Name == ".." {
-			return "", fmt.Errorf("claude: skill %q: not a directory name", s.Name)
+		if err := s.Validate(); err != nil {
+			return "", fmt.Errorf("claude: %w", err)
 		}
 		fsys := s.FS
 		if fsys == nil {

@@ -196,10 +196,16 @@ func (c *codec) tool(u sessionUpdate, line []byte) []harness.Event {
 		delete(c.calls, u.ToolCallID)
 		delete(c.args, u.ToolCallID)
 		delete(c.called, u.ToolCallID)
-		switch {
-		case respond && failed:
+		// A respond call is accepted when it completed with the bridge's acceptance as its
+		// output. The status alone usually decides: OpenCode 1.18.34
+		// (packages/opencode/src/mcp/catalog.ts) throws on an MCP result with isError set, which
+		// the bridge's rejections carry, so the call fails. The bridge's verdict is checked as
+		// well, so the outcome doesn't rest on how another program maps an MCP result to a
+		// status.
+		switch output := outputText(u.RawOutput); {
+		case respond && (failed || output != mcpbridge.Accepted):
 			events = append(events, harness.Event{Kind: harness.EventStructuredRejected, Raw: line,
-				Err: errors.New("opencode: respond: " + outputText(u.RawOutput))})
+				Err: errors.New("opencode: respond: " + output)})
 		case respond:
 			events = append(events, harness.Event{Kind: harness.EventStructured, Structured: args, Raw: line})
 		default:

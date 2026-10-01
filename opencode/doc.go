@@ -33,7 +33,8 @@
 // model catalog or updating itself. The configuration, in OPENCODE_CONFIG_CONTENT, enables only the
 // session's provider and lists the session's model, because OpenCode selects only a model its
 // configuration or catalog lists. When HarnessTools is set, the configuration allows those tools
-// and the driver's, and OpenCode denies the rest without asking.
+// and the driver's, and OpenCode denies the rest without asking, so the driver allows every call
+// OpenCode does ask about.
 //
 // OpenCode keeps sessions in its database under StateDir and loads one by ID from any working
 // directory, replaying its history as updates, which belong to no exchange. It can't create a

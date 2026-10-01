@@ -20,3 +20,19 @@ func TestARootOthersCanWriteIsRefused(t *testing.T) {
 		t.Fatalf("Dir = %v, want the root refused", err)
 	}
 }
+
+func TestPrivate(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Private(dir); err != nil {
+		t.Fatalf("Private on a 0700 directory = %v", err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Private(dir); err == nil || !strings.Contains(err.Error(), "writable by others") {
+		t.Fatalf("Private on a 0777 directory = %v, want it refused", err)
+	}
+}

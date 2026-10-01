@@ -24,7 +24,7 @@ const toolPrefix = "mcp__" + serverName + "__"
 // codec translates Claude Code's stream-json protocol. Unlike Pi's codec, it keeps state across
 // lines, which is safe because the Client has one reader goroutine. It keeps the arguments of each
 // respond call, which become the structured response once Claude Code reports the call's result,
-// and the last rate-limit notice, which explains a turn the limit refused.
+// and the turn's last rate-limit notice, which explains a turn the limit refused.
 type codec struct {
 	// responds maps each respond call's tool_use ID to its arguments. calls maps the ID of every
 	// other call to its tool's name, which Claude Code's tool results don't carry.
@@ -110,7 +110,8 @@ func (c *codec) Decode(raw []byte) (stdio.Frame, error) {
 // so nothing Claude Code reports is lost: lines with no normalized meaning become EventHarness.
 //
 // A turn starts at the system init message, which Claude Code sends as each turn begins, and
-// ends at its result, which maps to EventMessageEnd and EventEnded. Claude Code accepts a user
+// ends at its result, which maps to EventMessageEnd and EventEnded. The init forgets the last
+// turn's rate-limit notice, so a notice from an earlier turn doesn't explain this turn's failure. Claude Code accepts a user
 // message during a turn and runs it as a later turn, but harness.Session never sends one.
 // Text and thinking arrive as stream deltas; the assistant messages that follow repeat them
 // whole, so only their tool calls are read.
@@ -119,6 +120,7 @@ func (c *codec) normalize(l line, raw []byte) ([]harness.Event, error) {
 	switch {
 	case l.Type == "system" && l.Subtype == "init":
 		ev.Kind = harness.EventStarted
+		c.limit = nil
 	case l.Type == "stream_event":
 		var s streamEvent
 		if err := json.Unmarshal(raw, &s); err != nil {
@@ -188,6 +190,8 @@ func (c *codec) toolCalls(raw []byte) ([]harness.Event, error) {
 // toolResults maps a user message's tool_result blocks to EventToolResult. A respond call's result
 // becomes the structured response when mcpbridge accepted its arguments, which it validated against
 // the exchange's schema, and an EventStructuredRejected with the rejection the model saw otherwise.
+// A result is the bridge's acceptance when it isn't an error and its text is mcpbridge.Accepted,
+// so the bridge's verdict decides, not Claude Code's error flag alone.
 func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 	blocks, err := blocksOf(raw)
 	if err != nil {
@@ -200,9 +204,9 @@ func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 		}
 		if args, ok := c.responds[b.ToolUseID]; ok {
 			delete(c.responds, b.ToolUseID)
-			if b.IsError {
+			if text := resultText(b.Content); b.IsError || text != mcpbridge.Accepted {
 				events = append(events, harness.Event{Kind: harness.EventStructuredRejected, Raw: raw,
-					Err: errors.New("claude: respond: " + resultText(b.Content))})
+					Err: errors.New("claude: respond: " + text)})
 			} else {
 				events = append(events, harness.Event{Kind: harness.EventStructured, Structured: args, Raw: raw})
 			}

@@ -62,8 +62,11 @@ type Driver struct {
 	Command string
 	// StateDir holds OpenCode's configuration, data, state, and cache directories in place of
 	// the user's, which keeps the user's configuration out and the sessions in one place. It
-	// must be the same for a session to be loaded again. Empty uses a temporary directory per
-	// session, which Close removes, so no session outlives its process.
+	// must be the same for a session to be loaded again. OpenCode reads configuration from it
+	// that can name commands to run, such as a local MCP server's, so StateDir must belong to
+	// the current user and be writable by no one else; Open creates it so when it doesn't
+	// exist, and fails otherwise. Empty uses a temporary directory per session, which Close
+	// removes, so no session outlives its process.
 	StateDir string
 	// CacheDir is where the driver keeps the skills that aren't on disk already, under names
 	// their content decides. Empty writes them into the session's temporary directory.
@@ -92,6 +95,14 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if _, ok := d.Providers[opts.Provider]; !ok {
 		return nil, fmt.Errorf("opencode: provider %q: the driver has none by that name (known: %s)",
 			opts.Provider, strings.Join(slices.Sorted(maps.Keys(d.Providers)), ", "))
+	}
+	if d.StateDir != "" {
+		if err := os.MkdirAll(d.StateDir, 0o700); err != nil {
+			return nil, fmt.Errorf("opencode: state directory: %w", err)
+		}
+		if err := cache.Private(d.StateDir); err != nil {
+			return nil, fmt.Errorf("opencode: state directory: %w", err)
+		}
 	}
 	tmp, err := os.MkdirTemp("", "opencode-driver-")
 	if err != nil {
@@ -124,12 +135,6 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		return fail(fmt.Errorf("opencode: %w", err))
 	}
 	conn := &connection{tools: tools, endpoint: endpoint, remove: remove, listWait: cmp.Or(d.ListWait, 5*time.Second)}
-	if opts.HarnessTools != nil {
-		conn.allowed = map[string]bool{}
-		for _, t := range opts.HarnessTools {
-			conn.allowed[t] = true
-		}
-	}
 	state := cmp.Or(d.StateDir, filepath.Join(tmp, "state"))
 	env := slices.Concat(isolationEnv, []string{
 		"XDG_CONFIG_HOME=" + filepath.Join(state, "config"),
@@ -240,8 +245,8 @@ func (d Driver) config(opts harness.Options, cacheDir string) ([]byte, error) {
 	}
 	var paths []string
 	for _, s := range opts.Skills {
-		if s.Name == "" || strings.ContainsAny(s.Name, `/\`) || s.Name == "." || s.Name == ".." {
-			return nil, fmt.Errorf("opencode: skill %q: not a directory name", s.Name)
+		if err := s.Validate(); err != nil {
+			return nil, fmt.Errorf("opencode: %w", err)
 		}
 		dir := s.Dir
 		if dir == "" {

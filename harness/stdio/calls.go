@@ -3,7 +3,8 @@ package stdio
 import "sync"
 
 // calls correlates commands with their responses by id, whatever order the responses arrive
-// in.
+// in. Each call's channel receives exactly one Response: the harness's, or the failure that
+// ended the calls.
 type calls struct {
 	mu      sync.Mutex
 	pending map[string]chan Response
@@ -14,8 +15,8 @@ func newCalls() *calls {
 	return &calls{pending: map[string]chan Response{}}
 }
 
-// register opens a call and returns the channel its response arrives on. The channel closes
-// without a response if the calls fail first.
+// register opens a call and returns the channel its response arrives on. If the calls fail
+// first, the channel receives a Response carrying the failure in Err instead.
 func (c *calls) register(id string) (<-chan Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -45,20 +46,14 @@ func (c *calls) forget(id string) {
 	c.mu.Unlock()
 }
 
-// fail ends every open call and every later one with err.
+// fail ends every open call and every later one with err. An open call's channel is still
+// empty, since resolve removes a call before it delivers, so the send never blocks.
 func (c *calls) fail(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.err = err
 	for id, ch := range c.pending {
-		close(ch)
+		ch <- Response{ID: id, Err: err}
 		delete(c.pending, id)
 	}
-}
-
-// failure returns the error the calls failed with.
-func (c *calls) failure() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.err
 }

@@ -24,7 +24,8 @@ func fakeDriver(dir string) Driver {
 		ConfigDir: dir,
 		// A race-enabled binary sleeps a second at exit unless told not to.
 		Env: []string{fakeEnv + "=1", "GORACE=atexit_sleep_ms=0",
-			launchEnv + "=" + filepath.Join(dir, "launch"), promptsEnv + "=" + filepath.Join(dir, "prompts")},
+			launchEnv + "=" + filepath.Join(dir, "launch"), promptsEnv + "=" + filepath.Join(dir, "prompts"),
+			configEnv + "=" + filepath.Join(dir, "config")},
 	}
 }
 
@@ -221,6 +222,26 @@ func TestPermissions(t *testing.T) {
 		if _, res, _ := exchange(t, s, harness.Request{Text: "permit:" + tool}); res.Text != want {
 			t.Errorf("%s: %q, want %q", tool, res.Text, want)
 		}
+	}
+	// A session that keeps Claude Code's default tools allows each of them; one that enables
+	// none allows only the driver's.
+	defaults := open(t, fakeDriver(t.TempDir()), harness.Options{})
+	if _, res, _ := exchange(t, defaults, harness.Request{Text: "permit:Bash"}); res.Text != "allow" {
+		t.Errorf("with the default tools, Bash: %q, want allow", res.Text)
+	}
+	none := open(t, fakeDriver(t.TempDir()), harness.Options{HarnessTools: []string{}})
+	if _, res, _ := exchange(t, none, harness.Request{Text: "permit:Bash"}); res.Text != "deny" {
+		t.Errorf("with no harness tools, Bash: %q, want deny", res.Text)
+	}
+}
+
+// Claude Code keeps its sessions and its login in the configuration directory, so the driver
+// passes ConfigDir to it: the directory holds looks in is the one Claude Code uses.
+func TestConfigDirReachesClaudeCode(t *testing.T) {
+	dir := t.TempDir()
+	open(t, fakeDriver(dir), harness.Options{})
+	if got := lines[string](t, filepath.Join(dir, "config")); len(got) != 1 || got[0] != dir {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want %s", got, dir)
 	}
 }
 

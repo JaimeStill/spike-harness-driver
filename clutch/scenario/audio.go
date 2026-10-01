@@ -57,7 +57,7 @@ func audioScenario(svc *session.Service, models func() (Models, error), needs []
 							return err
 						}
 						rep.Note("model %s on target %s", m.AudioModel, m.Target)
-						text, err := transcribe(ctx, m)
+						text, err := TranscribeRecording(ctx, m)
 						if err != nil {
 							return err
 						}
@@ -124,12 +124,9 @@ func audioScenario(svc *session.Service, models func() (Models, error), needs []
 	}
 }
 
-// TranscribeRecording is the Go tool's work, for a caller that offers its own: it returns
-// media.Phrase's transcript from m's audio client.
-func TranscribeRecording(ctx context.Context, m Models) (string, error) { return transcribe(ctx, m) }
-
-// transcribe returns media.Phrase's transcript from m's audio client.
-func transcribe(ctx context.Context, m Models) (string, error) {
+// TranscribeRecording returns media.Phrase's transcript from m's audio client. It is the Go
+// tool's work, exported for a caller that offers a tool of its own.
+func TranscribeRecording(ctx context.Context, m Models) (string, error) {
 	t, err := m.Audio.Transcribe(ctx, model.TranscribeRequest{
 		Model:    m.AudioModel,
 		Audio:    bytes.NewReader(media.Phrase),
@@ -146,7 +143,7 @@ func transcribeRecordingTool(rep *Reporter, m Models) harness.Tool {
 		Description: "Transcribes the voice recording the user refers to, and returns its text.",
 		Schema:      transcribeSchema,
 		Handler: func(ctx context.Context, _ json.RawMessage) (string, error) {
-			text, err := transcribe(ctx, m)
+			text, err := TranscribeRecording(ctx, m)
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", transcribeTool, err)
 			}

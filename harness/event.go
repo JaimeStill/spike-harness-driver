@@ -56,8 +56,9 @@ type Event struct {
 	Tool *ToolEvent
 	// StopReason is set on EventMessageEnd, EventCancelled, and EventEnded.
 	StopReason string
-	// Usage is set on EventMessageEnd when the harness reports it: that message's own, which
-	// the session sums into the exchange's Result.
+	// Usage is set on EventMessageEnd when the harness reports it. An adapter reports usage
+	// once, per message or per turn, so no tokens are counted twice, and the session sums the
+	// reports into the exchange's Result.
 	Usage *Usage
 	// Structured is set on EventStructured.
 	Structured json.RawMessage

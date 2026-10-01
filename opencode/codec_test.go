@@ -194,25 +194,45 @@ func TestAFailedPromptIsTheExchangesError(t *testing.T) {
 	}
 }
 
-func TestARejectedRespondCall(t *testing.T) {
-	c := newCodec()
-	if _, err := c.Encode("4", call{Method: "session/prompt"}); err != nil {
-		t.Fatal(err)
-	}
+// A respond call is the structured response only when it completed with the bridge's
+// acceptance; a failed call, or one whose output is anything else, is a rejection.
+func TestARespondCallsVerdict(t *testing.T) {
 	upd := func(u string) string {
 		return `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":` + u + `}}`
 	}
-	events := decodeAll(t, c,
-		upd(`{"sessionUpdate":"tool_call","toolCallId":"r1","title":"driver_respond_0f3a9c21","status":"pending","rawInput":{}}`),
-		upd(`{"sessionUpdate":"tool_call_update","toolCallId":"r1","title":"driver_respond_0f3a9c21","status":"in_progress","rawInput":{"town":"Paris"}}`),
-		upd(`{"sessionUpdate":"tool_call_update","toolCallId":"r1","status":"failed","rawOutput":{"error":"missing properties: [\"city\"]"}}`),
-	)
-	k := normalized(events)
-	if !slices.Equal(k, []harness.EventKind{harness.EventStarted, harness.EventStructuredRejected}) {
-		t.Fatalf("kinds = %v", k)
-	}
-	if err := find(events, harness.EventStructuredRejected)[0].Err; err == nil || err.Error() != `opencode: respond: missing properties: ["city"]` {
-		t.Errorf("rejection = %v", err)
+	for _, tt := range []struct {
+		name, end string
+		want      harness.EventKind
+		err       string
+	}{
+		{name: "failed", end: `"status":"failed","rawOutput":{"error":"missing properties: [\"city\"]"}`,
+			want: harness.EventStructuredRejected, err: `opencode: respond: missing properties: ["city"]`},
+		{name: "completed without the acceptance", end: `"status":"completed","rawOutput":{"output":"the response schema changed"}`,
+			want: harness.EventStructuredRejected, err: `opencode: respond: the response schema changed`},
+		{name: "accepted", end: `"status":"completed","rawOutput":{"output":"Accepted.","metadata":{"truncated":false}}`,
+			want: harness.EventStructured},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newCodec()
+			if _, err := c.Encode("4", call{Method: "session/prompt"}); err != nil {
+				t.Fatal(err)
+			}
+			events := decodeAll(t, c,
+				upd(`{"sessionUpdate":"tool_call","toolCallId":"r1","title":"driver_respond_0f3a9c21","status":"pending","rawInput":{}}`),
+				upd(`{"sessionUpdate":"tool_call_update","toolCallId":"r1","title":"driver_respond_0f3a9c21","status":"in_progress","rawInput":{"city":"Paris"}}`),
+				upd(`{"sessionUpdate":"tool_call_update","toolCallId":"r1",`+tt.end+`}`),
+			)
+			if k := normalized(events); !slices.Equal(k, []harness.EventKind{harness.EventStarted, tt.want}) {
+				t.Fatalf("kinds = %v", k)
+			}
+			ev := find(events, tt.want)[0]
+			switch {
+			case tt.err != "" && (ev.Err == nil || ev.Err.Error() != tt.err):
+				t.Errorf("rejection = %v, want %s", ev.Err, tt.err)
+			case tt.err == "" && string(ev.Structured) != `{"city":"Paris"}`:
+				t.Errorf("structured = %s", ev.Structured)
+			}
+		})
 	}
 }
 

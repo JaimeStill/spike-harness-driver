@@ -49,10 +49,6 @@ func MottoSkill() (skill harness.Skill, phrase string, err error) {
 	return skill, motto, err
 }
 
-// Normalize lowercases s and turns every run of characters other than letters and digits into
-// one space, the form the scenarios compare a reply to a phrase in.
-func Normalize(s string) string { return normalize(s) }
-
 // skillScenario shows the two ways a skill reaches the model: invoked by name in the prompt,
 // with no tools at all, and found by the model itself, which loads the skill with the harness's
 // skill tool, as the profile names it. When --skills loaded the example clutch-weather skill,
@@ -123,7 +119,7 @@ func skillScenario(svc *session.Service, profile func() Profile, needs []Need) S
 						if err != nil {
 							return err
 						}
-						reply := normalize(o.Result.Text)
+						reply := Normalize(o.Result.Text)
 						if !strings.Contains(reply, "overcast") || !strings.Contains(strings.ReplaceAll(reply, " ", ""), "northwest") {
 							return fmt.Errorf("the reply lacks the clutch-weather report: %q", o.Result.Text)
 						}
@@ -142,15 +138,15 @@ func skillScenario(svc *session.Service, profile func() Profile, needs []Need) S
 // replyHasPhrase fails unless the reply holds phrase, ignoring case and punctuation, so a model
 // that drops the full stop or the quotes still passes. The failure names phrase by what.
 func replyHasPhrase(reply, phrase, what string) error {
-	if !strings.Contains(normalize(reply), normalize(phrase)) {
+	if !strings.Contains(Normalize(reply), Normalize(phrase)) {
 		return fmt.Errorf("the reply lacks %s %q: %q", what, phrase, reply)
 	}
 	return nil
 }
 
-// normalize lowercases s and turns every run of characters other than letters and digits into
-// one space.
-func normalize(s string) string {
+// Normalize lowercases s and turns every run of characters other than letters and digits into
+// one space, the form the scenarios compare a reply to a phrase in.
+func Normalize(s string) string {
 	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	}), " ")

@@ -171,6 +171,32 @@ func TestTurnErrors(t *testing.T) {
 	}
 }
 
+// A rejected notice explains only its own turn's failure: the next turn's init forgets it.
+func TestALimitNoticeLastsOneTurn(t *testing.T) {
+	c := newCodec()
+	var events []harness.Event
+	for _, l := range []string{
+		`{"type":"system","subtype":"init","session_id":"s"}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790871000,"rateLimitType":"five_hour"}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"done","stop_reason":"end_turn"}`,
+		`{"type":"system","subtype":"init","session_id":"s"}`,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["boom"]}`,
+	} {
+		fr, err := c.Decode([]byte(l))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, fr.Events...)
+	}
+	errs := find(events, harness.EventError)
+	if len(errs) != 1 {
+		t.Fatalf("errors = %+v", errs)
+	}
+	if errors.Is(errs[0].Err, harness.ErrUsageLimit) || errs[0].Err.Error() != "claude: boom" {
+		t.Fatalf("error = %v, want the turn's own failure, not the earlier turn's limit", errs[0].Err)
+	}
+}
+
 func TestARejectedRespondCall(t *testing.T) {
 	c := newCodec()
 	lines := []string{
@@ -178,6 +204,10 @@ func TestARejectedRespondCall(t *testing.T) {
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":[{"type":"text","text":"missing properties: [\"city\"]"}]}]}}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__driver__respond_0f3a9c21","input":{"city":"Paris"}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Accepted."}]}}`,
+		// A result that isn't flagged an error but isn't the bridge's acceptance either is no
+		// structured response.
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"mcp__driver__respond_0f3a9c21","input":{"city":"Lyon"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"something else"}]}}`,
 	}
 	var events []harness.Event
 	for _, l := range lines {
@@ -188,11 +218,15 @@ func TestARejectedRespondCall(t *testing.T) {
 		events = append(events, fr.Events...)
 	}
 	got := normalized(events)
-	if !slices.Equal(got, []harness.EventKind{harness.EventStructuredRejected, harness.EventStructured}) {
-		t.Fatalf("kinds = %v, want a rejection then the response, and no tool events", got)
+	want := []harness.EventKind{harness.EventStructuredRejected, harness.EventStructured, harness.EventStructuredRejected}
+	if !slices.Equal(got, want) {
+		t.Fatalf("kinds = %v, want a rejection, the response, then a rejection, and no tool events", got)
 	}
 	if events[1].Err == nil || events[1].Err.Error() != `claude: respond: missing properties: ["city"]` {
 		t.Errorf("rejection = %v", events[1].Err)
+	}
+	if events[5].Err == nil || events[5].Err.Error() != `claude: respond: something else` {
+		t.Errorf("second rejection = %v", events[5].Err)
 	}
 }
 

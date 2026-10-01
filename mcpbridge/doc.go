@@ -23,9 +23,10 @@
 // call to a name the schema replaced or removed fails, and tells the model which to call.
 //
 // The bridge validates a response itself, in Go, against the schema set when the call arrives, so
-// it doesn't rely on the harness to. A valid call reaches Options.OnStructured. An invalid one
-// reaches Options.OnRejected, and the model receives the validation error as a failed call, so it
-// can correct the response and call respond again. The bridge validates every tool's arguments the
+// it doesn't rely on the harness to. A valid call's result is Accepted; an invalid one's is the
+// validation error, as a failed call, so the model can correct the response and call respond
+// again. An adapter reads the verdict from the harness's report of the call's result, and may also
+// take it from the optional Options.OnStructured and Options.OnRejected. The bridge validates every tool's arguments the
 // same way, which keeps the promise harness.ToolHandler makes that its arguments match the tool's
 // schema.
 //

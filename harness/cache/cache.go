@@ -40,7 +40,7 @@ func Dir(root, name, digest string, write func(dir string) error) (string, error
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
-	if err := private(root); err != nil {
+	if err := Private(root); err != nil {
 		return "", err
 	}
 	dir := filepath.Join(root, name+"-"+digest)

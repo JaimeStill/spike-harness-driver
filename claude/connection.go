@@ -21,10 +21,12 @@ import (
 // control requests: the MCP messages of the driver's MCP server, which it relays through an
 // mcpbridge tunnel, and permission checks.
 type connection struct {
-	client  *stdio.Client
-	tools   *mcpbridge.Server
-	tunnel  *mcpbridge.Tunnel
-	allowed map[string]bool // the harness tools the session allows
+	client *stdio.Client
+	tools  *mcpbridge.Server
+	tunnel *mcpbridge.Tunnel
+	// allowed holds the harness tools the session allows. Nil, for a session that keeps
+	// Claude Code's default tools, allows every tool; empty allows none but the driver's.
+	allowed map[string]bool
 	remove  func() error
 	// listWait bounds how long Prompt waits for Claude Code to list the tools again after
 	// the respond tool changed.
@@ -38,10 +40,15 @@ type connection struct {
 
 var _ harness.Connection = (*connection)(nil)
 
+// newConnection returns a connection for a session whose harness tools are allowed, which is
+// nil when the session keeps Claude Code's default tools.
 func newConnection(tools *mcpbridge.Server, allowed []string, listWait time.Duration) *connection {
-	c := &connection{tools: tools, allowed: map[string]bool{}, listWait: listWait}
-	for _, t := range allowed {
-		c.allowed[t] = true
+	c := &connection{tools: tools, listWait: listWait}
+	if allowed != nil {
+		c.allowed = map[string]bool{}
+		for _, t := range allowed {
+			c.allowed[t] = true
+		}
 	}
 	c.run, c.endRun = context.WithCancel(context.Background())
 	return c
@@ -154,17 +161,22 @@ func (c *connection) answer(ctx context.Context, req stdio.Request) any {
 var notificationAck = json.RawMessage(`{"jsonrpc":"2.0","result":{}}`)
 
 // relay passes one MCP message to the MCP server and returns its response. A tool call runs
-// until Cancel ends the exchange's run, or until Claude Code exits.
+// until Cancel ends the exchange's run, or until Claude Code exits. Any other message, such as
+// a tool listing, a ping, or the handshake, belongs to the session rather than the run, so it
+// runs until Claude Code exits: a listing Cancel cut short would leave Claude Code without the
+// tools.
 func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	if r.ServerName != serverName {
 		return fmt.Errorf("claude: no MCP server %q", r.ServerName)
 	}
-	c.mu.Lock()
-	run := c.run
-	c.mu.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer context.AfterFunc(run, cancel)()
+	if toolCall(r.Message) {
+		c.mu.Lock()
+		run := c.run
+		c.mu.Unlock()
+		defer context.AfterFunc(run, cancel)()
+	}
 
 	resp, err := c.tunnel.Deliver(ctx, r.Message)
 	if err != nil {
@@ -176,10 +188,19 @@ func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	return map[string]json.RawMessage{"mcp_response": resp}
 }
 
+// toolCall reports whether msg is an MCP tools/call request.
+func toolCall(msg json.RawMessage) bool {
+	var m struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(msg, &m) == nil && m.Method == "tools/call"
+}
+
 // permit answers a permission check. The driver's own tools, and the harness tools the session
-// allows, run; anything else is denied, since no one is there to ask.
+// allows, run: those its HarnessTools name, or, for a session that keeps Claude Code's default
+// tools, any of them. Anything else is denied, since no one is there to ask.
 func (c *connection) permit(r controlRequest) any {
-	if strings.HasPrefix(r.ToolName, toolPrefix) || c.allowed[r.ToolName] {
+	if strings.HasPrefix(r.ToolName, toolPrefix) || c.allowed == nil || c.allowed[r.ToolName] {
 		input := r.Input
 		if len(bytes.TrimSpace(input)) == 0 {
 			input = json.RawMessage(`{}`)

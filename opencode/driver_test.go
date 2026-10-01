@@ -132,11 +132,38 @@ func TestCancel(t *testing.T) {
 	}
 }
 
+// The driver allows whatever OpenCode asks about, whatever the request's title: the tool
+// allowlist in OpenCode's configuration keeps the tools the session doesn't enable from being
+// asked about.
+// A cancel the session sends as soon as Prompt returns reaches OpenCode after the prompt, so
+// it aborts the turn: an exchange whose context has already ended is aborted at once.
+func TestCancelAtOnce(t *testing.T) {
+	s := open(t, fakeDriver(t.TempDir()), harness.Options{})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	x, err := s.Send(ctx, harness.Request{Text: "stream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeout := time.After(5 * time.Second)
+	for ended := false; !ended; {
+		select {
+		case _, ok := <-x.Events():
+			ended = !ok
+		case <-timeout:
+			t.Fatal("the turn went on: the cancel overtook the prompt")
+		}
+	}
+	if res, err := x.Wait(); err != nil || res.StopReason != "aborted" {
+		t.Fatalf("result = %+v, %v; want aborted", res, err)
+	}
+}
+
 func TestPermissions(t *testing.T) {
 	s := open(t, fakeDriver(t.TempDir()), harness.Options{HarnessTools: []string{"read"}})
-	for tool, want := range map[string]string{"read": "once", "bash": "reject", toolPrefix + "echo": "once"} {
-		if _, res, _ := exchange(t, s, harness.Request{Text: "permit:" + tool}); res.Text != want {
-			t.Errorf("%s: %q, want %q", tool, res.Text, want)
+	for _, title := range []string{"read", "Read file.go", toolPrefix + "echo"} {
+		if _, res, _ := exchange(t, s, harness.Request{Text: "permit:" + title}); res.Text != "once" {
+			t.Errorf("%s: %q, want once", title, res.Text)
 		}
 	}
 	open := open(t, fakeDriver(t.TempDir()), harness.Options{})

@@ -131,8 +131,8 @@ func (b *bridge) write(opts harness.Options, specs []toolSpec, dir, cacheDir str
 	// Pi reads skills from disk. A skill already there is loaded where it lives; any other is
 	// written into the cache under its name.
 	for _, s := range opts.Skills {
-		if s.Name == "" || strings.ContainsAny(s.Name, `/\`) || s.Name == "." || s.Name == ".." {
-			return fmt.Errorf("skill %q: not a directory name", s.Name)
+		if err := s.Validate(); err != nil {
+			return err
 		}
 		skillDir := s.Dir
 		if skillDir == "" {

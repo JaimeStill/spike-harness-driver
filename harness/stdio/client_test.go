@@ -99,6 +99,8 @@ func peer(mode string) int {
 	// asked maps each request the peer made of the driver to the command that made it, which
 	// the driver's answer then answers.
 	asked := map[string]string{}
+	// held is the id of the command "hold" made, which "release" answers.
+	held := ""
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
 		var c testCmd
@@ -120,6 +122,13 @@ func peer(mode string) int {
 			emit(testLine{Request: "q" + c.ID, Data: c.Data})
 		case "reply":
 			emit(testLine{ID: asked[c.ID], OK: true, Data: c.Data})
+		case "hold":
+			// The event reports the command's arrival, in order with the peer's other input;
+			// the response waits for "release".
+			held = c.ID
+			event("held")
+		case "release":
+			emit(testLine{ID: held, OK: true, Data: "released"})
 		case "event":
 			event(c.Data)
 			emit(testLine{ID: c.ID, OK: true})
@@ -226,6 +235,84 @@ func TestCallReportsHarnessFailure(t *testing.T) {
 	defer func() { _ = c.Close() }()
 	if _, err := c.Call(t.Context(), testCmd{Op: "fail"}); err == nil || err.Error() != "nope" {
 		t.Fatalf("Call = %v, want the harness's error", err)
+	}
+}
+
+// Send writes the command before it returns, so a notification written next reaches the
+// harness after it, and the response arrives on the channel once the harness answers.
+func TestSendWritesBeforeItReturns(t *testing.T) {
+	c := start(t, "echo", 0)
+	defer func() { _ = c.Close() }()
+	ch, err := c.Send(t.Context(), testCmd{Op: "hold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Notify(testCmd{Op: "note", Data: "after"}); err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := nextEvent(t, c); ev.Text != "held" {
+		t.Fatalf("first event = %q, want the held command's: the notification overtook it", ev.Text)
+	}
+	if ev, _ := nextEvent(t, c); ev.Text != "after|" {
+		t.Fatalf("second event = %q, want the notification's", ev.Text)
+	}
+	select {
+	case r := <-ch:
+		t.Fatalf("a response %+v before the harness answered", r)
+	default:
+	}
+	if err := c.Notify(testCmd{Op: "release"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-ch:
+		var got string
+		_ = json.Unmarshal(r.Data, &got)
+		if r.Err != nil || got != "released" {
+			t.Fatalf("response = %q, %v", got, r.Err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no response")
+	}
+}
+
+// A command the harness exits before answering gets the exit error on its channel.
+func TestSendFailsWhenTheHarnessExits(t *testing.T) {
+	c := start(t, "echo", 0)
+	defer func() { _ = c.Close() }()
+	ch, err := c.Send(t.Context(), testCmd{Op: "hold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Notify(testCmd{Op: "die"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-ch:
+		if r.Err == nil || !strings.Contains(r.Err.Error(), "fatal: peer gone") {
+			t.Fatalf("response = %+v, want the exit error with stderr", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no response after the exit")
+	}
+	if _, err := c.Send(t.Context(), testCmd{Op: "hold"}); err == nil {
+		t.Fatal("Send after exit succeeded")
+	}
+}
+
+func TestSendWithAnEndedContextWritesNothing(t *testing.T) {
+	c := start(t, "echo", 0)
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := c.Send(ctx, testCmd{Op: "event", Data: "sent"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Send = %v, want context.Canceled", err)
+	}
+	if err := c.Notify(testCmd{Op: "note", Data: "next"}); err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := nextEvent(t, c); ev.Text != "next|" {
+		t.Fatalf("event = %q, want only the notification's", ev.Text)
 	}
 }
 
