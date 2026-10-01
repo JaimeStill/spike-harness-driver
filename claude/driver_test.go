@@ -191,6 +191,30 @@ func TestCancelInterruptsTheTurn(t *testing.T) {
 	}
 }
 
+// Claude Code exits with status 1 when its last turn failed, which an interrupted turn does;
+// the exchange has reported it, so closing the session is no error.
+func TestCloseAfterAnInterruptedTurn(t *testing.T) {
+	s, err := fakeDriver(t.TempDir()).Open(t.Context(), harness.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := s.Send(t.Context(), harness.Request{Text: "stream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ev := range x.Events() {
+		if ev.Kind == harness.EventTextDelta {
+			x.Cancel()
+		}
+	}
+	if res, _ := x.Wait(); res.StopReason != "aborted" {
+		t.Fatalf("stop = %q", res.StopReason)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close = %v, want no error", err)
+	}
+}
+
 func TestPermissions(t *testing.T) {
 	s := open(t, fakeDriver(t.TempDir()), harness.Options{HarnessTools: []string{"Read"}})
 	for tool, want := range map[string]string{"Read": "allow", "Bash": "deny", toolPrefix + "echo": "allow"} {

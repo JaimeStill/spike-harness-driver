@@ -48,10 +48,14 @@ type fake struct {
 	mcpID       int
 	interrupted chan struct{}
 	turns       chan []json.RawMessage // each user message's content blocks
+	// failed is whether the last turn failed, which makes the fake exit with status 1 at the
+	// end of its input, as Claude Code does.
+	failed bool
+	done   chan struct{}
 }
 
 func fakeClaude() int {
-	f := &fake{waiting: map[string]chan json.RawMessage{}, turns: make(chan []json.RawMessage, 8)}
+	f := &fake{waiting: map[string]chan json.RawMessage{}, turns: make(chan []json.RawMessage, 8), done: make(chan struct{})}
 	record(launchEnv, os.Args[1:])
 	go f.runTurns()
 	in := bufio.NewScanner(os.Stdin)
@@ -88,7 +92,12 @@ func fakeClaude() int {
 		}
 	}
 	close(f.turns)
-	time.Sleep(50 * time.Millisecond)
+	<-f.done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failed {
+		return 1
+	}
 	return 0
 }
 
@@ -231,6 +240,7 @@ func (f *fake) call(name string, args json.RawMessage) (string, bool) {
 //   - "stream" streams text until interrupted;
 //   - anything else answers "hello".
 func (f *fake) runTurns() {
+	defer close(f.done)
 	for content := range f.turns {
 		f.listing.Wait()
 		f.mu.Lock()
@@ -316,6 +326,9 @@ func (f *fake) end(text, terminal string) {
 	if terminal != "" {
 		r["subtype"], r["is_error"], r["stop_reason"], r["terminal_reason"] = "error_during_execution", true, nil, terminal
 	}
+	f.mu.Lock()
+	f.failed = terminal != ""
+	f.mu.Unlock()
 	f.emit(r)
 }
 

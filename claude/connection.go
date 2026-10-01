@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -144,7 +145,19 @@ func (c *connection) Close() error {
 	c.mu.Lock()
 	c.endRun()
 	c.mu.Unlock()
-	return errors.Join(c.client.Close(), c.tunnel.Close(), c.remove())
+	return errors.Join(closeErr(c.client.Close()), c.tunnel.Close(), c.remove())
+}
+
+// closeErr is the error of Claude Code's exit once Close asked for it. Claude Code exits with
+// status 1 at the end of its input when the last turn failed, an interrupted one included, and
+// that turn's exchange has already reported it, so status 1 is no error of the exit. A harness
+// killed after WaitDelay, or any other status, still is.
+func closeErr(err error) error {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return nil
+	}
+	return err
 }
 
 // outbound relays a message the tool server sends unasked, such as
