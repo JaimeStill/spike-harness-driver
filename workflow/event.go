@@ -74,3 +74,15 @@ type ExchangeEvent struct {
 	Tool string `json:"tool,omitempty"`
 	Err  string `json:"err,omitempty"`
 }
+
+// exchangeEvent converts a harness event.
+func exchangeEvent(ev harness.Event) *ExchangeEvent {
+	x := &ExchangeEvent{Kind: ev.Kind, Text: ev.Text}
+	if ev.Tool != nil {
+		x.Tool = ev.Tool.Name
+	}
+	if ev.Err != nil {
+		x.Err = ev.Err.Error()
+	}
+	return x
+}
