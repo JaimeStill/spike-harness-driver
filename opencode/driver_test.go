@@ -253,3 +253,32 @@ func TestOpenRefusesAnUnknownProvider(t *testing.T) {
 		t.Fatal("Open on an unknown provider succeeded")
 	}
 }
+
+// An endpoint serving reasoning models takes @ai-sdk/openai, with a token as its API key.
+func TestAProvidersPackageAndKey(t *testing.T) {
+	d := fakeDriver(t.TempDir())
+	d.Providers["azure"] = Provider{NPM: "@ai-sdk/openai", BaseURL: "https://example.invalid/openai/v1", APIKey: "token"}
+	cfg, err := d.config(harness.Options{Provider: "azure", Model: "gpt-5-mini"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Provider map[string]struct {
+			NPM     string `json:"npm"`
+			Options struct {
+				APIKey  string            `json:"apiKey"`
+				Headers map[string]string `json:"headers"`
+			} `json:"options"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal(cfg, &c); err != nil {
+		t.Fatal(err)
+	}
+	p := c.Provider["azure"]
+	if p.NPM != "@ai-sdk/openai" || p.Options.APIKey != "token" || p.Options.Headers != nil {
+		t.Fatalf("provider = %+v", p)
+	}
+	if _, others := c.Provider[fakeProvider]; others {
+		t.Error("the configuration enables a provider the session doesn't run on")
+	}
+}

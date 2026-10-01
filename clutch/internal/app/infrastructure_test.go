@@ -21,6 +21,7 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 	"github.com/JaimeStill/spike-harness-driver/model"
 	"github.com/JaimeStill/spike-harness-driver/opencode"
+	"github.com/JaimeStill/spike-harness-driver/pi"
 )
 
 func TestValidateLoadsTheSourcesIntoEverySessionsOptions(t *testing.T) {
@@ -406,5 +407,50 @@ func TestParseAzToken(t *testing.T) {
 		} else if strings.Contains(err.Error(), "secret") {
 			t.Errorf("%s: the error quotes the token: %v", out, err)
 		}
+	}
+}
+
+// On the azure provider, Pi and OpenCode default to gpt-5-mini; Pi's key is the az command
+// in its own agent directory, and OpenCode's a token, through @ai-sdk/openai.
+func TestTheAzureProvider(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_BASE_URL", "https://example.invalid/openai/v1")
+	state := t.TempDir()
+
+	infra := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--state", state, "--azure-scope", "https://scope.test"))
+	if err := infra.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if o := infra.Options(); o.Provider != "azure" || o.Model != "gpt-5-mini" {
+		t.Errorf("options = %s %s, want azure gpt-5-mini", o.Provider, o.Model)
+	}
+	if m, err := infra.Models(); err != nil || m.HarnessVision != "gpt-5-mini" || !m.DefaultTakesImages {
+		t.Errorf("models = %+v, %v", m, err)
+	}
+	d, err := infra.Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.(pi.Driver)
+	key := p.Providers["azure"].APIKey
+	if p.AgentDir != filepath.Join(state, "pi-agent") || key != "!az account get-access-token --resource https://scope.test --query accessToken -o tsv" {
+		t.Errorf("pi driver = %s, key %q", p.AgentDir, key)
+	}
+
+	az := &fakeAz{expires: time.Now().Add(time.Hour)}
+	infra = newInfrastructure(flagged(t, "--harness", "opencode", "--provider", "azure", "--state", state, "--azure-scope", "https://scope.test"))
+	infra.az = az.run
+	d, err = infra.Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oc := d.(opencode.Driver).Providers["azure"]
+	if oc.NPM != "@ai-sdk/openai" || oc.APIKey == "" || !oc.Models["gpt-5-mini"].Image {
+		t.Errorf("opencode provider = %+v", oc)
+	}
+
+	// The scope reaches a command line, so one a shell would read is refused.
+	bad := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--azure-scope", "https://x; rm -rf ~"))
+	if err := bad.Validate(); err == nil {
+		t.Error("Validate took a scope a shell would read")
 	}
 }

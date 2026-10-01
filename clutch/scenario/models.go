@@ -22,6 +22,10 @@ type Models struct {
 	// HarnessVision is the model a harness session runs on when it is sent an image. The
 	// harness keeps its own provider, whatever the target.
 	HarnessVision string
+	// DefaultTakesImages is whether a harness session's default model takes images, as every
+	// model on Azure does, which leaves the vision scenario no text-only model to show a
+	// dropped image with.
+	DefaultTakesImages bool
 }
 
 // Needs holds what each kind of scenario checks before its first step.

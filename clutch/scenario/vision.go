@@ -99,6 +99,10 @@ func visionScenario(svc *session.Service, models func() (Models, error), profile
 							rep.Note("skipped: every model %s runs takes images, so there is no text-only model to drop one", p.Name)
 							return nil
 						}
+						if m, err := models(); err == nil && m.DefaultTakesImages {
+							rep.Note("skipped: the session's default model takes images, so it can't show a dropped one")
+							return nil
+						}
 						rep.Note("for a model without image input, %s replaces the image with %q and runs the exchange anyway", p.Name, p.DroppedImage)
 						o, err := ask(ctx, rep, "")
 						if err != nil {

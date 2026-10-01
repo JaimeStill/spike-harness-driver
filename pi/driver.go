@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -51,6 +53,13 @@ type Driver struct {
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
 	// seconds.
 	WaitDelay time.Duration
+	// AgentDir, when set, is Pi's configuration directory in place of the user's ~/.pi/agent
+	// (PI_CODING_AGENT_DIR), which keeps the user's settings, logins, and model catalog out of
+	// the session. Providers are written into it. It must belong to the current user.
+	AgentDir string
+	// Providers are endpoints Pi runs models on beyond its built-in providers, by provider ID,
+	// which the driver writes into AgentDir's models.json. They need AgentDir.
+	Providers map[string]Provider
 	// CatalogWait is how long Open waits for a llama.cpp model Pi doesn't list yet. Pi starts
 	// from the model catalog it saved last and refreshes each provider's catalog in the
 	// background as it starts. For llama.cpp's router, the saved catalog holds only the models
@@ -60,6 +69,83 @@ type Driver struct {
 }
 
 var _ harness.Driver = Driver{}
+
+// Provider is an endpoint Pi runs models on through an API it supports, written into its
+// models.json.
+type Provider struct {
+	// BaseURL is the endpoint's API root, such as an OpenAI-compatible /v1.
+	BaseURL string
+	// API is the API Pi speaks to it. Empty means "openai-completions".
+	API string
+	// APIKey is the key Pi sends, as a bearer token for an OpenAI-compatible API. A value
+	// beginning "!" is a command Pi runs for each request, uncached, which keeps a short-lived
+	// token, such as an Entra ID token from the Azure CLI, from going stale in a long session.
+	APIKey string
+	// Models are the models Pi lists for the provider.
+	Models []Model
+}
+
+// Model is one of a provider's models, as Pi's models.json describes it.
+type Model struct {
+	ID string
+	// Image is whether the model takes images; Pi drops an image for a model that doesn't.
+	Image bool
+	// Reasoning is whether the model reasons.
+	Reasoning bool
+}
+
+// writeAgentDir writes the providers into dir's models.json, creating dir private to the
+// current user. Pi runs a "!" key as a command, so no one else may write the file.
+func writeAgentDir(dir string, providers map[string]Provider) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("pi: agent directory: %w", err)
+	}
+	type model struct {
+		ID        string   `json:"id"`
+		Input     []string `json:"input"`
+		Reasoning bool     `json:"reasoning,omitempty"`
+	}
+	type provider struct {
+		BaseURL string  `json:"baseUrl"`
+		API     string  `json:"api"`
+		APIKey  string  `json:"apiKey,omitempty"`
+		Models  []model `json:"models"`
+	}
+	out := map[string]provider{}
+	for id, p := range providers {
+		pp := provider{BaseURL: p.BaseURL, API: cmp.Or(p.API, "openai-completions"), APIKey: p.APIKey}
+		for _, m := range p.Models {
+			input := []string{"text"}
+			if m.Image {
+				input = append(input, "image")
+			}
+			pp.Models = append(pp.Models, model{ID: m.ID, Input: input, Reasoning: m.Reasoning})
+		}
+		out[id] = pp
+	}
+	data, err := json.MarshalIndent(map[string]any{"providers": out}, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Written to a temporary name and renamed, so a session starting beside another that
+	// shares the directory never reads it half written.
+	tmp, err := os.CreateTemp(dir, ".models-*.json")
+	if err != nil {
+		return fmt.Errorf("pi: models.json: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("pi: models.json: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("pi: models.json: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, "models.json")); err != nil {
+		return fmt.Errorf("pi: models.json: %w", err)
+	}
+	return nil
+}
 
 // Open starts Pi on the session opts.SessionID names, creating it if Pi has none, or on a new
 // session when it names none, with the bridge, opts.Tools, and opts.Skills loaded, and
@@ -74,6 +160,16 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	name := d.Command
 	if name == "" {
 		name = "pi"
+	}
+	var env []string
+	switch {
+	case d.AgentDir != "":
+		if err := writeAgentDir(d.AgentDir, d.Providers); err != nil {
+			return nil, err
+		}
+		env = append(env, "PI_CODING_AGENT_DIR="+d.AgentDir)
+	case len(d.Providers) > 0:
+		return nil, errors.New("pi: Providers need an AgentDir to write them into")
 	}
 	b, err := newBridge(opts, d.CacheDir)
 	if err != nil {
@@ -91,7 +187,7 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		args = append(args, "--session-dir", d.SessionDir)
 	}
 	p, err := stdio.Start(stdio.Spec{
-		Name: name, Args: args, Dir: opts.Dir, Env: slices.Concat(d.Env, b.env), WaitDelay: d.WaitDelay,
+		Name: name, Args: args, Dir: opts.Dir, Env: slices.Concat(env, d.Env, b.env), WaitDelay: d.WaitDelay,
 	})
 	if err != nil {
 		_ = b.remove()

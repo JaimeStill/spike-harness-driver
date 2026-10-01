@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +65,10 @@ func (i *Infrastructure) Validate() error {
 	if _, err := lookupTarget(i.cfg.Target); err != nil {
 		return err
 	}
+	// Pi runs the azure provider's key as a command line that names the scope.
+	if i.provider() == providerAzure && !scopeForm.MatchString(i.cfg.AzureScope) {
+		return fmt.Errorf("--azure-scope %q: want an https URL of letters, digits, and . - / : only", i.cfg.AzureScope)
+	}
 	skills, err := loadSkills(i.cfg.Skills)
 	if err != nil {
 		return err
@@ -75,6 +80,10 @@ func (i *Infrastructure) Validate() error {
 	i.skills, i.tools = skills, tools
 	return nil
 }
+
+// scopeForm is the form of an Entra ID scope clutch takes: an https URL with no character a
+// shell would read.
+var scopeForm = regexp.MustCompile(`^https://[A-Za-z0-9./:-]+$`)
 
 // loadSkills loads the skills under each directory. A directory holding none is an error, as
 // is a name two directories share: either is more likely a mistyped flag than intended.
@@ -130,7 +139,7 @@ func (i *Infrastructure) Driver() (harness.Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return h.driver(i), nil
+	return h.driver(i)
 }
 
 // spec returns the harness the flags name. Validate has already failed for a name with no
@@ -143,6 +152,22 @@ func (i *Infrastructure) spec() harnessSpec {
 // provider is the harness's model provider: --provider, or the harness's own.
 func (i *Infrastructure) provider() string { return cmp.Or(i.cfg.Provider, i.spec().provider) }
 
+// defaultModel and defaultVision are the models a session runs on, and one sent an image runs
+// on, when the flags name none: the azure provider's, or the harness's own.
+func (i *Infrastructure) defaultModel() string {
+	if i.provider() == providerAzure {
+		return azureModel
+	}
+	return i.spec().model
+}
+
+func (i *Infrastructure) defaultVision() string {
+	if i.provider() == providerAzure {
+		return azureModel
+	}
+	return i.spec().vision
+}
+
 // Profile returns how the scenarios talk to the harness the flags name.
 func (i *Infrastructure) Profile() scenario.Profile { return i.spec().profile }
 
@@ -151,7 +176,7 @@ func (i *Infrastructure) Profile() scenario.Profile { return i.spec().profile }
 func (i *Infrastructure) Options() harness.Options {
 	return harness.Options{
 		Provider: i.provider(),
-		Model:    cmp.Or(i.cfg.Model, i.spec().model),
+		Model:    cmp.Or(i.cfg.Model, i.defaultModel()),
 		Store:    i.Store(),
 		Tools:    i.tools,
 		Skills:   i.skills,
@@ -174,31 +199,47 @@ func (i *Infrastructure) Needs() scenario.Needs {
 			return err
 		},
 	}
-	azure := []scenario.Need{
+	harnessAzure, targetAzureNeeds := i.azureNeeds(true, false), i.azureNeeds(false, true)
+	return scenario.Needs{
+		Harness: append([]scenario.Need{executable, i.llamaNeed(true, false)}, harnessAzure...),
+		Models:  append([]scenario.Need{i.llamaNeed(false, true)}, targetAzureNeeds...),
+		Both:    append([]scenario.Need{executable, i.llamaNeed(true, true)}, i.azureNeeds(true, true)...),
+	}
+}
+
+// azureNeeds are the needs of Azure: AZURE_OPENAI_BASE_URL and the Azure CLI. With provider
+// set, they apply when the harness's provider is azure; with target set, when the target is.
+func (i *Infrastructure) azureNeeds(provider, target bool) []scenario.Need {
+	var when []string
+	if provider {
+		when = append(when, "the provider")
+	}
+	if target {
+		when = append(when, "the target")
+	}
+	used := func() bool {
+		return (provider && i.provider() == providerAzure) || (target && i.cfg.Target == targetAzure)
+	}
+	return []scenario.Need{
 		{
-			What: "AZURE_OPENAI_BASE_URL set when the target is azure",
+			What: "AZURE_OPENAI_BASE_URL set when " + strings.Join(when, " or ") + " is azure",
 			Check: func(context.Context) error {
-				if i.cfg.Target == targetAzure && os.Getenv("AZURE_OPENAI_BASE_URL") == "" {
+				if used() && os.Getenv("AZURE_OPENAI_BASE_URL") == "" {
 					return errors.New("AZURE_OPENAI_BASE_URL is not set")
 				}
 				return nil
 			},
 		},
 		{
-			What: "the Azure CLI, az, on the PATH when the target is azure",
+			What: "the Azure CLI, az, on the PATH when " + strings.Join(when, " or ") + " is azure",
 			Check: func(context.Context) error {
-				if i.cfg.Target != targetAzure {
+				if !used() {
 					return nil
 				}
 				_, err := exec.LookPath("az")
 				return err
 			},
 		},
-	}
-	return scenario.Needs{
-		Harness: []scenario.Need{executable, i.llamaNeed(true, false)},
-		Models:  append([]scenario.Need{i.llamaNeed(false, true)}, azure...),
-		Both:    append([]scenario.Need{executable, i.llamaNeed(true, true)}, azure...),
 	}
 }
 
@@ -234,6 +275,14 @@ const (
 // providerLlama is the harness's provider for the llama.cpp router, the same name the router's
 // target has.
 const providerLlama = "llama.cpp"
+
+// providerAzure is the harness provider for Azure AI Foundry's v1 API, which Pi and OpenCode
+// reach as an OpenAI-compatible endpoint with an Entra ID token, and azureModel its default
+// model, which takes images and reasons.
+const (
+	providerAzure = "azure"
+	azureModel    = "gpt-5-mini"
+)
 
 // qwenVision is the router's vision model: the llama.cpp target's, and a harness session's when
 // it is sent an image.
@@ -303,7 +352,9 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		EmbedModel:    cmp.Or(i.cfg.EmbedModel, t.embed),
 		AudioModel:    cmp.Or(i.cfg.AudioModel, t.audio),
 		AudioInChat:   t.audioInChat,
-		HarnessVision: cmp.Or(i.cfg.HarnessVisionModel, i.spec().vision),
+		HarnessVision: cmp.Or(i.cfg.HarnessVisionModel, i.defaultVision()),
+		// Every model on Azure takes images, so the default model can't show a dropped one.
+		DefaultTakesImages: i.provider() == providerAzure,
 	}
 	switch t.name {
 	case targetLlama:

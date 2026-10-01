@@ -22,9 +22,16 @@ import (
 // OpenCode's configuration, with the session's model listed, so the model is selectable at
 // once: OpenCode selects only models its configuration or catalog lists.
 type Provider struct {
+	// NPM is the AI SDK package OpenCode talks to the endpoint through. Empty means
+	// @ai-sdk/openai-compatible, which sends max_tokens; an OpenAI endpoint serving reasoning
+	// models, which reject it, takes @ai-sdk/openai.
+	NPM string
 	// BaseURL is the endpoint's OpenAI-compatible base URL, ending in /v1 or its equivalent.
 	BaseURL string
-	// Headers are sent with every request, such as an Authorization header carrying a token.
+	// APIKey is sent as a bearer token, which an Entra ID token for Azure can be too.
+	// @ai-sdk/openai requires one.
+	APIKey string
+	// Headers are sent with every request.
 	Headers map[string]string
 	// Models describes the models the driver knows. A session's model that isn't among them is
 	// listed as text only.
@@ -216,6 +223,9 @@ func (d Driver) config(opts harness.Options, cacheDir string) ([]byte, error) {
 		models[id] = entry
 	}
 	options := map[string]any{"baseURL": p.BaseURL}
+	if p.APIKey != "" {
+		options["apiKey"] = p.APIKey
+	}
 	if len(p.Headers) > 0 {
 		options["headers"] = p.Headers
 	}
@@ -223,7 +233,7 @@ func (d Driver) config(opts harness.Options, cacheDir string) ([]byte, error) {
 		"$schema":           "https://opencode.ai/config.json",
 		"enabled_providers": []string{opts.Provider},
 		"provider": map[string]any{opts.Provider: map[string]any{
-			"npm": "@ai-sdk/openai-compatible", "name": opts.Provider, "options": options, "models": models,
+			"npm": cmp.Or(p.NPM, "@ai-sdk/openai-compatible"), "name": opts.Provider, "options": options, "models": models,
 		}},
 		"autoupdate": false,
 		"share":      "disabled",
