@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -22,12 +21,15 @@ const (
 	harnessOpenCode = "opencode"
 )
 
-// harnessSpec holds a harness's name, the executable it runs, what --provider, --model, and
-// --harness-vision-model take when their flags aren't set, how the scenarios talk to it, and
-// how its driver is built from the flags.
+// harnessSpec holds a harness's name, the executable it runs, the version the conformance
+// suite pins it to, what --provider, --model, and --harness-vision-model take when their flags
+// aren't set, the providers the conformance suite runs it over, how the scenarios talk to it,
+// and how its driver is built from the flags.
 type harnessSpec struct {
 	name, command           string
+	pinned                  string
 	provider, model, vision string
+	providers               []string
 	profile                 scenario.Profile
 	driver                  func(i *Infrastructure) (harness.Driver, error)
 }
@@ -42,10 +44,13 @@ func init() {
 		{
 			name:     harnessPi,
 			command:  "pi",
+			pinned:   "0.99.2",
 			provider: providerLlama,
 			model:    "unsloth/gpt-oss-120b-GGUF:Q4_K_M",
 			vision:   qwenVision,
-			profile:  scenario.Pi,
+			// Pi and OpenCode run over the router or Azure; Claude Code runs on Anthropic's alone.
+			providers: []string{providerLlama, providerAzure},
+			profile:   scenario.Pi,
 			driver: func(i *Infrastructure) (harness.Driver, error) {
 				d := pi.Driver{
 					SessionDir: filepath.Join(i.cfg.State, "pi"),
@@ -67,12 +72,14 @@ func init() {
 			},
 		},
 		{
-			name:     harnessClaude,
-			command:  "claude",
-			provider: claude.Provider,
-			model:    "haiku",
-			vision:   "haiku",
-			profile:  scenario.Claude,
+			name:      harnessClaude,
+			command:   "claude",
+			pinned:    "2.1.286",
+			provider:  claude.Provider,
+			model:     "haiku",
+			vision:    "haiku",
+			providers: []string{claude.Provider},
+			profile:   scenario.Claude,
 			driver: func(i *Infrastructure) (harness.Driver, error) {
 				// Claude Code keeps its own sessions. The cache is the one Pi's driver uses: each
 				// entry is named by its content, so the two don't meet.
@@ -80,12 +87,14 @@ func init() {
 			},
 		},
 		{
-			name:     harnessOpenCode,
-			command:  "opencode",
-			provider: providerLlama,
-			model:    "unsloth/gpt-oss-120b-GGUF:Q4_K_M",
-			vision:   qwenVision,
-			profile:  scenario.OpenCode,
+			name:      harnessOpenCode,
+			command:   "opencode",
+			pinned:    "1.18.34",
+			provider:  providerLlama,
+			model:     "unsloth/gpt-oss-120b-GGUF:Q4_K_M",
+			vision:    qwenVision,
+			providers: []string{providerLlama, providerAzure},
+			profile:   scenario.OpenCode,
 			driver: func(i *Infrastructure) (harness.Driver, error) {
 				providers, err := i.openCodeProviders()
 				if err != nil {
@@ -112,7 +121,7 @@ func init() {
 // an Entra ID token, fetched once here: OpenCode's configuration takes no command, so a session
 // that outlives the token, about an hour, fails.
 func (i *Infrastructure) openCodeProviders() (map[string]opencode.Provider, error) {
-	vision := cmp.Or(i.cfg.HarnessVisionModel, i.defaultVision())
+	vision := i.harnessVision()
 	providers := map[string]opencode.Provider{
 		providerLlama: {
 			// LLAMA_BASE_URL is the router's root; OpenCode's provider takes the

@@ -31,7 +31,7 @@ func New(stdout, stderr io.Writer) *App {
 	root := newRoot(cfg, infra, scenarios)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.AddCommand(commands(dom, scenarios, out)...)
+	root.AddCommand(commands(cfg, dom, scenarios, out)...)
 
 	return &App{root: root, out: out}
 }

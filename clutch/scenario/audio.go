@@ -124,6 +124,10 @@ func audioScenario(svc *session.Service, models func() (Models, error), needs []
 	}
 }
 
+// TranscribeRecording is the Go tool's work, for a caller that offers its own: it returns
+// media.Phrase's transcript from m's audio client.
+func TranscribeRecording(ctx context.Context, m Models) (string, error) { return transcribe(ctx, m) }
+
 // transcribe returns media.Phrase's transcript from m's audio client.
 func transcribe(ctx context.Context, m Models) (string, error) {
 	t, err := m.Audio.Transcribe(ctx, model.TranscribeRequest{

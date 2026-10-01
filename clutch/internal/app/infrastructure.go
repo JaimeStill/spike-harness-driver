@@ -168,6 +168,16 @@ func (i *Infrastructure) defaultVision() string {
 	return i.spec().vision
 }
 
+// harnessVision is the model a harness session sent an image runs on: --harness-vision-model,
+// or the default vision model.
+func (i *Infrastructure) harnessVision() string {
+	return cmp.Or(i.cfg.HarnessVisionModel, i.defaultVision())
+}
+
+// defaultTakesImages is whether a session's default model takes images, as every model on
+// Azure does.
+func (i *Infrastructure) defaultTakesImages() bool { return i.provider() == providerAzure }
+
 // Profile returns how the scenarios talk to the harness the flags name.
 func (i *Infrastructure) Profile() scenario.Profile { return i.spec().profile }
 
@@ -352,9 +362,9 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		EmbedModel:    cmp.Or(i.cfg.EmbedModel, t.embed),
 		AudioModel:    cmp.Or(i.cfg.AudioModel, t.audio),
 		AudioInChat:   t.audioInChat,
-		HarnessVision: cmp.Or(i.cfg.HarnessVisionModel, i.defaultVision()),
+		HarnessVision: i.harnessVision(),
 		// Every model on Azure takes images, so the default model can't show a dropped one.
-		DefaultTakesImages: i.provider() == providerAzure,
+		DefaultTakesImages: i.defaultTakesImages(),
 	}
 	switch t.name {
 	case targetLlama:

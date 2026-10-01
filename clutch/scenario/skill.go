@@ -42,6 +42,17 @@ func mottoSkill() (harness.Skill, error) {
 	return catalog.Skill(sub)
 }
 
+// MottoSkill returns the embedded clutch-motto skill and the motto it gives, for a caller that
+// checks a model's answer against the skill rather than narrating the scenario.
+func MottoSkill() (skill harness.Skill, phrase string, err error) {
+	skill, err = mottoSkill()
+	return skill, motto, err
+}
+
+// Normalize lowercases s and turns every run of characters other than letters and digits into
+// one space, the form the scenarios compare a reply to a phrase in.
+func Normalize(s string) string { return normalize(s) }
+
 // skillScenario shows the two ways a skill reaches the model: invoked by name in the prompt,
 // with no tools at all, and found by the model itself, which loads the skill with the harness's
 // skill tool, as the profile names it. When --skills loaded the example clutch-weather skill,

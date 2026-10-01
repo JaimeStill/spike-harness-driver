@@ -161,3 +161,38 @@ func TestListShowsEachKindOfNeed(t *testing.T) {
 		}
 	}
 }
+
+func TestConformSkipsEveryCellItCannotRun(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	code, out, errs := execute(t, "--state", t.TempDir(), "conform")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, errs)
+	}
+	for _, want := range []string{
+		"HARNESS", "audio-tool", "pi        llama.cpp", "claude    anthropic", "opencode  azure",
+		"need the harness executable on the PATH", "0 cells ran, 5 skipped; 0 pass, 0 FAIL, 0 n/a",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestConformFiltersAreValidated(t *testing.T) {
+	code, _, errs := execute(t, "conform", "--harness", "nope")
+	if code != 1 || !strings.Contains(errs, `--harness: unknown harness "nope"`) {
+		t.Errorf("exit %d, stderr %q", code, errs)
+	}
+	t.Setenv("PATH", t.TempDir())
+	code, out, errs := execute(t, "--state", t.TempDir(), "conform", "--harness", "pi,opencode", "--provider", "azure")
+	if code != 0 || !strings.Contains(out, "0 cells ran, 2 skipped") || strings.Contains(out, "claude") {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+}
+
+func TestHelpListsConform(t *testing.T) {
+	_, out, _ := execute(t, "--help")
+	if !strings.Contains(out, "conform") {
+		t.Errorf("help lacks conform:\n%s", out)
+	}
+}
