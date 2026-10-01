@@ -54,7 +54,7 @@ func TestUnknownHarnessFailsBeforeTheCommandRuns(t *testing.T) {
 
 func TestHarnessIsValidated(t *testing.T) {
 	code, out, errs := execute(t, "--harness", "nope", "list")
-	if code != 1 || !strings.Contains(errs, `unknown harness "nope" (known: pi, claude)`) || out != "" {
+	if code != 1 || !strings.Contains(errs, `unknown harness "nope" (known: pi, claude, opencode)`) || out != "" {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errs)
 	}
 	for _, name := range []string{"pi", "claude"} {
@@ -66,7 +66,7 @@ func TestHarnessIsValidated(t *testing.T) {
 
 func TestHelpListsTheHarnesses(t *testing.T) {
 	_, out, _ := execute(t, "--help")
-	if !strings.Contains(out, "pi | claude") {
+	if !strings.Contains(out, "pi | claude | opencode") {
 		t.Errorf("help lacks the harnesses:\n%s", out)
 	}
 }

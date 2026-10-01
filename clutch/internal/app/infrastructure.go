@@ -130,7 +130,7 @@ func (i *Infrastructure) Driver() (harness.Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return h.driver(i.cfg.State), nil
+	return h.driver(i), nil
 }
 
 // spec returns the harness the flags name. Validate has already failed for a name with no

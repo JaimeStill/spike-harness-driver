@@ -20,6 +20,7 @@ import (
 
 	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 	"github.com/JaimeStill/spike-harness-driver/model"
+	"github.com/JaimeStill/spike-harness-driver/opencode"
 )
 
 func TestValidateLoadsTheSourcesIntoEverySessionsOptions(t *testing.T) {
@@ -160,7 +161,7 @@ func TestHarnessDefaultsFollowTheHarnessUnlessOverridden(t *testing.T) {
 }
 
 func TestDriverIsBuiltPerHarness(t *testing.T) {
-	for name, want := range map[string]string{"pi": "pi.Driver", "claude": "claude.Driver"} {
+	for name, want := range map[string]string{"pi": "pi.Driver", "claude": "claude.Driver", "opencode": "opencode.Driver"} {
 		d, err := newInfrastructure(flagged(t, "--harness", name, "--state", t.TempDir())).Driver()
 		if err != nil || fmt.Sprintf("%T", d) != want {
 			t.Errorf("--harness %s: Driver = %T, %v, want %s", name, d, err, want)
@@ -168,6 +169,18 @@ func TestDriverIsBuiltPerHarness(t *testing.T) {
 	}
 	if _, err := newInfrastructure(flagged(t, "--harness", "nope")).Driver(); err == nil {
 		t.Error("Driver built an adapter for an unknown harness")
+	}
+}
+
+func TestOpenCodesProviderIsTheRouter(t *testing.T) {
+	t.Setenv("LLAMA_BASE_URL", "http://router.invalid:8080/")
+	d, err := newInfrastructure(flagged(t, "--harness", "opencode", "--harness-vision-model", "seer")).Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := d.(opencode.Driver).Providers[providerLlama]
+	if !ok || p.BaseURL != "http://router.invalid:8080/v1" || !p.Models["seer"].Image {
+		t.Fatalf("provider = %+v, want the router's /v1 base with the vision model taking images", p)
 	}
 }
 

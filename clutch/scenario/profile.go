@@ -19,7 +19,7 @@ type Profile struct {
 	DropsImage bool
 }
 
-// Pi and Claude are the profiles of the harnesses clutch drives.
+// Pi, Claude, and OpenCode are the profiles of the harnesses clutch drives.
 var (
 	Pi = Profile{
 		Name:        "Pi",
@@ -31,5 +31,13 @@ var (
 		Name:        "Claude Code",
 		SkillTool:   "Skill",
 		SkillPrefix: "/driver:",
+	}
+	// OpenCode offers each skill as a slash command of its name. Whether it drops an image a
+	// text-only model can't take is what the vision scenario's third step shows.
+	OpenCode = Profile{
+		Name:        "OpenCode",
+		SkillTool:   "skill",
+		SkillPrefix: "/",
+		DropsImage:  true,
 	}
 )
