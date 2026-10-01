@@ -502,3 +502,50 @@ func jsonEqual(a, b json.RawMessage) bool {
 	jb, _ := json.Marshal(y)
 	return string(ja) == string(jb)
 }
+
+func TestWaitListed(t *testing.T) {
+	s, err := mcpbridge.New(nil, mcpbridge.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waited := func() time.Duration {
+		start := time.Now()
+		if err := s.WaitListed(t.Context(), 300*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(start)
+	}
+
+	// Before any harness has listed the tools, a change needs no wait.
+	if err := s.SetSchema(json.RawMessage(`{"type":"object"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if d := waited(); d > 100*time.Millisecond {
+		t.Fatalf("waited %s with no listing yet", d)
+	}
+
+	c := newRawClient(t, s)
+	c.initialize()
+	c.tools()
+	if d := waited(); d > 100*time.Millisecond {
+		t.Fatalf("waited %s after a current listing", d)
+	}
+
+	// A change waits for the next listing, and gives up at max without one.
+	if err := s.SetSchema(json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if d := waited(); d < 250*time.Millisecond {
+		t.Fatalf("returned after %s with no listing since the change", d)
+	}
+	listed := make(chan struct{})
+	go func() {
+		defer close(listed)
+		time.Sleep(50 * time.Millisecond)
+		c.tools()
+	}()
+	if d := waited(); d > 250*time.Millisecond {
+		t.Fatalf("waited %s, past the listing", d)
+	}
+	<-listed
+}

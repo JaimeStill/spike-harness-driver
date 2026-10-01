@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -89,6 +90,13 @@ type Server struct {
 	respond  string
 	// servers are the go-sdk servers of the open tunnels and endpoints.
 	servers map[*mcp.Server]struct{}
+
+	// gen counts the changes to respond. listedGen is the gen of the last tools/list answered,
+	// as it stood when the request arrived, so a listing already under way when respond
+	// changed doesn't count as the new one; listings counts the answered listings, and listed
+	// is closed and replaced at each, for WaitListed.
+	gen, listedGen, listings int
+	listed                   chan struct{}
 }
 
 // tool is a session tool with its schema compiled for validating its arguments.
@@ -101,7 +109,7 @@ type tool struct {
 // begin with "respond", and its schema one jsonschema-go can compile, since the bridge validates each
 // call's arguments against it.
 func New(tools []harness.Tool, opts Options) (*Server, error) {
-	s := &Server{name: opts.Name, opts: opts, servers: map[*mcp.Server]struct{}{}}
+	s := &Server{name: opts.Name, opts: opts, servers: map[*mcp.Server]struct{}{}, listed: make(chan struct{})}
 	if s.name == "" {
 		s.name = DefaultName
 	}
@@ -156,6 +164,7 @@ func (s *Server) SetSchema(schema json.RawMessage) error {
 	}
 	old := s.respond
 	s.schema, s.resolved, s.respond = schema, resolved, name
+	s.gen++
 	for srv := range s.servers {
 		if old != "" {
 			srv.RemoveTools(old)
@@ -163,6 +172,31 @@ func (s *Server) SetSchema(schema json.RawMessage) error {
 		s.installRespond(srv)
 	}
 	return nil
+}
+
+// WaitListed waits until a harness has listed the tools since respond last changed, for up to
+// max, so a prompt sent next finds the current respond tool. A harness learns of the change by
+// notifications/tools/list_changed and lists the tools again in its own time; a prompt that
+// overtakes the listing reaches a model that sees the old tool. WaitListed returns at once when
+// no harness has listed the tools yet, since its first listing will be current, and returns nil
+// when max passes, since a call to a stale respond tool still tells the model the current name.
+func (s *Server) WaitListed(ctx context.Context, max time.Duration) error {
+	deadline := time.After(max)
+	for {
+		s.mu.Lock()
+		done, listed := s.listings == 0 || s.listedGen >= s.gen, s.listed
+		s.mu.Unlock()
+		if done {
+			return nil
+		}
+		select {
+		case <-listed:
+		case <-deadline:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // RespondName returns the current respond tool's name, which an adapter may give the model in
@@ -206,7 +240,7 @@ func (s *Server) installRespond(srv *mcp.Server) {
 }
 
 // routeRespond sends every call to a respond tool's name to handleRespond, whether or not the
-// server still lists that name. A call to a name the schema replaced or removed would
+// server still lists that name, and counts the tools/list requests answered, for WaitListed. A call to a name the schema replaced or removed would
 // otherwise fail as a protocol error, for an unknown tool, which a harness may not show the
 // model; as a failed call, it tells the model what to do instead.
 func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
@@ -214,7 +248,22 @@ func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
 		if call, ok := req.(*mcp.CallToolRequest); ok && call.Params != nil && IsRespond(call.Params.Name) {
 			return s.handleRespond(ctx, call)
 		}
-		return next(ctx, method, req)
+		if method != "tools/list" {
+			return next(ctx, method, req)
+		}
+		s.mu.Lock()
+		gen := s.gen
+		s.mu.Unlock()
+		res, err := next(ctx, method, req)
+		if err == nil {
+			s.mu.Lock()
+			s.listings++
+			s.listedGen = max(s.listedGen, gen)
+			close(s.listed)
+			s.listed = make(chan struct{})
+			s.mu.Unlock()
+		}
+		return res, err
 	}
 }
 

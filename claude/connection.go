@@ -31,14 +31,6 @@ type connection struct {
 	listWait time.Duration
 
 	mu sync.Mutex
-	// gen counts the changes to the respond tool. listedGen is the gen of the last tools/list
-	// the tunnel answered, as it stood when the request arrived, so a listing already under way
-	// when the tool changed doesn't count as the new one. listed is closed and replaced at each
-	// answered listing, so Prompt can wait for the next.
-	gen       int
-	listedGen int
-	listings  int
-	listed    chan struct{}
 	// run ends the tool calls of the exchange Cancel cancels.
 	run    context.Context
 	endRun context.CancelFunc
@@ -47,7 +39,7 @@ type connection struct {
 var _ harness.Connection = (*connection)(nil)
 
 func newConnection(tools *mcpbridge.Server, allowed []string, listWait time.Duration) *connection {
-	c := &connection{tools: tools, allowed: map[string]bool{}, listWait: listWait, listed: make(chan struct{})}
+	c := &connection{tools: tools, allowed: map[string]bool{}, listWait: listWait}
 	for _, t := range allowed {
 		c.allowed[t] = true
 	}
@@ -59,10 +51,9 @@ func newConnection(tools *mcpbridge.Server, allowed []string, listWait time.Dura
 // events. A request with a schema first offers the model a respond tool for it, and asks for a
 // call in the message.
 //
-// Claude Code learns of a changed tool list by notification and lists the tools again, but it
-// connects to the driver's tool server only once the first message arrives. So when the
-// respond tool changes on a connected server, Prompt waits for that listing before it sends
-// the message, so the model sees the new tool.
+// Claude Code learns of a changed tool list by notification and lists the tools again in its
+// own time, so when the respond tool changes, Prompt waits for that listing before it sends the
+// message, so the model sees the new tool.
 func (c *connection) Prompt(ctx context.Context, req harness.Request) error {
 	c.mu.Lock()
 	c.endRun()
@@ -75,14 +66,8 @@ func (c *connection) Prompt(ctx context.Context, req harness.Request) error {
 	}
 	respond := c.tools.RespondName()
 	if respond != before {
-		c.mu.Lock()
-		c.gen++
-		gen, connected := c.gen, c.listings > 0
-		c.mu.Unlock()
-		if connected {
-			if err := c.awaitListing(ctx, gen); err != nil {
-				return err
-			}
+		if err := c.tools.WaitListed(ctx, c.listWait); err != nil {
+			return err
 		}
 	}
 
@@ -102,29 +87,6 @@ func (c *connection) Prompt(ctx context.Context, req harness.Request) error {
 		Type:    "user",
 		Message: userContent{Role: "user", Content: content},
 	})
-}
-
-// awaitListing waits for a tools/list that arrived after the respond tool's gen-th change, for
-// up to the connection's listWait. A listing that never comes isn't an error: the model then
-// sees the tools Claude Code listed last, and a call to the old respond tool tells it the new
-// name.
-func (c *connection) awaitListing(ctx context.Context, gen int) error {
-	deadline := time.After(c.listWait)
-	for {
-		c.mu.Lock()
-		done, listed := c.listedGen >= gen, c.listed
-		c.mu.Unlock()
-		if done {
-			return nil
-		}
-		select {
-		case <-listed:
-		case <-deadline:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
 }
 
 // Cancel ends the exchange's tool calls in progress and interrupts the turn. Claude Code
@@ -198,7 +160,7 @@ func (c *connection) relay(ctx context.Context, r controlRequest) any {
 		return fmt.Errorf("claude: no MCP server %q", r.ServerName)
 	}
 	c.mu.Lock()
-	run, gen := c.run, c.gen
+	run := c.run
 	c.mu.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -208,26 +170,10 @@ func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	if err != nil {
 		return err
 	}
-	if isListing(r.Message) {
-		c.mu.Lock()
-		c.listings++
-		c.listedGen = max(c.listedGen, gen)
-		close(c.listed)
-		c.listed = make(chan struct{})
-		c.mu.Unlock()
-	}
 	if resp == nil {
 		resp = notificationAck
 	}
 	return map[string]json.RawMessage{"mcp_response": resp}
-}
-
-// isListing reports whether msg is a tools/list request.
-func isListing(msg json.RawMessage) bool {
-	var m struct {
-		Method string `json:"method"`
-	}
-	return json.Unmarshal(msg, &m) == nil && m.Method == "tools/list"
 }
 
 // permit answers a permission check. The driver's own tools, and the harness tools the session
