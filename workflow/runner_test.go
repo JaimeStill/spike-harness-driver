@@ -289,7 +289,7 @@ func TestRunFanOutFanIn(t *testing.T) {
 	if s.Status != workflow.StatusDone || s.Done() != 4 {
 		t.Fatalf("state = %+v", s)
 	}
-	if h.count("A says high; B says B is fine.") != 1 || h.count("high again: B is fine") != 1 {
+	if h.count("A says high; B says B is fine.") != 1 || h.count("high again: B is fine on the plan") != 1 {
 		t.Errorf("prompts = %q", h.prompts)
 	}
 	// One open per session, the lead session's two steps sharing one, and each closed again.

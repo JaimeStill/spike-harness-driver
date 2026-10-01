@@ -14,6 +14,7 @@ import (
 // on the synthesis session.
 const review = `{
 	"name": "review",
+	"input": "the plan",
 	"sessions": [{"name": "a"}, {"name": "b", "harness": "claude"}, {"name": "lead"}],
 	"steps": [
 		{"id": "ra", "session": "a", "prompt": "Review it.",
@@ -22,7 +23,7 @@ const review = `{
 		{"id": "synth", "session": "lead", "after": ["ra", "rb"],
 		 "prompt": "A says {{.Steps.ra.Structured.risk}}; B says {{.Steps.rb.Text}}."},
 		{"id": "follow", "session": "lead", "after": ["synth"],
-		 "prompt": "{{.Steps.ra.Structured.risk}} again: {{.Steps.synth.Text}}"}
+		 "prompt": "{{.Steps.ra.Structured.risk}} again: {{.Steps.synth.Text}} on {{.Input}}"}
 	]
 }`
 
@@ -95,7 +96,7 @@ func TestPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "high again: mixed" {
+	if got != "high again: mixed on the plan" {
 		t.Errorf("Prompt(follow) = %q", got)
 	}
 	if _, err := w.Prompt("synth", map[string]harness.Result{"ra": results["ra"]}); err == nil || !strings.Contains(err.Error(), `no result of step "rb"`) {

@@ -20,7 +20,10 @@ var ErrInvalid = errors.New("workflow: invalid workflow")
 
 // Workflow is a DAG of steps over named sessions.
 type Workflow struct {
-	Name     string        `json:"name"`
+	Name string `json:"name"`
+	// Input is the run's input, which every step's prompt template reaches as {{.Input}}, so
+	// one workflow serves many inputs.
+	Input    string        `json:"input,omitempty"`
 	Sessions []SessionSpec `json:"sessions"`
 	Steps    []Step        `json:"steps"`
 }
@@ -51,6 +54,8 @@ type Step struct {
 
 // Context is the data a step's prompt template runs on.
 type Context struct {
+	// Input is the workflow's Input.
+	Input string
 	// Steps holds the result of every step the step depends on, by step ID.
 	Steps map[string]StepResult
 }
@@ -195,7 +200,7 @@ func (w Workflow) Prompt(id string, results map[string]harness.Result) (string, 
 	if err != nil {
 		return "", err
 	}
-	data := Context{Steps: map[string]StepResult{}}
+	data := Context{Input: w.Input, Steps: map[string]StepResult{}}
 	for _, dep := range w.Ancestors(id) {
 		res, ok := results[dep]
 		if !ok {
