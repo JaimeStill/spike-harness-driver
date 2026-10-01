@@ -17,27 +17,32 @@ type Profile struct {
 	// drops it and runs the exchange anyway. A harness whose models all take images has no
 	// such case to show.
 	DropsImage bool
+	// DroppedImage is the text the harness puts in the image's place.
+	DroppedImage string
 }
 
 // Pi, Claude, and OpenCode are the profiles of the harnesses clutch drives.
 var (
 	Pi = Profile{
-		Name:        "Pi",
-		SkillTool:   "read",
-		SkillPrefix: "/skill:",
-		DropsImage:  true,
+		Name:         "Pi",
+		SkillTool:    "read",
+		SkillPrefix:  "/skill:",
+		DropsImage:   true,
+		DroppedImage: "(image omitted: model does not support images)",
 	}
 	Claude = Profile{
 		Name:        "Claude Code",
 		SkillTool:   "Skill",
 		SkillPrefix: "/driver:",
 	}
-	// OpenCode offers each skill as a slash command of its name. Whether it drops an image a
-	// text-only model can't take is what the vision scenario's third step shows.
+	// OpenCode offers each skill as a slash command of its name, and replaces an image a model
+	// can't take with an error the model is told to report (OpenCode 1.18.34's
+	// provider/transform.ts).
 	OpenCode = Profile{
-		Name:        "OpenCode",
-		SkillTool:   "skill",
-		SkillPrefix: "/",
-		DropsImage:  true,
+		Name:         "OpenCode",
+		SkillTool:    "skill",
+		SkillPrefix:  "/",
+		DropsImage:   true,
+		DroppedImage: "ERROR: Cannot read image (this model does not support image input). Inform the user.",
 	}
 )
