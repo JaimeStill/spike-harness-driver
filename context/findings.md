@@ -1,10 +1,11 @@
 # Findings
 
-Evidence toward the spike's question, by part. The coordinator's `plan` session reads it with
-the result. The package documentation in `harness`, `harness/stdio`, `harness/filestore`,
-`harness/catalog`, `harness/cache`, `model`, `mcpbridge`, and the adapters `pi`, `claude`, and
-`opencode` explains how the built code works; this note holds what the code shows about
-harnesses in general. The last part compares the three harnesses.
+Evidence toward the spike's question, by part, and the answer it adds up to. The coordinator's
+`plan` session reads it with the result. The package documentation in `harness`,
+`harness/stdio`, `harness/filestore`, `harness/catalog`, `harness/cache`, `model`, `mcpbridge`,
+`workflow`, `workflow/filestore`, `workflow/sse`, and the adapters `pi`, `claude`, and `opencode`
+explains how the built code works, and `deploy/README.md` the image; this note holds what the
+code shows about harnesses and the infrastructure over them in general.
 
 ## Exchanges
 
@@ -151,7 +152,7 @@ harnesses in general. The last part compares the three harnesses.
 - gpt-oss-120b on the llama.cpp router streams thinking deltas, although Pi's model catalog marks
   it `reasoning: false`.
 - The router loads models on demand and lists some as unloaded. An exchange against a cold model
-  can take minutes to produce its first token (`service-runtime.md`).
+  can take minutes to produce its first token (Open for a service).
 - **Pi exposes vision and nothing else native.**
   - Its RPC `prompt`, `steer`, and `follow_up` take images.
   - Pi decides whether a model takes images from the provider's catalog, which for the router
@@ -192,11 +193,13 @@ harnesses in general. The last part compares the three harnesses.
 
 The design held for three harnesses: Claude Code and OpenCode fit `harness.Connection` and
 `harness/stdio` as Pi does, and no scenario names a harness outside a per-harness profile. It
-stays provisional until step 6's workflow uses it.
+held for the workflow too, which runs sessions on several harnesses in one run through
+`harness.Driver` alone (Workflows).
 
 - Six modules under a committed `go.work`, the packaging recommended for go-ai:
   - the core (`harness`, `harness/stdio`, `harness/filestore`, `harness/catalog`,
-    `harness/cache`), with the standard library only;
+    `harness/cache`) and the workflow layer over it (`workflow`, `workflow/filestore`,
+    `workflow/sse`), with the standard library only;
   - `mcpbridge`, which holds the go-sdk dependency, imported only by the adapters that need
     MCP for tools;
   - one module per adapter (`pi`, `claude`, `opencode`), which carries its harness's baseline;
@@ -251,7 +254,16 @@ stays provisional until step 6's workflow uses it.
 
 - A driver that runs a harness as a process owns everything the harness starts. The harness runs
   in a process group of its own, and what is left of the group is killed when the harness exits.
-  `service-runtime.md` covers the rejected alternatives.
+  Rejected alternatives:
+  - Leaving cleanup to the harness. It's portable, but a harness that is killed or crashes
+    cleans up nothing.
+  - Linux's `Pdeathsig`. It reaches only the direct child.
+  - Relying on the container alone. The runtime kills the process tree only when the container
+    stops, so a service that runs many sessions would gather orphans in between.
+- When the driver itself dies, `kill -9` included, Pi exits on its own as its stdin closes, so
+  no harness outlives the driver. What a harness started, such as a running shell tool, isn't
+  covered, since the group kill runs only in a driver that outlives its harness; the image runs
+  `tini` as PID 1 to reap what is left (Deployment).
 - The same holds for a command tool: it runs in a process group of its own, which is killed once
   the command exits, so a script's leftover child neither outlives the call nor holds it open.
 - The harness's stdout and stderr must be `*os.File` pipes. Any other writer makes exec copy it
@@ -338,3 +350,180 @@ the control to make the harness the program's own. Going in, the assumption was 
   harness. Every harness has quirks of its own, so the choice comes down to the requirements
   at hand, and the `harness` surface lets a program make it per workload rather than bet on
   one.
+
+## Workflows
+
+The workflow layer coordinates long-running work over harness sessions, through
+`harness.Driver` alone. `workflow` holds the model and the Runner, about 1,400 lines, the
+Runner 775 of them; `workflow/filestore` keeps each run's log, and `workflow/sse` streams it.
+`clutch workflow` runs one in a terminal, and `clutch serve` hosts runs over HTTP.
+
+- **A workflow is a DAG of exchange steps over named sessions.** Each step is one exchange, its
+  prompt a `text/template` over the run's input and its ancestors' results, structured ones
+  included. A session carries one step at a time, which follows from the harness carrying one
+  exchange at a time, so steps on one session run in order, and their shared history is the
+  session's memory: a lead session's follow-up answered from the decision its earlier step made.
+  Each session names its own harness, provider, and model, and one run used Pi on the router for
+  three reviewers and Claude Code on Anthropic for the lead.
+- **One log per run is progress, the stream, and the resume point.** A run's State is the fold of
+  its logged events, numbered by Seq: run started, resumed, paused, and ended, a session opened
+  with its harness session ID, and a step started with its exchange ID and ended with its
+  result. An exchange's own events, such as deltas and tool calls, reach subscribers live and
+  stay out of the log. SSE sends each logged event with its Seq as the id, so `Last-Event-ID`
+  resumes exactly after the last logged event a client saw, and answers 204 once an ended run
+  has nothing more, which is what stops an `EventSource` reconnecting.
+- **The concurrency limit bounds exchanges in flight, across every run.** A run takes a step's
+  slot before it launches the step, so steps start in declaration order and none opens a session
+  while it would only wait. A session opens lazily and closes after its last step. The limit is
+  also the memory knob: `clutch serve` idles at about 10 MiB, and each Pi session adds about
+  95 MiB.
+- **Cancel and interrupt are different outcomes.** Cancelling a run cancels its exchanges in
+  flight and ends its log as cancelled; a failed step does the same with the run failed.
+  Shutting the runner down, on SIGTERM or an interrupt, cancels the exchanges but logs no end, so
+  the run stays unfinished and the next runner resumes it.
+- **Resume reopens each session under its recorded harness session ID**, from a fixed working
+  directory, since Pi scopes session IDs to one; the sessions keep their history and pass the
+  journal check. Finished steps keep their results. A step the log has as started but not ended
+  is adopted from the session's exchange records when its exchange ended cleanly, and runs again
+  otherwise. Live, every crash landed mid-exchange, so the run-again path is proven live and
+  adoption in tests only. A log that already records a failed or cancelled step but no end, as a
+  shutdown during the failure drain leaves, ends the same way on resume.
+- **Resume after a restart held live** for an interrupt, `kill -9` of the server, and
+  `docker stop` of the container: each restarted runner resumed the run and finished it.
+- **A resumed step can be slow, not hung.** On one resume after `docker stop`, both resumed
+  reviewers took about 5 minutes instead of about 10 seconds, streaming thousands of Pi events
+  the whole time, and ended with valid results; two repeats took seconds. The cause is
+  unconfirmed: the router still serving the requests the stop cut off, or the model after an
+  aborted turn in its history. It is why a step needs a deadline or a heartbeat (Open for a
+  service).
+- **A usage limit pauses the run** until the limit's reset time, then runs the step again. It is
+  tested on documented shapes only, since a limit can't be reached on demand.
+- **One state directory belongs to one process.** "Active" is per runner, so the run log refuses
+  an event whose Seq doesn't follow its last, and a second process driving the same run fails to
+  append rather than corrupting the log; nothing coordinates two processes. The log syncs each
+  event to disk, and keeps a last line a crash left without its newline when it decodes.
+- Rejected prior art:
+  - **tau's `orchestrate`**: global registries, `map[string]any` state, two separate progress
+    paths, and an in-memory checkpoint store only, so a run can't resume after a restart.
+  - **herald's SSE**, built on it: events sent on a buffered channel without blocking, so a slow
+    client loses them silently. The Runner gives each subscriber an unbounded queue.
+  - **`claude-classify-docs`**, a workflow run by a harness alone: its state on disk is never
+    resumed from, and its only progress is the agent's own output. It shows a harness can run a
+    workflow, not that one can be operated as a service.
+
+## Deployment
+
+`deploy/Containerfile` builds the image: clutch, Pi, and `tini`.
+
+- **215 MB** on Debian trixie-slim: Pi's standalone release 110 MB, the base 79 MB, the static
+  clutch 13.4 MB, and `tini` with CA certificates 12.5 MB. Pi from npm on `node:22-slim` is
+  377 MB, since Node itself is about 145 MB. Pi's download is pinned by its release SHA-256 and
+  every base image by digest.
+- **Alpine is blocked by Pi:** its standalone release links glibc, and it ships no musl build;
+  `gcompat` would be an unproven shim under the harness. Distroless (`cc-debian12`) is the route
+  to a smaller image, about 165 MB, at the cost of a shell for debugging.
+- **The image carries one harness,** the one its workflows run on. A service image does carry a
+  harness, and Pi is the default.
+- **`tini` runs as PID 1.** It reaps whatever a harness leaves behind once the driver is gone,
+  and passes SIGTERM to clutch, which shuts down so the next start resumes its runs. The
+  shutdown allows itself 30 seconds, longer than Docker's default grace of 10.
+- **Pi reaches nothing at start.** In `--mode rpc` with discovery off, it made no `connect()` at
+  all in 8 seconds under `strace`: no update check and no telemetry. Its only network use is
+  the model provider.
+- The image runs as an unprivileged user, with its state on a private volume.
+
+## Managed identity and IL6, on paper
+
+- **The model credential.** Pi on Azure takes its key as a command it runs per request, which on
+  a workstation is `az`. The image has no `az`, which would add about 1 GB. A service gives Pi a
+  small command of its own instead, such as `clutch token`, which reads a managed identity's
+  token from IMDS over plain HTTP. The direct model client takes the same source behind its
+  token-source function. Neither needs a stored secret or an Azure SDK.
+- **OpenCode's credential is fixed when its session opens,** so on Azure a session longer than
+  about an hour fails, and the token sits in an environment its shell tool inherits. That is a
+  further reason the image carries Pi.
+- **IL6:**
+  - Azure Government lists no transcription model, so audio needs another source.
+  - The image installs nothing at run time, and Pi makes no call of its own beyond the model
+    provider, so the endpoints a service allowlists are its model endpoints and IMDS.
+  - Pi's pin, by version and checksum, is what an accredited image needs; a native install that
+    updates itself, as Claude Code is, doesn't fit.
+- **Client authentication** to a service's HTTP surface is a gap the service fills. `clutch serve`
+  has none, and listens on loopback unless told otherwise.
+
+## Open for a service
+
+What the spike leaves to the service that adopts it:
+
+- **Steps need a deadline or a heartbeat.** `Send` has no deadline of its own, which suits long
+  agent work, but a model the router loads on demand can take minutes to its first token, and a
+  resumed step took 5 minutes (Workflows). A service tells a slow model from a hung one by its
+  exchange's live events, and gives each step a bound.
+- **Retry policy.** A provider error, such as llama.cpp rejecting a malformed tool call, ends the
+  exchange with `stopReason: "error"`, and Pi doesn't retry it. The Runner fails the run on any
+  step error but a usage limit; a service decides which errors to retry. It can also watch the
+  `EventLimit` notices a subscription session sends, to slow down before a limit refuses a run.
+- **The service's own stores.** A service keeps exchange records and run logs in its database,
+  behind `harness.Store` and `workflow.Store`; a torn last line in `harness/filestore` blocks
+  that session's resume, which a database doesn't risk. Pi's `Head` reads every entry of a
+  session on each open, so a long-running session needs bounded journal reads. A session records
+  each exchange synchronously, so a slow store delays the next `Send`.
+- **Unread exchanges.** An exchange whose events no one reads keeps them, and a goroutine, until
+  its session closes. The Runner always reads its steps' exchanges; a coordinator that only
+  Waits on one may need a way to drop it.
+- **Tool and skill sources.**
+  - A database as a registry: it chooses tools and skills per tenant or per workflow, and
+    versions them. A skill source is an `fs.FS` over its rows, which `harness/catalog` reads
+    unchanged. A stored tool definition names code that lives elsewhere, an executable on disk
+    or an MCP server.
+  - Layered skill search paths with precedence, where a nearer skill of a name overrides a
+    farther one, as Pi's own discovery does. `--skills` treats a shared name as an error.
+  - Command tools inherit the service's whole environment, provider keys included, and need an
+    allowlist.
+  - A session should always name its harness tools: `HarnessTools: nil` keeps the harness's
+    defaults. Workflow sessions enable none.
+  - A crash while the cache writes can leave a `.write-*` directory behind, which needs a sweep.
+- **Compaction.** Each harness compacts a long session on its own, and the adapters pass the
+  markers through as `EventHarness`. A workflow that leans on a session's memory needs to know
+  what a compaction drops, per harness.
+- **A system prompt per session.** Pi's can be replaced entirely (`--system-prompt`, or per run
+  from an extension's `before_agent_start`); Claude Code's `--system-prompt` and OpenCode's agent
+  prompt weren't probed. A `SystemPrompt` on `harness.Options`, and on a workflow's session,
+  would give each session its role.
+- **Forcing `respond`.** A structured response depends on the model choosing to call `respond`,
+  which gpt-oss doesn't reliably do after a tool call. The provider's `tool_choice`, through Pi's
+  `before_provider_request` hook, would force it; its shape differs per provider.
+- **Native capability models.** The router's vision, embedding, and audio models share the GPU
+  pool with the text models, so a service sizes the set it keeps loaded or swaps models, and a
+  swap must reach the harness's catalog before a session selects the model. Gemma 4 E4B loops on
+  audio longer than about 30 seconds, and Azure's transcription takes files up to 25 MB.
+- **Credentials.** The driver's MCP server for OpenCode listens on loopback behind a per-session
+  bearer token. An error from a failed model request quotes the endpoint's URL, which a service
+  redacts from what it logs.
+- **Windows.** The process-group hooks do nothing there. A job object that kills its processes
+  when it closes (`golang.org/x/sys/windows`) is the fix, if Windows ever matters.
+
+## The answer
+
+**Go can drive an external agent harness as the infrastructure for agentic work.** By part:
+
+- **Capabilities.** Tools and skills run through every harness; a tool defined in Go reaches Pi
+  through its extension and Claude Code and OpenCode through MCP. Of the native capabilities,
+  harnesses expose vision alone, and drop an image a model can't take quietly. Embeddings and
+  audio need a direct model client, one OpenAI-compatible shape over the router and Azure, and
+  an agent reaches them through a tool (Capabilities, Payloads).
+- **Sessions.** A session outlives its process on every harness and resumes by ID, keeping its
+  history. Exchange IDs are the driver's own, kept in a store and bound to the harness's journal
+  where it keeps one, which catches Pi's cwd-scoped sessions (Sessions).
+- **Exchanges.** No harness tags its events with a request, so a session carries one exchange at
+  a time, scoped from start to settle, with each harness's cancellation mapped to one outcome. A
+  structured response is a `respond` tool on every harness (Exchanges, Payloads).
+- **Workflows.** A standard-library layer of about 1,800 lines over `harness.Driver` runs a DAG of
+  exchanges over sessions on any mix of harnesses, with a concurrency limit, cancellation,
+  progress and SSE from one log per run, and resume after an interrupt, a `kill -9`, or a
+  container restart (Workflows).
+
+**What it settles for go-ai:** both surfaces, a harness-session surface and a model-client
+surface, with the workflow layer above `harness` and harness-agnostic. **A service image carries
+a harness:** one, pinned, Pi by default, in about 215 MB (Deployment, Harness comparison). What a
+service still owes is in Open for a service.

@@ -1,103 +1,137 @@
-# reset · harness-adapters
+# reset · long-running-workflow
 
 - **Status:** closeout
 - **Session:** start
-- **Branch:** harness-adapters
+- **Branch:** long-running-workflow
 
 ## Disposition
 
-- **Integrated:** deleted `context/adapters.md`. The `claude` and `opencode` adapters, `mcpbridge`,
-  and their package documentation built its plan, and `findings.md` records what each of its
-  questions found. Its open ideas, a system prompt option and forcing `respond`, moved to
-  `service-runtime.md`.
+The spike is complete: step 6, the last on its Path, is built and validated, and its validation
+answers the question.
+
+**The question.** Can Go drive an external agent harness (Pi, Claude Code, or OpenCode, against
+local and cloud models) as the infrastructure for agentic work, and what does that
+infrastructure need to be? The answer settles go-ai's shape and whether a service's container
+image carries a harness, for the goal `experiment.ai` (formerly `v1.ai.experiment`).
+
+**The answer. Yes.** `context/findings.md` holds the evidence by part. "The answer" there is
+the summary, and "Open for a service" lists what an adopting service still owes. By part:
+
+- **Capabilities.**
+  - Answer: tools and skills run through every harness; of the native capabilities, harnesses
+    expose vision alone, and embeddings and audio need a direct model client.
+  - Evidence (steps 3–5):
+    - A Go tool reached Pi through its bridge extension, and reached Claude Code and OpenCode
+      through `mcpbridge`.
+    - Skills loaded on all three harnesses.
+    - Every harness dropped an image a model couldn't take, quietly.
+    - `model`, one OpenAI-compatible client, served vision, embeddings, and audio on the router
+      and Azure.
+    - A Go tool that calls `model` gave a Pi session a transcript.
+    - `clutch conform` passed every capability on Azure and Anthropic for all three harnesses.
+- **Sessions.**
+  - Answer: a session outlives its process on every harness and resumes by ID with its history.
+    The driver's exchange IDs survive through a `harness.Store`, bound to Pi's journal.
+  - Evidence (steps 2 and 5):
+    - A follow-up in a new process answered from the earlier exchange.
+    - Claude Code and OpenCode resumed from any directory.
+    - `ErrJournalMismatch` caught Pi's cwd-scoped fresh session.
+    - This step: workflow sessions reopened under their recorded IDs after an interrupt,
+      `kill -9`, and `docker stop`, and passed the journal check.
+- **Scoped exchanges.**
+  - Answer: no harness tags events with a request, so a session carries one exchange at a time,
+    scoped from start to settle, under a driver-assigned UUIDv7. Each harness's cancellation
+    maps to one outcome, and a structured response is a `respond` tool on every harness.
+  - Evidence (steps 1, 3, and 5): the conformance matrix's `exchange`, `cancel`, `structured`,
+    and `resume` capabilities.
+- **Long-running workflows** (this step).
+  - Answer: a standard-library layer of about 1,800 lines over `harness.Driver` is enough. A DAG
+    of exchanges over named sessions, each on its own harness, runs under a concurrency limit,
+    with cancellation, progress, and SSE all from one log per run, and resumes after a restart.
+  - Evidence: checkpoints 1–4 below.
+- **For go-ai:** both surfaces, harness sessions and a model client, with the workflow layer
+  above `harness`.
+- **For deployment:** a service image carries one pinned harness, Pi by default. The image is
+  215 MB, idles at about 10 MiB, and adds about 95 MiB per Pi session.
+
+Note operations:
+
+- **Integrated:** deleted `context/service-runtime.md`.
+  - What step 6 built is now in the code and its documentation: `tini` as the orphan backstop
+    (`deploy/`), the pinned and checksummed harness, the usage-limit pause (`workflow`), and a
+    private state volume.
+  - Process cleanup's rejected alternatives moved to `findings.md`, Process lifecycle.
+  - Every open item moved to `findings.md`, Open for a service, so findings is the one document
+    the coordinator reads.
 - **Add or sharpen:**
   - `context/findings.md`:
-    - **Exchanges:** each harness's turn boundary and cancellation, and Claude Code's exit
-      status 1 after a failed turn.
-    - **Sessions:** resume from any directory on both new harnesses, the lost-session guard,
-      and the decision to keep `harness.Journal` optional, as Pi's guard.
-    - **Payloads:**
-      - tools through MCP;
-      - Claude Code caching a tool's schema by name, which led to `respond_<digest>` and the
-        listing wait;
-      - `--json-schema` rejected;
-      - how each harness loads skills;
-      - usage limits.
-    - **Capabilities:** the quiet image drop on every harness; OpenCode's prompt confusing
-      Gemma; gpt-oss's intermittent tool-then-`respond` failures.
-    - **Infrastructure shape:**
-      - the design held for three harnesses;
-      - six modules, with `mcpbridge` as the go-sdk boundary;
-      - `harness/cache`, and `stdio.Send` and `Notify`;
-      - the sizes;
-      - `acp-go-sdk` rejected;
-      - `clutch conform`.
-    - **Process lifecycle:** isolation per harness; private configuration directories;
-      OpenCode's listed model; a native install updating itself.
-    - **Harness comparison** (new), against the architect's two criteria, flexibility across
-      model platforms and control over the harness. It holds the latency table and the
-      verdict: Pi is the pinned default.
-  - `context/service-runtime.md`:
-    - version pins, including that a native install can't be pinned from the driver;
-    - subscription usage limits;
-    - compaction;
-    - a `SystemPrompt` option;
-    - forcing `respond`;
-    - harness credentials: Pi's per-request token command, OpenCode's fixed token and its
-      inheritance by OpenCode's shell tool (review finding 11c), and the MCP endpoint's token.
-  - `context/README.md`: Path marks step 5 built, and names the six modules, `--harness`,
-    `--provider`, and `clutch conform`.
-- **Retained:** `context/service-runtime.md`, for step 6.
-- **Validated:**
-  - **Checkpoint 1** (live, Claude Code on Anthropic, haiku, subscription): seven of the eight
-    harness scenarios passed. `vision`'s failure was the scenario's wording check rejecting
-    "blue rectangle", which the architect accepted.
-    - Adjust `9fe67f7`: exit status 1 after an interrupted turn.
-  - **Checkpoint 2** (live, OpenCode on the router): all eight scenarios passed. Qwen3.8's
-    `structured` and `vision` were run by the architect.
-    - Unknown IDs fail loudly on both harnesses, and both resume from another directory.
-    - Adjusts:
-      - `4286aec`: each harness's dropped-image text.
-      - `8dfc6b5`: the lost Claude Code session guard.
-      - `2d72aac`: an OpenCode tool call with no arguments.
-    - OpenCode's slowness was measured as its own per-turn overhead, not the listing wait
-      (about 15 ms).
-  - **Checkpoint 3** (live, Azure, keyless): Pi and OpenCode passed `exchange`, `tool`,
-    `structured`, and `vision`. The direct client's 429 cleared after the architect raised the
-    quota. No endpoint or token appeared in the output.
-  - **Checkpoint 4** (final):
-    - The editor pass ran on Sonnet (`b3caf24`).
+    - New parts: **Workflows**, **Deployment**, **Managed identity and IL6, on paper**,
+      **Open for a service**, and **The answer**.
+    - **Workflows** covers:
+      - the DAG model, one log per run, and the limit's ordered slots;
+      - cancel versus interrupt;
+      - resume with adoption, and settling a decided outcome;
+      - the usage-limit pause, and one state directory per process;
+      - a resumed step that took 5 minutes;
+      - tau `orchestrate`, herald's SSE, and `claude-classify-docs` as rejected prior art.
+    - **Deployment** covers:
+      - the image's sizes and layers;
+      - why Debian and not Alpine (Pi ships glibc only), with distroless as the smaller route;
+      - `tini`;
+      - the `strace` probe: Pi makes no outbound call at start.
+    - **Managed identity and IL6** covers:
+      - `clutch token` over IMDS as Pi's key command, since the image has no `az`;
+      - OpenCode's fixed token;
+      - no transcription on Azure Government;
+      - allowlisted endpoints;
+      - client authentication, a gap the service fills.
+    - Infrastructure shape: the design held for the workflow, which is no longer provisional,
+      and the core now includes the workflow layer.
+    - Process lifecycle: Pi exits when its driver dies, and `tini` reaps what a harness started.
+  - `context/README.md`: Path marks every step built, including step 6, and names the
+    `workflow/...` layer, `clutch workflow`, `clutch serve`, and `deploy/`.
+- **Retained:** none. `context/` holds `README.md`, `findings.md`, and this file.
+- **Validated:** all four checkpoints were confirmed by the architect, each run live with Pi
+  0.99.2 on gpt-oss over the llama.cpp router unless noted.
+  - **Checkpoint 1** (stages 1–4: the `workflow` model, the Runner, `workflow/filestore`, and
+    `clutch workflow` with `examples/workflows/review.json`):
+    - A five-step run over four sessions with `--limit 2` ended `done` in 34 s. The lead
+      session's second step answered from its first.
+    - SIGINT during `decide` left the run unfinished. `workflow resume`, run from another
+      directory, reopened the lead session under its recorded ID, ran only the two unfinished
+      steps, and ended `done`.
+    - Follow-up `3689ef3` fixed a concern the session raised at the checkpoint: steps now take
+      their slot before launch, in declaration order.
+  - **Checkpoint 2** (stages 5–6: `workflow/sse` and `clutch serve`):
+    - SSE delivered 16 logged events with ids and 1,259 live events.
+    - Reconnecting with `Last-Event-ID: 13` replayed exactly 14–16.
+    - `DELETE` on a live run answered 202, ended it `cancelled`, and left no Pi process.
+    - `kill -9` of the server mid-run: both Pi children exited as their stdin closed. The
+      restarted server, started from `/tmp`, resumed the run, which ended `done` at seq 19.
+    - SIGTERM closed the open streams and left the run for the next start.
+  - **Checkpoint 3** (stage 7: `deploy/`):
+    - The standalone image is 215 MB, and the npm-on-Node image 377 MB.
+    - In the container, the example ran `done` in 33 s over SSE.
+    - `docker stop` went through `tini` and stopped cleanly, and `docker start` resumed the run
+      to `done`.
+  - **Checkpoint 4** (stage 8: editor pass `af2bf4e`, on Sonnet):
     - Build, vet, `go test -race`, golangci-lint 2.13.2, and gofmt were clean in all six
       modules.
-    - All nine Pi scenarios passed on the router from a clean `--state`.
-    - `clutch conform` passed every capability on Azure and Anthropic for all three harnesses.
-      The router cells failed only gpt-oss's tool-then-`respond` exchanges, and `vision` and
-      `audio` when their models were unloaded.
-    - Adjust `c59be83`: a latency table, at the architect's request. Pi's system prompt was
-      probed and replaces entirely.
-  - **Branch review** (reviewer on Opus): 11 findings, verified against the code and
-    OpenCode 1.18.34's source. All were fixed in Adjust `9790418` except 11c, which is
-    recorded in `service-runtime.md`.
+    - A mixed run, Pi for the reviewers and Claude Code 2.1.287 on haiku for the lead, ended
+      `done` in 39 s.
+    - `strace` showed Pi making no outbound connection at start.
+  - **Branch review** (reviewer on Opus): 16 findings, all verified by the session.
+    - The architect chose to fix all of them, in Adjust `97b8aae`, with new tests. The most
+      severe was finding 1, a resumed run whose log already recorded a failure hanging forever.
     - Checks were clean in all six modules.
-    - `clutch conform` passed every capability for Pi and OpenCode on Azure and Claude Code
-      on Anthropic.
-    - Claude Code had updated itself to 2.1.287, which the version gate caught. Its pin
-      moved in `b000615`.
+    - Live in the container, a run survived `docker stop -t 35` and a restart, and resumed to
+      `done`. A caught-up stream of an ended run answered 204, `GET /runs` reported no errors,
+      and an invalid run ID answered 404.
+    - On one earlier repeat, the two resumed reviewers took about 5 minutes each but ended
+      validly. The cause is unconfirmed, and `findings.md` records it.
 
 ## Next-focus
 
-Path step 6, the long-running workflow, in this repository. A workflow spans several harness
-sessions, through `harness.Driver`, with:
-
-- progress;
-- event streaming to SSE;
-- a concurrency limit;
-- cancellation;
-- resume after a restart.
-
-The step also records the container image's footprint and checks the managed-identity and IL6
-path on paper. Its validation answers the spike's question. `context/service-runtime.md` holds
-the runtime notes it starts from: process cleanup, records in a service's store, token refresh,
-usage limits, compaction, pinned harness versions, and a system prompt option. The harness it
-runs on is open: Pi is the pinned default (`findings.md`, Harness comparison), and the
-`harness` surface lets the workflow choose per session.
+Spike complete. The workspace carries this closeout into the experiment.ai goal record (rooted
+here) under marathon 0.16, then deletes this reset file. The next spikes and the intake are
+planned from the coordinator.
