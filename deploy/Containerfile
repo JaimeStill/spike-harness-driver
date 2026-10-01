@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+# The image a service built on the spike would ship: clutch, the pinned Pi it drives, and tini.
+# Build from the repository root, since the Go build needs every module under go.work:
+#
+#   docker build -f deploy/Containerfile -t clutch .                    # Pi's standalone release
+#   docker build -f deploy/Containerfile --target node -t clutch:node .  # Pi from npm, on Node
+#
+# deploy/README.md covers running it.
+
+# Every base image is pinned by its index digest as well as its tag, so a rebuild gets the same
+# bytes; moving one means updating both.
+ARG GO_IMAGE=golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190
+ARG DEBIAN_IMAGE=debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+ARG NODE_IMAGE=node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+ARG PI_VERSION=0.99.2
+# The SHA-256 of pi-linux-x64.tar.gz, from the release's SHA256SUMS.
+ARG PI_SHA256=f998cc1232733eab240526d74acdce429d650b9e01f5804636d7aa96eb629846
+
+# clutch, statically linked, so the runtime needs no Go and no libc of its own for it.
+FROM ${GO_IMAGE} AS build
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/clutch ./clutch/cmd/clutch
+
+# Pi's standalone release: one executable with its runtime bundled, and the assets beside it.
+# The checksum pins the download, as mise.toml pins the version on a workstation.
+FROM ${DEBIAN_IMAGE} AS pi
+ARG PI_VERSION
+ARG PI_SHA256
+ADD --checksum=sha256:${PI_SHA256} \
+    https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}/pi-linux-x64.tar.gz /tmp/pi.tar.gz
+RUN mkdir /opt/pi && tar -xzf /tmp/pi.tar.gz -C /opt/pi --strip-components=1 \
+    && rm -rf /opt/pi/docs /opt/pi/examples /opt/pi/CHANGELOG.md
+
+# What every runtime shares: tini as PID 1, CA certificates for the cloud endpoints, and an
+# unprivileged user whose state lives on a volume. The state directory holds code the harness
+# runs, so it belongs to that user alone.
+FROM ${DEBIAN_IMAGE} AS base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /home/clutch --uid 10001 clutch \
+    && install -d -o clutch -g clutch -m 0700 /var/lib/clutch
+COPY --from=build /out/clutch /usr/local/bin/clutch
+USER clutch
+VOLUME /var/lib/clutch
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini", "--", "clutch", "--state", "/var/lib/clutch"]
+CMD ["serve", "--addr", ":8080"]
+
+# Pi from npm on Node, for the footprint comparison. Pi asks for Node 22.19 or newer.
+FROM ${NODE_IMAGE} AS node
+ARG PI_VERSION
+RUN npm install --global --omit=dev @earendil-works/pi-coding-agent@${PI_VERSION} \
+    && npm cache clean --force \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends tini ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /home/clutch --uid 10001 clutch \
+    && install -d -o clutch -g clutch -m 0700 /var/lib/clutch
+COPY --from=build /out/clutch /usr/local/bin/clutch
+USER clutch
+VOLUME /var/lib/clutch
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini", "--", "clutch", "--state", "/var/lib/clutch"]
+CMD ["serve", "--addr", ":8080"]
+
+# The default: Pi's standalone release on the shared base.
+FROM base AS standalone
+COPY --from=pi /opt/pi /opt/pi
+ENV PATH=/opt/pi:$PATH
