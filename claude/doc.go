@@ -37,7 +37,8 @@
 // resumes an ID Claude Code keeps a transcript of, under its configuration directory, and
 // creates a session under any other; Claude Code itself fails loudly when asked to resume an
 // ID it doesn't hold. The connection keeps no harness.Journal: the stream offers no read of the
-// session's entries.
+// session's entries. In its place, Open fails with harness.ErrJournalMismatch for an ID with no
+// transcript that the store holds records of, which Claude Code lost.
 //
 // Usage limits: Claude Code reports where the subscription stands with rate_limit_event, which
 // becomes harness.EventLimit, and a turn the limit refused becomes a *harness.LimitError.

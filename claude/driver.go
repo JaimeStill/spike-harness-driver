@@ -82,6 +82,9 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if err != nil {
 		return nil, err
 	}
+	if err := lost(ctx, opts, id, resume); err != nil {
+		return nil, err
+	}
 	tools, err := mcpbridge.New(opts.Tools, mcpbridge.Options{Name: serverName})
 	if err != nil {
 		return nil, fmt.Errorf("claude: %w", err)
@@ -181,6 +184,25 @@ func (d Driver) holds(id string) (bool, error) {
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", id+".jsonl"))
 	return len(matches) > 0, err
+}
+
+// lost fails with harness.ErrJournalMismatch when the caller names a session Claude Code
+// keeps no transcript of, but the store holds exchange records for: Claude Code lost the
+// session, and opening it would start a fresh one under the same ID, silently. It stands in
+// for the journal check a harness.Journal gives, which Claude Code's stream doesn't offer.
+func lost(ctx context.Context, opts harness.Options, id string, resume bool) error {
+	if resume || opts.SessionID == "" || opts.Store == nil {
+		return nil
+	}
+	recs, err := opts.Store.Records(ctx, id)
+	if err != nil {
+		return fmt.Errorf("claude: records of session %s: %w", id, err)
+	}
+	if len(recs) > 0 {
+		return fmt.Errorf("%w: session %s has %d recorded exchanges, and Claude Code keeps no transcript of it",
+			harness.ErrJournalMismatch, id, len(recs))
+	}
+	return nil
 }
 
 // writePlugin writes a plugin that carries skills into root, and returns its directory, or ""

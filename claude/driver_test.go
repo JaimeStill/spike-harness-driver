@@ -273,6 +273,42 @@ func TestLaunch(t *testing.T) {
 	}
 }
 
+// memStore is a harness.Store in memory.
+type memStore struct{ recs []harness.Record }
+
+func (m *memStore) Put(_ context.Context, r harness.Record) error {
+	m.recs = append(m.recs, r)
+	return nil
+}
+
+func (m *memStore) Records(_ context.Context, id string) ([]harness.Record, error) {
+	var out []harness.Record
+	for _, r := range m.recs {
+		if r.SessionID == id {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// A session the driver recorded exchanges of, which Claude Code no longer holds, fails to open
+// rather than starting fresh under the same ID.
+func TestALostSessionIsAMismatch(t *testing.T) {
+	dir := t.TempDir()
+	store := &memStore{}
+	s := open(t, fakeDriver(dir), harness.Options{Store: store})
+	if _, _, err := exchange(t, s, harness.Request{Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	// The fake keeps no transcript, so the session is lost.
+	if _, err := fakeDriver(dir).Open(t.Context(), harness.Options{SessionID: s.ID(), Store: store}); !errors.Is(err, harness.ErrJournalMismatch) {
+		t.Fatalf("Open = %v, want ErrJournalMismatch", err)
+	}
+	// An ID with no records is a new session.
+	open(t, fakeDriver(dir), harness.Options{SessionID: "0f7d8f43-0000-4000-8000-000000000009", Store: store})
+}
+
 func TestOpenRefuses(t *testing.T) {
 	d := fakeDriver(t.TempDir())
 	if _, err := d.Open(t.Context(), harness.Options{Provider: "llama.cpp"}); err == nil {
