@@ -95,6 +95,16 @@ type Report struct {
 	Skipped string
 	// Results has one entry per capability, in Capabilities' order, or none for a skipped cell.
 	Results []Result
+	// Latency is what the exchange capability measured, or nil when it measured nothing.
+	Latency *Latency
+}
+
+// Latency is how long a plain exchange took on a cell, as the exchange capability measures it:
+// opening a session, which starts the harness, then the time from sending the prompt to the
+// first text and to the exchange's end. One sample per run, so it shows the order of a
+// harness's overhead, not a benchmark.
+type Latency struct {
+	Open, FirstText, Turn time.Duration
 }
 
 // Label names the cell as Cell.Label does.
@@ -151,21 +161,25 @@ func runCell(ctx context.Context, c Cell, opts Options) Report {
 			rep.Version += " (pinned " + c.Pinned + ")"
 		}
 	}
+	lat := &Latency{}
 	for _, capability := range Capabilities {
-		rep.Results = append(rep.Results, runCapability(ctx, c, capability, opts))
+		rep.Results = append(rep.Results, runCapability(ctx, c, capability, opts, lat))
+	}
+	if lat.Turn > 0 {
+		rep.Latency = lat
 	}
 	return rep
 }
 
 // runCapability runs one capability under its own timeout. One that runs out of time fails,
 // and the run goes on.
-func runCapability(ctx context.Context, c Cell, capability Capability, opts Options) Result {
+func runCapability(ctx context.Context, c Cell, capability Capability, opts Options, lat *Latency) Result {
 	if opts.Progress != nil {
 		opts.Progress(c, capability.Name)
 	}
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
-	e := &env{cell: c, capability: capability.Name, events: opts.Events}
+	e := &env{cell: c, capability: capability.Name, events: opts.Events, latency: lat}
 	status, reason := capability.execute(ctx, e)
 	if status == Fail && ctx.Err() != nil {
 		reason += " (" + ctx.Err().Error() + ")"

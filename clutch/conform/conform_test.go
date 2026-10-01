@@ -86,6 +86,9 @@ func TestRunOverTheStubDriver(t *testing.T) {
 	if r.Skipped != "" || len(r.Results) != len(Capabilities) {
 		t.Fatalf("report = %+v", r)
 	}
+	if l := r.Latency; l == nil || l.Turn <= 0 || l.FirstText <= 0 || l.FirstText > l.Turn || l.Open <= 0 {
+		t.Errorf("latency = %+v, want the exchange's open, first text, and turn", l)
+	}
 	// The stub streams and stops, so exchange and cancel pass; it can't answer a schema, so
 	// every capability that needs a structured response fails, none of them stopping the rest.
 	want := map[string]Status{
@@ -123,7 +126,7 @@ func TestACapabilityThatTimesOutFails(t *testing.T) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
-	res := runCapability(t.Context(), stubCell(t), slow, Options{Timeout: 10 * time.Millisecond})
+	res := runCapability(t.Context(), stubCell(t), slow, Options{Timeout: 10 * time.Millisecond}, &Latency{})
 	if res.Status != Fail || !strings.Contains(res.Reason, "deadline exceeded") {
 		t.Errorf("result = %+v", res)
 	}
@@ -185,6 +188,24 @@ Why not pass:
 	}
 	if Failures(reports) != 1 {
 		t.Errorf("failures = %d", Failures(reports))
+	}
+}
+
+func TestRenderLatency(t *testing.T) {
+	reports := []Report{
+		{Harness: "pi", Provider: "llama.cpp", Version: "0.99.2",
+			Latency: &Latency{Open: 1300 * time.Millisecond, FirstText: 450 * time.Millisecond, Turn: 2 * time.Second}},
+		{Harness: "claude", Provider: "anthropic", Version: "-", Skipped: "not found"},
+	}
+	var buf bytes.Buffer
+	Render(&buf, reports)
+	want := `
+Latency of one plain exchange:
+  HARNESS  PROVIDER   OPEN  FIRST TEXT  TURN
+  pi       llama.cpp  1.3s  0.5s        2.0s
+`
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("rendered:\n%s\nwant it to hold:\n%s", buf.String(), want)
 	}
 }
 

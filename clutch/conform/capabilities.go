@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 	"github.com/JaimeStill/spike-harness-driver/clutch/examples/media"
@@ -64,6 +65,10 @@ type env struct {
 	cell       Cell
 	capability string
 	events     func(Cell, string, harness.Event)
+	// latency is the cell's, which the exchange capability fills.
+	latency *Latency
+	// opened is how long the last open took.
+	opened time.Duration
 }
 
 // Prompts. Each prompt that wants a structured answer asks for it outright, because a model asked
@@ -121,10 +126,12 @@ var (
 // open opens the session id names with setup, or a new one for an empty id, and runs fn on it,
 // closing it after. A failure to close is an error when fn found none.
 func (e *env) open(ctx context.Context, id string, setup session.Setup, fn func(*harness.Session) error) (err error) {
+	start := time.Now()
 	sess, err := e.cell.Service.OpenWith(ctx, id, setup)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
+	e.opened = time.Since(start)
 	defer func() {
 		if cerr := sess.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("close: %w", cerr)
@@ -180,15 +187,33 @@ func (e *env) askFor(ctx context.Context, sess *harness.Session, prompt string, 
 // response, and the Go tool a capability offers, the only things the model can use.
 var noTools = session.Setup{HarnessTools: []string{}}
 
+// checkExchange runs a plain exchange, and measures the cell's latency on it: the session's
+// open, and the time from sending to the first text and to the end.
 func checkExchange(ctx context.Context, e *env) (string, error) {
 	var reason string
 	err := e.open(ctx, "", session.Setup{}, func(sess *harness.Session) error {
-		o, _, err := e.ask(ctx, sess, session.Exchange{Prompt: exchangePrompt})
+		start := time.Now()
+		var first time.Duration
+		o, err := e.cell.Service.Run(ctx, sess, session.Exchange{Prompt: exchangePrompt}, session.Observer{Event: func(ev harness.Event) {
+			if first == 0 && ev.Kind == harness.EventTextDelta {
+				first = time.Since(start)
+			}
+			if e.events != nil {
+				e.events(e.cell, e.capability, ev)
+			}
+		}})
+		turn := time.Since(start)
+		if err == nil {
+			err = ended(o)
+		}
 		if err != nil {
 			return err
 		}
 		if strings.TrimSpace(o.Result.Text) == "" {
 			return errors.New("the exchange ended with no text")
+		}
+		if e.latency != nil {
+			*e.latency = Latency{Open: e.opened, FirstText: first, Turn: turn}
 		}
 		reason = fmt.Sprintf("ended with stop reason %q and %d characters of text", o.Result.StopReason, len(o.Result.Text))
 		return nil
