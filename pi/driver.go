@@ -1,10 +1,13 @@
 package pi
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/JaimeStill/spike-harness-driver/harness"
@@ -17,12 +20,20 @@ import (
 // persists the session.
 var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
+// llamaProvider is the name of Pi's llama.cpp provider, which Pi ships as a built-in extension.
+// Since Pi 0.99, -ne disables built-in extensions too, so for a session on this provider the
+// driver loads the extension by name. The user's extensions and the other built-ins, such as
+// MCP, stay out.
+const llamaProvider = "llama.cpp"
+
 // Driver starts one Pi process per session. Pi persists each session, so a later process
 // resumes it by ID.
 //
 // Pi scopes a session ID to the working directory: resuming a session from another directory
 // finds nothing, and Pi starts a fresh session under the same ID. The session's exchange
 // records then name entries Pi doesn't hold, and Open fails with harness.ErrJournalMismatch.
+//
+// The driver needs Pi 0.99 or newer, which loads a built-in extension by a "builtin:" name.
 type Driver struct {
 	// Command is the Pi executable. Empty means "pi" on the PATH.
 	Command string
@@ -40,6 +51,12 @@ type Driver struct {
 	// WaitDelay is how long Pi has to exit after Close before it is killed. Zero means five
 	// seconds.
 	WaitDelay time.Duration
+	// CatalogWait is how long Open waits for a llama.cpp model Pi doesn't list yet. Pi starts
+	// from the model catalog it saved last and refreshes each provider's catalog in the
+	// background as it starts. For llama.cpp's router, the saved catalog holds only the models
+	// that were loaded when it was saved, so a model loaded since appears once the refresh
+	// lands, which took under a second against the router. Zero means five seconds.
+	CatalogWait time.Duration
 }
 
 var _ harness.Driver = Driver{}
@@ -62,7 +79,11 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	if err != nil {
 		return nil, err
 	}
-	args := slices.Concat(rpcArgs, b.args)
+	args := slices.Clone(rpcArgs)
+	if opts.Provider == llamaProvider {
+		args = append(args, "-e", "builtin:"+llamaProvider)
+	}
+	args = append(args, b.args...)
 	if opts.SessionID != "" {
 		args = append(args, "--session-id", opts.SessionID)
 	}
@@ -78,7 +99,7 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	}
 	conn := newConnection(b)
 	conn.client = stdio.NewClient(p, codec{}, conn.answer)
-	id, err := handshake(ctx, conn.client, opts)
+	id, err := handshake(ctx, conn.client, opts, cmp.Or(d.CatalogWait, 5*time.Second))
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -91,10 +112,40 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-func handshake(ctx context.Context, c *stdio.Client, opts harness.Options) (string, error) {
+// catalogPoll is how often setModel asks again for a model Pi doesn't list yet.
+const catalogPoll = 100 * time.Millisecond
+
+// setModel selects the session's model. On llama.cpp, a model Pi answers it doesn't list may
+// still arrive with Pi's background catalog refresh, so setModel asks again for up to wait.
+// Every other failure, such as Pi having exited or a model another provider lacks, returns at
+// once.
+func setModel(ctx context.Context, c *stdio.Client, opts harness.Options, wait time.Duration) error {
+	cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
+	deadline := time.Now().Add(wait)
+	for {
+		_, err := c.Call(ctx, cmd)
+		if err == nil || !catalogMiss(opts, err) || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(catalogPoll):
+		}
+	}
+}
+
+// catalogMiss reports whether err is Pi's own answer that it doesn't list a llama.cpp model,
+// the one failure a catalog refresh can still mend.
+func catalogMiss(opts harness.Options, err error) bool {
+	var failed *commandError
+	return opts.Provider == llamaProvider && errors.As(err, &failed) &&
+		strings.HasPrefix(failed.Message, "Model not found")
+}
+
+func handshake(ctx context.Context, c *stdio.Client, opts harness.Options, catalogWait time.Duration) (string, error) {
 	if opts.Model != "" {
-		cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
-		if _, err := c.Call(ctx, cmd); err != nil {
+		if err := setModel(ctx, c, opts, catalogWait); err != nil {
 			return "", err
 		}
 	}

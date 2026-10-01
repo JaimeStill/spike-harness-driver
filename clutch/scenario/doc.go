@@ -8,4 +8,9 @@
 // skill.go, and structured.go. The tool and skill scenarios bring their own tool and skill,
 // and each has a further step for the examples in clutch/examples, which runs when --tools or
 // --skills loaded them.
+//
+// The capability scenarios, vision.go, embed.go, and audio.go, also call a model directly,
+// through the Models the composition root sets up for one target, since the harness takes
+// images but has nothing for embeddings or audio. They send the fixtures in
+// clutch/examples/media and check the answers against what the fixtures are known to hold.
 package scenario

@@ -29,6 +29,9 @@ func New(driver func() (harness.Driver, error), options func() harness.Options) 
 // Exchange describes one exchange to run.
 type Exchange struct {
 	Prompt string
+	// Images are sent with the prompt, for a model that takes image input. A harness decides
+	// what becomes of them for a model that doesn't: Pi replaces each with a note.
+	Images []harness.Image
 	// Schema, when set, is the JSON Schema of the structured response the exchange must
 	// produce, an object schema, as harness.Request.Schema is. The Outcome's Result carries the
 	// response in Structured, or its Err is harness.ErrNoStructuredResponse.
@@ -57,6 +60,9 @@ type Outcome struct {
 // Setup is what one session offers the model beyond what every session the Service opens
 // does, such as a scenario's own tools and skills.
 type Setup struct {
+	// Model, when set, replaces the model every session runs on, on the same provider, as for
+	// a session that needs a model with image input.
+	Model string
 	// Tools and Skills are added after the ones every session offers. A name offered twice
 	// fails the Open.
 	Tools  []harness.Tool
@@ -86,6 +92,9 @@ func (s *Service) OpenWith(ctx context.Context, id string, setup Setup) (*harnes
 	// Concat copies, so the options function's slices are never appended to in place.
 	opts.Tools = slices.Concat(opts.Tools, setup.Tools)
 	opts.Skills = slices.Concat(opts.Skills, setup.Skills)
+	if setup.Model != "" {
+		opts.Model = setup.Model
+	}
 	if setup.HarnessTools != nil {
 		opts.HarnessTools = setup.HarnessTools
 	}
@@ -128,7 +137,7 @@ func (s *Service) Exchanges(ctx context.Context, id string, verify bool) (recs [
 // Run sends e on sess and follows it to its end. The error is non-nil only when the harness
 // didn't accept the prompt; how the exchange itself ended is in the Outcome.
 func (s *Service) Run(ctx context.Context, sess *harness.Session, e Exchange, obs Observer) (Outcome, error) {
-	x, err := sess.Send(ctx, harness.Request{Text: e.Prompt, Schema: e.Schema})
+	x, err := sess.Send(ctx, harness.Request{Text: e.Prompt, Images: e.Images, Schema: e.Schema})
 	if err != nil {
 		return Outcome{}, err
 	}

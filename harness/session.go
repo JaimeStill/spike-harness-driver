@@ -113,8 +113,9 @@ func (s *Session) Journaled() bool { return s.journal != nil }
 
 // Send opens an exchange and prompts the harness with req. Cancelling ctx cancels the
 // exchange. Send returns ErrInvalidSchema, wrapped, for a request whose schema isn't an object
-// schema, ErrBusy while another exchange is open, ErrClosed after Close, and
-// the harness's exit error after the harness has exited.
+// schema, ErrInvalidImage, wrapped, for an image without a media type or data, ErrBusy while
+// another exchange is open, ErrClosed after Close, and the harness's exit error after the
+// harness has exited.
 //
 // Send returns once the harness has accepted the prompt, however ctx ends in the meantime: a
 // prompt already written may be accepted, and only an accepted run can be cancelled. If ctx
@@ -126,6 +127,9 @@ func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 		if err := ValidateSchema(req.Schema); err != nil {
 			return nil, err
 		}
+	}
+	if err := validateImages(req.Images); err != nil {
+		return nil, err
 	}
 	s.mu.Lock()
 	for s.cancelling != nil {

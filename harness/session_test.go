@@ -1,7 +1,9 @@
 package harness_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -25,17 +27,30 @@ type fakeConnection struct {
 	// exitErr is what Err reports: why the harness exited.
 	exitErr   error
 	closeOnce sync.Once
+
+	mu       sync.Mutex
+	requests []harness.Request // the requests Prompt was called with
 }
 
 func newFakeConnection() *fakeConnection {
 	return &fakeConnection{events: make(chan harness.Event), cancels: make(chan struct{}, 8)}
 }
 
-func (c *fakeConnection) Prompt(ctx context.Context, _ harness.Request) error {
+func (c *fakeConnection) Prompt(ctx context.Context, req harness.Request) error {
+	c.mu.Lock()
+	c.requests = append(c.requests, req)
+	c.mu.Unlock()
 	if err := gate(ctx, c.promptGate); err != nil {
 		return err
 	}
 	return c.promptErr
+}
+
+// prompted returns the requests Prompt was called with.
+func (c *fakeConnection) prompted() []harness.Request {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]harness.Request(nil), c.requests...)
 }
 
 func (c *fakeConnection) Cancel(ctx context.Context) error {
@@ -509,6 +524,72 @@ func TestSendRefusesAnInvalidSchema(t *testing.T) {
 	}
 	// A refused request opens no exchange.
 	send(t, s, t.Context())
+}
+
+func TestSendRefusesAnInvalidImage(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+	for _, img := range []harness.Image{
+		{Data: []byte("png")},
+		{MediaType: "image/png"},
+	} {
+		req := harness.Request{Text: "hi", Images: []harness.Image{{MediaType: "image/png", Data: []byte("ok")}, img}}
+		if _, err := s.Send(t.Context(), req); !errors.Is(err, harness.ErrInvalidImage) {
+			t.Errorf("image %+v: Send = %v, want ErrInvalidImage", img, err)
+		}
+	}
+	if n := len(c.prompted()); n != 0 {
+		t.Fatalf("the harness was prompted %d times, want none", n)
+	}
+	// A refused request opens no exchange.
+	send(t, s, t.Context())
+}
+
+func TestImagesReachTheHarnessButNotTheRecord(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, newMemStore())
+	defer func() { _ = s.Close() }()
+
+	data := []byte("\x89PNG image bytes")
+	x, err := s.Send(t.Context(), harness.Request{
+		Text:   "What is in this image?",
+		Images: []harness.Image{{MediaType: "image/png", Data: data}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collect(t, x)
+	c.emit(harness.EventStarted)
+	c.finish("stop", "a picture")
+	<-events
+	if _, err := x.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	reqs := c.prompted()
+	if len(reqs) != 1 || len(reqs[0].Images) != 1 ||
+		reqs[0].Images[0].MediaType != "image/png" || !bytes.Equal(reqs[0].Images[0].Data, data) {
+		t.Fatalf("the harness was prompted with %+v, want the image", reqs)
+	}
+	recs, err := s.Exchanges(t.Context())
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	// The Store itself receives no image data, whatever it does with a Record.
+	if imgs := recs[0].Request.Images; len(imgs) != 1 || imgs[0].MediaType != "image/png" || imgs[0].Data != nil {
+		t.Fatalf("the stored record's images = %+v, want the media type alone", imgs)
+	}
+	raw, err := json.Marshal(recs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"images":[{"mediaType":"image/png"}]`)) {
+		t.Errorf("the record %s doesn't name the image's media type", raw)
+	}
+	if bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(data))) {
+		t.Errorf("the record %s holds the image's data", raw)
+	}
 }
 
 func TestToolValidate(t *testing.T) {

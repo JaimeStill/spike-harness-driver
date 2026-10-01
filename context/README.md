@@ -46,14 +46,13 @@ and decides what the workspace takes from it.
 ## Path
 
 The spike's sessions own these steps, in dependency order, and may revise them. The session
-interface and the Pi adapter (step 1), session persistence and resume (step 2), and payloads,
-tool calls, and skills (step 3) exist. `context/findings.md` records what they showed. `clutch`
+interface and the Pi adapter (step 1), session persistence and resume (step 2), payloads, tool
+calls, and skills (step 3), and native capabilities through a direct model client, `model`
+(step 4), exist. `context/findings.md` records what they showed. `clutch`
 (`go run ./clutch/cmd/clutch`) drives them: its `scenario` commands each show one capability,
-and its `session` commands run one exchange at a time.
+and its `session` commands run one exchange at a time. `--target` points the direct client at
+the router or Azure AI Foundry, which `setup/` sets up.
 
-4. **Native capabilities.** Establish which of vision, embeddings, and audio the harness exposes,
-   and build a thin direct model client for the rest, as the spike's own code under the
-   Elemental Architecture.
 5. **Claude Code and OpenCode adapters.** A conformance suite runs the three adapters behind one
    interface, against local and cloud targets.
 6. **Long-running workflow.** A workflow spans several sessions, with progress, event streaming to

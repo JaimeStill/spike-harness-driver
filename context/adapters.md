@@ -37,4 +37,17 @@ Planned for step 5. Each adapter is a `harness.Connection`.
   `respond` into `EventStructured` plus a validation-failure event, and sum `Usage` over the
   exchange.
 
+- **Native capabilities.** For each harness, find out whether it takes images, and how it
+  decides a model takes them. Pi decides from its provider catalog and drops an image quietly
+  for a model without image input (`findings.md`, Capabilities).
+- **Model catalogs.** Pi selects a model from a catalog it saved and refreshes in the background
+  (`findings.md`, Process lifecycle). Find out how each harness learns a provider's models, and
+  whether a newly loaded model is selectable at once.
+- **A cloud harness target.** Pi has run only against the router. The conformance suite runs
+  each harness against a cloud target too, such as Azure through Pi's own provider.
+- **The suite's checks.** The capability scenarios check a reply with heuristics that can
+  misjudge it: a text-only model's stereotypical guess at the shapes fails the dropped-image
+  check, and the shape check accepts a negation. A conformance suite prefers checks that don't
+  depend on a model's wording.
+
 Assumes both harnesses accept a new prompt only after the previous run ends, as Pi does.

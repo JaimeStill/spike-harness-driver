@@ -10,16 +10,21 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// Scenarios returns every scenario in presentation order, running exchanges through svc. Each
-// scenario checks needs, which say what the harness requires to run.
-func Scenarios(svc *session.Service, needs []Need) []Scenario {
+// Scenarios returns every scenario in presentation order, running exchanges through svc and
+// direct model requests through the clients models returns. models is called when a scenario
+// runs, so it can follow flags parsed after the scenarios are built. Each scenario checks the
+// needs of its kind first.
+func Scenarios(svc *session.Service, models func() (Models, error), needs Needs) []Scenario {
 	return []Scenario{
-		exchangeScenario(svc, needs),
-		cancelScenario(svc, needs),
-		resumeScenario(svc, needs),
-		toolScenario(svc, needs),
-		skillScenario(svc, needs),
-		structuredScenario(svc, needs),
+		exchangeScenario(svc, needs.Harness),
+		cancelScenario(svc, needs.Harness),
+		resumeScenario(svc, needs.Harness),
+		toolScenario(svc, needs.Harness),
+		skillScenario(svc, needs.Harness),
+		structuredScenario(svc, needs.Harness),
+		visionScenario(svc, models, needs.Both),
+		embedScenario(models, needs.Models),
+		audioScenario(svc, models, needs.Both),
 	}
 }
 

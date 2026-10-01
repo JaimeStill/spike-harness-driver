@@ -42,6 +42,23 @@ type launch struct {
 	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
 }
 
+// promptsEnv names the file where the fake appends each prompt command it receives, one JSON
+// line each.
+const promptsEnv = "PI_FAKE_PROMPTS"
+
+func recordPrompt(line []byte) {
+	file := os.Getenv(promptsEnv)
+	if file == "" {
+		return
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = f.Write(append(append([]byte(nil), line...), '\n'))
+}
+
 func recordLaunch(args []string) {
 	file := os.Getenv(launchEnv)
 	if file == "" {
@@ -51,6 +68,10 @@ func recordLaunch(args []string) {
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "-e":
+			// A built-in extension, loaded by name, is no file of the driver's.
+			if strings.HasPrefix(args[i+1], "builtin:") {
+				continue
+			}
 			_, err := os.Stat(args[i+1])
 			l.Extension = err == nil
 		case "--skill":
@@ -220,11 +241,20 @@ func (j *fakeJournal) since(since string) (string, bool) {
 	return `{"entries":[` + b.String() + `]}`, true
 }
 
+// lateModel is a model the fake Pi lists only lateModelDelay after it starts, as Pi's
+// catalog gains a model loaded since the catalog was saved. absentModel is never listed.
+const (
+	lateModel      = "late-model"
+	lateModelDelay = 300 * time.Millisecond
+	absentModel    = "absent-model"
+)
+
 // fakePi speaks Pi's RPC protocol on stdin and stdout. A normal prompt replays the events of
 // the captured plain.jsonl transcript. The long prompt streams deltas until an abort arrives,
 // then ends the way the captured aborted.jsonl transcript does, including answering the abort
 // only after agent_settled.
 func fakePi(mode string) int {
+	started := time.Now()
 	recordLaunch(os.Args[1:])
 	journal := newFakeJournal(os.Args[1:])
 	dialogs := &fakeDialogs{waiting: map[string]chan dialogAnswer{}}
@@ -259,6 +289,12 @@ func fakePi(mode string) int {
 			}
 			dialogs.answer(a)
 		case "set_model":
+			// The late model appears as Pi's background catalog refresh would add it, a moment
+			// after start; the absent model never does.
+			if c.ModelID == absentModel || (c.ModelID == lateModel && time.Since(started) < lateModelDelay) {
+				emit(fmt.Sprintf(`{"id":%q,"type":"response","command":"set_model","success":false,"error":"Model not found: %s/%s"}`, c.ID, c.Provider, c.ModelID))
+				continue
+			}
 			journal.setModel()
 			respond(c, "")
 		case "clear_queue":
@@ -280,6 +316,7 @@ func fakePi(mode string) int {
 				respond(c, "")
 			}()
 		case "prompt":
+			recordPrompt(in.Bytes())
 			runMu.Lock()
 			if running {
 				runMu.Unlock()

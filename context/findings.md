@@ -2,8 +2,8 @@
 
 Evidence toward the spike's question, by part. The coordinator's `plan` session reads it with
 the result. The package documentation in `harness`, `harness/stdio`, `harness/filestore`,
-`harness/catalog`, and `pi` explains how the built code works; this note holds what the code
-shows about harnesses in general.
+`harness/catalog`, `model`, and `pi` explains how the built code works; this note holds what
+the code shows about harnesses in general.
 
 ## Exchanges
 
@@ -86,6 +86,8 @@ shows about harnesses in general.
   counts.
 - A warm prompt cache takes most of the input: one exchange reported `input` 37 and `cacheRead`
   745. `Usage` counts both.
+- An image reaches Pi as a prompt image, `{type: "image", data, mimeType}`. The harness's own
+  session holds it, so an exchange record keeps only its media type, never its bytes.
 
 ## Capabilities
 
@@ -93,6 +95,30 @@ shows about harnesses in general.
   it `reasoning: false`.
 - The router loads models on demand and lists some as unloaded. An exchange against a cold model
   can take minutes to produce its first token (`service-runtime.md`).
+- **Pi exposes vision and nothing else native.**
+  - Its RPC `prompt`, `steer`, and `follow_up` take images.
+  - Pi decides whether a model takes images from the provider's catalog, which for the router
+    is `/models`' `input_modalities`.
+  - For a model without image input, Pi replaces the image with "(image omitted: model does not
+    support images)" and the exchange still succeeds. The model then says it can't see an
+    image, and no error tells the driver the image was dropped.
+  - Pi has no content type or command for embeddings or audio, and its model configuration
+    rejects an `audio` input. They need a direct model client.
+- **A direct client covers all three with one OpenAI-compatible shape.**
+  - The router serves `/v1/chat/completions` with image and `input_audio` parts,
+    `/v1/embeddings`, and `/v1/audio/transcriptions`. It has no text-to-speech route.
+  - Azure AI Foundry's v1 API serves chat and embeddings at one base URL. Its v1 transcription
+    route answers 404 `DeploymentNotFound` for a deployment that exists; the older deployment
+    route with an `api-version` works. So an endpoint can split its routes across base URLs,
+    which the client meets with a client per base URL, not with knowledge of Azure.
+  - Azure's newer models are reasoning models, which reject `max_tokens` and `temperature`. A
+    client that sends only `max_completion_tokens` and `reasoning_effort`, and only when set,
+    serves the router and Azure alike.
+  - Azure Government lists no transcription model, so audio on the IL6 path needs another
+    source.
+- **An agent reaches a capability its harness lacks through a tool.** A Go tool whose handler
+  calls the direct client gave a Pi session a transcript, which the model used.
+- Qwen3.8-27B, dense, decodes at about 12 tokens a second on the router.
 
 ## Infrastructure shape
 
@@ -106,6 +132,15 @@ This design is provisional until the Claude Code and OpenCode adapters (step 5) 
   The go.mod files carry no `require` lines for workspace modules, since a placeholder version
   fails once a module also requires a real dependency. The cost is that `pi` and `clutch` build
   only inside the workspace.
+- `model` is the second surface, beside `harness`: a direct client for OpenAI-compatible
+  endpoints, standard library only, about 610 lines.
+  - One `Config` of base URL, query, token source, and `http.Client` describes an endpoint. The
+    caller's `http.Client` carries every timeout, so the package sets no policy.
+  - The token source is a function. The spike's Azure source runs `az account get-access-token`
+    in `clutch`'s composition root, so no Azure SDK enters the library.
+  - Rejected: the official openai-go SDK, which would give up minimal-footprint for three POST
+    shapes, and tau's `agent` shape, with its global registries, `map[string]any` options, and
+    an `http.Client` built per request.
 - The layers:
   - `harness` is transport-agnostic. It holds exchange scoping, sequencing, result folding,
     cancellation, exchange records, and the tool, skill, and schema types, over a five-method
@@ -125,6 +160,8 @@ This design is provisional until the Claude Code and OpenCode adapters (step 5) 
   (`exchange`, `cancel`, `resume`, `tool`, `skill`, `structured`), and its `session` commands run
   one exchange or list the records, one process per call. `--tools` and `--skills` load external
   sources, and `clutch/examples` holds one of each.
+- `clutch`'s tests are internal test packages, which Go Elemental's rule for external `_test`
+  packages would move. `model`'s tests are external.
 - Assumes Claude Code (`stream-json` with control requests) and OpenCode (`opencode acp`) fit
   `stdio` as Pi does. `adapters.md` holds the plan.
 
@@ -143,3 +180,16 @@ This design is provisional until the Claude Code and OpenCode adapters (step 5) 
 - The driver's cache holds code the harness runs, the bridge, so it must belong to the current
   user and be writable by no one else. A directory under a shared temporary directory would let
   another local user plant a bridge under the name the driver trusts.
+- A harness installed as "latest" changes under the driver. Pi 0.99 made `-ne` disable its
+  built-in extensions too, among them the llama.cpp provider, and the driver's sessions then
+  had no models at all. The driver now loads that provider with `-e builtin:llama.cpp` and needs
+  Pi 0.99 or newer.
+- Pi selects a model from a catalog it saved, not from the provider. A session starts from the
+  catalog saved last and refreshes the provider's catalog in the background, which added a newly
+  loaded model within about half a second. A `set_model` sent at start races that refresh, so
+  the driver asks again for up to `Driver.CatalogWait` when Pi answers "Model not found" on
+  llama.cpp.
+  - For the router, with autoload off, the catalog holds only the models loaded when it was
+    saved.
+  - `pi update --models` doesn't refresh llama.cpp's catalog: the provider is an extension,
+    present only in a session.

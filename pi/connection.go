@@ -2,6 +2,7 @@ package pi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,7 +46,13 @@ func (c *connection) Prompt(ctx context.Context, req harness.Request) error {
 	c.endRun()
 	c.run, c.endRun = context.WithCancel(context.Background())
 	c.mu.Unlock()
-	_, err := c.client.Call(ctx, command{Type: "prompt", Message: req.Text})
+	cmd := command{Type: "prompt", Message: req.Text}
+	for _, img := range req.Images {
+		cmd.Images = append(cmd.Images, image{
+			Type: "image", Data: base64.StdEncoding.EncodeToString(img.Data), MimeType: img.MediaType,
+		})
+	}
+	_, err := c.client.Call(ctx, cmd)
 	return err
 }
 

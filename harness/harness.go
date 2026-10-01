@@ -154,10 +154,36 @@ type Skill struct {
 // Request is the payload of one exchange.
 type Request struct {
 	Text string `json:"text"`
+	// Images are sent with the text, for a model that takes image input.
+	Images []Image `json:"images,omitempty"`
 	// Schema, when set, is the JSON Schema of the structured response the exchange must
 	// produce, an object schema. The harness validates the response against it, and the
 	// Result carries it in Structured.
 	Schema json.RawMessage `json:"schema,omitempty"`
+}
+
+// Image is an image sent with a request. A Record keeps only its media type, because the
+// harness's own session already holds the image and a Store that copied it would grow with every
+// image sent.
+type Image struct {
+	// MediaType is the image's media type, such as "image/png".
+	MediaType string `json:"mediaType"`
+	Data      []byte `json:"-"`
+}
+
+// ErrInvalidImage is returned, wrapped, for a request image with no media type or no data.
+var ErrInvalidImage = errors.New("harness: invalid image")
+
+// validateImages checks that each image has a media type and data. It does not check whether the
+// model takes images, which only the harness knows: Pi, for one, replaces an image with a note
+// for a model without image input.
+func validateImages(images []Image) error {
+	for i, img := range images {
+		if img.MediaType == "" || len(img.Data) == 0 {
+			return fmt.Errorf("%w: image %d needs a media type and data", ErrInvalidImage, i)
+		}
+	}
+	return nil
 }
 
 // Result summarizes a finished exchange.

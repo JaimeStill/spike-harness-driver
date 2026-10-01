@@ -1,8 +1,13 @@
 package pi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +118,145 @@ func TestTwoExchangesInOneSession(t *testing.T) {
 	}
 	if _, err := s.Send(t.Context(), harness.Request{Text: "again"}); !errors.Is(err, harness.ErrClosed) {
 		t.Fatalf("Send after Close = %v, want ErrClosed", err)
+	}
+}
+
+func TestPromptCarriesImages(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "prompts.jsonl")
+	d := fakeDriver("ok")
+	d.Env = append(d.Env, promptsEnv+"="+file)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSession(t, s)
+
+	png := []byte("\x89PNG image bytes")
+	x, err := s.Send(t.Context(), harness.Request{
+		Text:   "What is in this image?",
+		Images: []harness.Image{{MediaType: "image/png", Data: png}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(t, x, 0, nil)
+	if _, err := x.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Message string            `json:"message"`
+		Images  []json.RawMessage `json:"images"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &got); err != nil {
+		t.Fatalf("prompt line %s: %v", raw, err)
+	}
+	want := `{"type":"image","data":"` + base64.StdEncoding.EncodeToString(png) +
+		`","mimeType":"image/png"}`
+	if got.Message != "What is in this image?" || len(got.Images) != 1 || string(got.Images[0]) != want {
+		t.Fatalf("Pi was prompted with %s, want the message and the image %s", raw, want)
+	}
+}
+
+func TestTheLlamaProviderLoadsItsBuiltinExtension(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		want     bool
+	}{
+		{"llama.cpp", true},
+		{"anthropic", false},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "launch.json")
+			d := fakeDriver("ok")
+			d.Env = append(d.Env, launchEnv+"="+file)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			s, err := d.Open(ctx, harness.Options{Provider: tc.provider, Model: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			closeSession(t, s)
+			raw, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var l launch
+			if err := json.Unmarshal(raw, &l); err != nil {
+				t.Fatal(err)
+			}
+			args := strings.Join(l.Args, " ")
+			if got := strings.Contains(args, "-e builtin:llama.cpp"); got != tc.want {
+				t.Fatalf("args %q: loads builtin:llama.cpp = %v, want %v", args, got, tc.want)
+			}
+			if !l.Extension {
+				t.Fatalf("args %q: the bridge extension isn't loaded", args)
+			}
+		})
+	}
+}
+
+func TestSetModelWaitsForTheCatalogRefresh(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := fakeDriver("ok").Open(ctx, harness.Options{Provider: "llama.cpp", Model: lateModel})
+	if err != nil {
+		t.Fatalf("Open on a model Pi lists only after its refresh: %v", err)
+	}
+	closeSession(t, s)
+}
+
+func TestSetModelGivesUpOnAModelPiNeverLists(t *testing.T) {
+	d := fakeDriver("ok")
+	d.CatalogWait = 400 * time.Millisecond
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	s, err := d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: absentModel})
+	if err == nil {
+		_ = s.Close()
+		t.Fatal("Open succeeded on a model Pi never lists")
+	}
+	if !strings.Contains(err.Error(), "Model not found: llama.cpp/"+absentModel) {
+		t.Fatalf("Open = %v, want Pi's Model not found error", err)
+	}
+	if took := time.Since(start); took < d.CatalogWait || took > d.CatalogWait+5*time.Second {
+		t.Fatalf("Open gave up after %v, want about CatalogWait (%v)", took, d.CatalogWait)
+	}
+}
+
+func TestSetModelWaitsOnlyForTheLlamaCatalog(t *testing.T) {
+	// The wait is long, so a retry would show; neither case may retry.
+	for _, tc := range []struct {
+		name, command, provider string
+	}{
+		{"another provider's missing model", "", "anthropic"},
+		{"a Pi that has exited", "/bin/false", "llama.cpp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := fakeDriver("ok")
+			d.CatalogWait = time.Minute
+			if tc.command != "" {
+				d.Command = tc.command
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			start := time.Now()
+			s, err := d.Open(ctx, harness.Options{Provider: tc.provider, Model: absentModel})
+			if err == nil {
+				_ = s.Close()
+				t.Fatal("Open succeeded")
+			}
+			if took := time.Since(start); took > 10*time.Second {
+				t.Fatalf("Open failed after %v, want at once: %v", took, err)
+			}
+		})
 	}
 }
 
