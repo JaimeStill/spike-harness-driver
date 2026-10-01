@@ -216,6 +216,29 @@ func TestARejectedRespondCall(t *testing.T) {
 	}
 }
 
+// A tool that takes no arguments is still reported as called: its rawInput stays {}.
+func TestACallWithNoArguments(t *testing.T) {
+	c := newCodec()
+	if _, err := c.Encode("4", call{Method: "session/prompt"}); err != nil {
+		t.Fatal(err)
+	}
+	upd := func(u string) string {
+		return `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":` + u + `}}`
+	}
+	events := decodeAll(t, c,
+		upd(`{"sessionUpdate":"tool_call","toolCallId":"c1","title":"driver_transcribe","status":"pending","rawInput":{}}`),
+		upd(`{"sessionUpdate":"tool_call_update","toolCallId":"c1","title":"driver_transcribe","status":"in_progress","rawInput":{}}`),
+		upd(`{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":{"output":"7429"}}`),
+	)
+	k := normalized(events)
+	if !slices.Equal(k, []harness.EventKind{harness.EventStarted, harness.EventToolCall, harness.EventToolResult}) {
+		t.Fatalf("kinds = %v", k)
+	}
+	if call := find(events, harness.EventToolCall)[0]; call.Tool.Name != "transcribe" || string(call.Tool.Args) != "{}" {
+		t.Errorf("call = %+v", call.Tool)
+	}
+}
+
 func TestMessages(t *testing.T) {
 	c := newCodec()
 	line, err := c.Encode("7", call{Method: "session/new", Params: map[string]string{"cwd": "/w"}})

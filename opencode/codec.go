@@ -33,15 +33,16 @@ type codec struct {
 	started bool
 	// message and text are the turn's last agent message: its ID, and its text so far.
 	message, text string
-	// calls maps each tool call's ID to its tool's name, and responds each respond call's ID
-	// to its arguments.
-	calls    map[string]string
-	responds map[string]json.RawMessage
+	// calls maps each tool call's ID to its tool's name, and args to its arguments; called
+	// holds the calls already reported.
+	calls  map[string]string
+	args   map[string]json.RawMessage
+	called map[string]bool
 }
 
 func newCodec() *codec {
 	return &codec{prompts: map[string]bool{}, loads: map[string]bool{},
-		calls: map[string]string{}, responds: map[string]json.RawMessage{}}
+		calls: map[string]string{}, args: map[string]json.RawMessage{}, called: map[string]bool{}}
 }
 
 // Encode renders a call as a JSON-RPC request with a numeric id, or as a notification for an
@@ -166,8 +167,8 @@ func (c *codec) update(u sessionUpdate, line []byte) []harness.Event {
 	return []harness.Event{ev}
 }
 
-// tool maps a tool call's updates. The call surfaces as EventToolCall once its arguments are
-// known, and as EventToolResult once it completes or fails. A respond call surfaces only as
+// tool maps a tool call's updates. The call surfaces as EventToolCall once it runs, with its
+// arguments, and as EventToolResult once it completes or fails. A respond call surfaces only as
 // the structured response, or its rejection. The caller holds c.mu.
 func (c *codec) tool(u sessionUpdate, line []byte) []harness.Event {
 	name, known := c.calls[u.ToolCallID]
@@ -177,20 +178,24 @@ func (c *codec) tool(u sessionUpdate, line []byte) []harness.Event {
 	}
 	respond := mcpbridge.IsRespond(name)
 	var events []harness.Event
-	if len(u.RawInput) > 0 && string(u.RawInput) != "{}" {
-		if _, seen := c.responds[u.ToolCallID]; !seen {
-			c.responds[u.ToolCallID] = u.RawInput
-			if !respond {
-				events = append(events, harness.Event{Kind: harness.EventToolCall, Raw: line,
-					Tool: &harness.ToolEvent{CallID: u.ToolCallID, Name: name, Args: u.RawInput}})
-			}
+	if len(u.RawInput) > 0 && (string(u.RawInput) != "{}" || u.Status != "pending") {
+		c.args[u.ToolCallID] = u.RawInput
+	}
+	// The call surfaces once OpenCode runs it, or once it ends, whichever is first: a call
+	// is pending with no arguments before it runs, and a tool that takes none never has any.
+	if !c.called[u.ToolCallID] && u.Status != "pending" && u.Status != "" {
+		c.called[u.ToolCallID] = true
+		if !respond {
+			events = append(events, harness.Event{Kind: harness.EventToolCall, Raw: line,
+				Tool: &harness.ToolEvent{CallID: u.ToolCallID, Name: name, Args: c.args[u.ToolCallID]}})
 		}
 	}
 	if u.Status == "completed" || u.Status == "failed" {
 		failed := u.Status == "failed"
-		args := c.responds[u.ToolCallID]
+		args := c.args[u.ToolCallID]
 		delete(c.calls, u.ToolCallID)
-		delete(c.responds, u.ToolCallID)
+		delete(c.args, u.ToolCallID)
+		delete(c.called, u.ToolCallID)
 		switch {
 		case respond && failed:
 			events = append(events, harness.Event{Kind: harness.EventStructuredRejected, Raw: line,
@@ -244,7 +249,8 @@ func (c *codec) end(m rpcMessage, line []byte) []harness.Event {
 		events = append(events, harness.Event{Kind: harness.EventError, Err: fmt.Errorf("opencode: unreadable prompt result %s", m.Result)})
 	}
 	clear(c.calls)
-	clear(c.responds)
+	clear(c.args)
+	clear(c.called)
 	c.started = false
 	return append(events, harness.Event{Kind: harness.EventEnded})
 }
