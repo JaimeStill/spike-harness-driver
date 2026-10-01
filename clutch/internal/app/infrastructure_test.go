@@ -3,9 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +20,8 @@ import (
 
 	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 	"github.com/JaimeStill/spike-harness-driver/model"
+	"github.com/JaimeStill/spike-harness-driver/opencode"
+	"github.com/JaimeStill/spike-harness-driver/pi"
 )
 
 func TestValidateLoadsTheSourcesIntoEverySessionsOptions(t *testing.T) {
@@ -123,6 +128,74 @@ func TestModelsTakeTheTargetsDefaultsUnlessOverridden(t *testing.T) {
 	m, err := newInfrastructure(flagged(t, "--harness-vision-model", "h")).Models()
 	if err != nil || m.HarnessVision != "h" {
 		t.Errorf("Models = %+v, %v", m, err)
+	}
+}
+
+func TestHarnessDefaultsFollowTheHarnessUnlessOverridden(t *testing.T) {
+	t.Setenv("LLAMA_BASE_URL", "http://router.test:8080/")
+	cases := []struct {
+		args                  []string
+		provider, model, wide string
+		skillTool             string
+	}{
+		{nil, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{[]string{"--harness", "pi"}, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{[]string{"--harness", "claude"}, "anthropic", "haiku", "haiku", "Skill"},
+		{[]string{"--harness", "claude", "--model", "sonnet"}, "anthropic", "sonnet", "haiku", "Skill"},
+		{[]string{"--harness", "claude", "--harness-vision-model", "opus"}, "anthropic", "haiku", "opus", "Skill"},
+		{[]string{"--provider", "p", "--model", "m"}, "p", "m", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+	}
+	for _, c := range cases {
+		infra := newInfrastructure(flagged(t, c.args...))
+		opts := infra.Options()
+		if opts.Provider != c.provider || opts.Model != c.model {
+			t.Errorf("%v: options %q on %q, want %q on %q", c.args, opts.Model, opts.Provider, c.model, c.provider)
+		}
+		m, err := infra.Models()
+		if err != nil || m.HarnessVision != c.wide {
+			t.Errorf("%v: HarnessVision = %q, %v, want %q", c.args, m.HarnessVision, err, c.wide)
+		}
+		if got := infra.Profile().SkillTool; got != c.skillTool {
+			t.Errorf("%v: skill tool %q, want %q", c.args, got, c.skillTool)
+		}
+	}
+}
+
+func TestDriverIsBuiltPerHarness(t *testing.T) {
+	for name, want := range map[string]string{"pi": "pi.Driver", "claude": "claude.Driver", "opencode": "opencode.Driver"} {
+		d, err := newInfrastructure(flagged(t, "--harness", name, "--state", t.TempDir())).Driver()
+		if err != nil || fmt.Sprintf("%T", d) != want {
+			t.Errorf("--harness %s: Driver = %T, %v, want %s", name, d, err, want)
+		}
+	}
+	if _, err := newInfrastructure(flagged(t, "--harness", "nope")).Driver(); err == nil {
+		t.Error("Driver built an adapter for an unknown harness")
+	}
+}
+
+func TestOpenCodesProviderIsTheRouter(t *testing.T) {
+	t.Setenv("LLAMA_BASE_URL", "http://router.invalid:8080/")
+	d, err := newInfrastructure(flagged(t, "--harness", "opencode", "--harness-vision-model", "seer")).Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := d.(opencode.Driver).Providers[providerLlama]
+	if !ok || p.BaseURL != "http://router.invalid:8080/v1" || !p.Models["seer"].Image {
+		t.Fatalf("provider = %+v, want the router's /v1 base with the vision model taking images", p)
+	}
+}
+
+func TestNeedsLooksUpTheHarnessExecutable(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, ok := range map[string]bool{"claude": true, "pi": false} {
+		err := newInfrastructure(flagged(t, "--harness", name)).Needs().Harness[0].Check(t.Context())
+		if (err == nil) != ok {
+			t.Errorf("--harness %s: %v", name, err)
+		}
 	}
 }
 
@@ -334,5 +407,77 @@ func TestParseAzToken(t *testing.T) {
 		} else if strings.Contains(err.Error(), "secret") {
 			t.Errorf("%s: the error quotes the token: %v", out, err)
 		}
+	}
+}
+
+// On the azure provider, Pi and OpenCode default to gpt-5-mini; Pi's key is the az command
+// in its own agent directory, and OpenCode's a token, through @ai-sdk/openai.
+func TestTheAzureProvider(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_BASE_URL", "https://example.invalid/openai/v1")
+	state := t.TempDir()
+
+	infra := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--state", state, "--azure-scope", "https://scope.test"))
+	if err := infra.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if o := infra.Options(); o.Provider != "azure" || o.Model != "gpt-5-mini" {
+		t.Errorf("options = %s %s, want azure gpt-5-mini", o.Provider, o.Model)
+	}
+	if m, err := infra.Models(); err != nil || m.HarnessVision != "gpt-5-mini" || !m.DefaultTakesImages {
+		t.Errorf("models = %+v, %v", m, err)
+	}
+	d, err := infra.Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.(pi.Driver)
+	key := p.Providers["azure"].APIKey
+	if p.AgentDir != filepath.Join(state, "pi-agent") || key != "!az account get-access-token --resource https://scope.test --query accessToken -o tsv" {
+		t.Errorf("pi driver = %s, key %q", p.AgentDir, key)
+	}
+
+	az := &fakeAz{expires: time.Now().Add(time.Hour)}
+	infra = newInfrastructure(flagged(t, "--harness", "opencode", "--provider", "azure", "--state", state, "--azure-scope", "https://scope.test"))
+	infra.az = az.run
+	d, err = infra.Driver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oc := d.(opencode.Driver).Providers["azure"]
+	if oc.NPM != "@ai-sdk/openai" || oc.APIKey == "" || !oc.Models["gpt-5-mini"].Image {
+		t.Errorf("opencode provider = %+v", oc)
+	}
+
+	// A harness vision model other than the session's is listed too, taking images, so a
+	// session can select it.
+	vision := "gpt-5-vision"
+	infra = newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--state", state,
+		"--azure-scope", "https://scope.test", "--harness-vision-model", vision))
+	if d, err = infra.Driver(); err != nil {
+		t.Fatal(err)
+	}
+	var piModels []string
+	for _, m := range d.(pi.Driver).Providers["azure"].Models {
+		if m.Image {
+			piModels = append(piModels, m.ID)
+		}
+	}
+	if !slices.Equal(piModels, []string{"gpt-5-mini", vision}) {
+		t.Errorf("pi's azure models taking images = %v, want the session's and the vision model", piModels)
+	}
+	infra = newInfrastructure(flagged(t, "--harness", "opencode", "--provider", "azure", "--state", state,
+		"--azure-scope", "https://scope.test", "--harness-vision-model", vision))
+	infra.az = az.run
+	if d, err = infra.Driver(); err != nil {
+		t.Fatal(err)
+	}
+	if ms := d.(opencode.Driver).Providers["azure"].Models; len(ms) != 2 || !ms["gpt-5-mini"].Image || !ms[vision].Image {
+		t.Errorf("opencode's azure models = %+v, want the session's and the vision model, taking images", ms)
+	}
+
+	// The scope reaches a command line, so one a shell would read is refused.
+	bad := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--azure-scope", "https://x; rm -rf ~"))
+	if err := bad.Validate(); err == nil {
+		t.Error("Validate took a scope a shell would read")
 	}
 }

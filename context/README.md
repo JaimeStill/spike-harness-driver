@@ -47,14 +47,19 @@ and decides what the workspace takes from it.
 
 The spike's sessions own these steps, in dependency order, and may revise them. The session
 interface and the Pi adapter (step 1), session persistence and resume (step 2), payloads, tool
-calls, and skills (step 3), and native capabilities through a direct model client, `model`
-(step 4), exist. `context/findings.md` records what they showed. `clutch`
-(`go run ./clutch/cmd/clutch`) drives them: its `scenario` commands each show one capability,
-and its `session` commands run one exchange at a time. `--target` points the direct client at
-the router or Azure AI Foundry, which `setup/` sets up.
+calls, and skills (step 3), native capabilities through a direct model client, `model` (step 4),
+and the Claude Code and OpenCode adapters with a conformance suite (step 5) exist.
+`context/findings.md` records what they showed, and compares the three harnesses. The code is
+six modules under `go.work`: the root module (the `harness/...` core and `model`),
+`mcpbridge`, the adapters `pi`, `claude`, and `opencode`, and `clutch`.
 
-5. **Claude Code and OpenCode adapters.** A conformance suite runs the three adapters behind one
-   interface, against local and cloud targets.
+`clutch` (`go run ./clutch/cmd/clutch`) drives them. `--harness pi|claude|opencode` picks the
+harness, and `--provider` its models (`llama.cpp` for the router, `azure` for Azure AI Foundry,
+`anthropic` for Claude Code). Its `scenario` commands each show one capability, its `session`
+commands run one exchange at a time, and `conform` runs every capability over every harness
+and provider as a matrix, against pinned harness versions. `--target` points the direct client
+at the router or Azure AI Foundry, which `setup/` sets up.
+
 6. **Long-running workflow.** A workflow spans several sessions, with progress, event streaming to
    SSE, a concurrency limit, cancellation, and resume after a restart. The step also records the
    container image's footprint and checks the managed-identity and IL6 path on paper. Its

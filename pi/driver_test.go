@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -325,5 +326,61 @@ func TestPiExitEndsTheExchange(t *testing.T) {
 	}
 	if err := s.Close(); err == nil {
 		t.Fatal("Close after a crash returned nil")
+	}
+}
+
+// Providers are written into the agent directory's models.json, which Pi reads from
+// PI_CODING_AGENT_DIR, and a "!" key stays a command for Pi to run per request.
+func TestProvidersGoIntoTheAgentDirectory(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "launch.json")
+	d := fakeDriver("ok")
+	d.Env = append(d.Env, launchEnv+"="+file)
+	d.AgentDir = filepath.Join(t.TempDir(), "agent")
+	d.Providers = map[string]Provider{"azure": {
+		BaseURL: "https://example.invalid/openai/v1",
+		APIKey:  "!az account get-access-token --query accessToken -o tsv",
+		Models:  []Model{{ID: "gpt-5-mini", Image: true, Reasoning: true}},
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	s, err := d.Open(ctx, harness.Options{Provider: "azure", Model: "gpt-5-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeSession(t, s)
+	l := readLaunch(t, file)
+	var got struct {
+		Providers map[string]struct {
+			BaseURL string `json:"baseUrl"`
+			API     string `json:"api"`
+			APIKey  string `json:"apiKey"`
+			Models  []struct {
+				ID        string   `json:"id"`
+				Input     []string `json:"input"`
+				Reasoning bool     `json:"reasoning"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(l.Models, &got); err != nil {
+		t.Fatalf("models.json %s: %v", l.Models, err)
+	}
+	p := got.Providers["azure"]
+	if p.API != "openai-completions" || !strings.HasPrefix(p.APIKey, "!az ") || len(p.Models) != 1 ||
+		!slices.Equal(p.Models[0].Input, []string{"text", "image"}) || !p.Models[0].Reasoning {
+		t.Fatalf("provider = %+v", p)
+	}
+	if fi, err := os.Stat(d.AgentDir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("agent directory = %v, %v; want it private", fi, err)
+	}
+	if strings.Contains(strings.Join(l.Args, " "), "builtin:llama.cpp") {
+		t.Error("an azure session loaded the llama.cpp provider")
+	}
+}
+
+func TestProvidersNeedAnAgentDirectory(t *testing.T) {
+	d := fakeDriver("ok")
+	d.Providers = map[string]Provider{"azure": {BaseURL: "https://example.invalid/v1"}}
+	if _, err := d.Open(t.Context(), harness.Options{Provider: "azure"}); err == nil {
+		t.Fatal("Open wrote providers with nowhere to write them")
 	}
 }

@@ -52,29 +52,64 @@ func NewClient(p *Process, codec Codec, handle Handler) *Client {
 // Call sends cmd and waits for its response. It fails with the response's error when the
 // harness reports failure, and with the exit error when the harness exits first.
 func (c *Client) Call(ctx context.Context, cmd any) (Response, error) {
-	id := strconv.FormatInt(c.nextID.Add(1), 10)
-	line, err := c.codec.Encode(id, cmd)
+	id, ch, err := c.send(ctx, cmd)
 	if err != nil {
-		return Response{}, err
-	}
-	ch, err := c.calls.register(id)
-	if err != nil {
-		return Response{}, err
-	}
-	if err := c.p.WriteLine(line); err != nil {
-		c.calls.forget(id)
 		return Response{}, err
 	}
 	select {
-	case r, ok := <-ch:
-		if !ok {
-			return Response{}, c.calls.failure()
-		}
+	case r := <-ch:
 		return r, r.Err
 	case <-ctx.Done():
 		c.calls.forget(id)
 		return Response{}, ctx.Err()
 	}
+}
+
+// Send writes cmd and returns without waiting for its response, which the channel receives
+// later: the harness's response, with its error in Err when the harness reports failure, or a
+// Response carrying the exit error in Err when the harness exits first. The channel receives
+// exactly one Response.
+//
+// Send is for a command whose response may take as long as a run does, such as a prompt that
+// the harness answers only as the turn ends. The command is on the harness's input when Send
+// returns, so a command written after it, such as a cancellation, reaches the harness after
+// it. Send fails without writing when ctx has ended, or when the harness has exited.
+func (c *Client) Send(ctx context.Context, cmd any) (<-chan Response, error) {
+	_, ch, err := c.send(ctx, cmd)
+	return ch, err
+}
+
+// send registers a call for cmd, writes it, and returns its id and the channel its response
+// arrives on.
+func (c *Client) send(ctx context.Context, cmd any) (string, <-chan Response, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
+	id := strconv.FormatInt(c.nextID.Add(1), 10)
+	line, err := c.codec.Encode(id, cmd)
+	if err != nil {
+		return "", nil, err
+	}
+	ch, err := c.calls.register(id)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := c.p.WriteLine(line); err != nil {
+		c.calls.forget(id)
+		return "", nil, err
+	}
+	return id, ch, nil
+}
+
+// Notify sends cmd without waiting for a response, for a message the harness doesn't answer,
+// such as a user message on a stream or a JSON-RPC notification. The codec encodes it with an
+// empty id.
+func (c *Client) Notify(cmd any) error {
+	line, err := c.codec.Encode("", cmd)
+	if err != nil {
+		return err
+	}
+	return c.p.WriteLine(line)
 }
 
 // Events yields the harness's normalized events, and closes once the harness has exited.

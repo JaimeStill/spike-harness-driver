@@ -40,6 +40,8 @@ type launch struct {
 	Extension bool                `json:"extension"` // the -e file exists
 	Tools     json.RawMessage     `json:"tools"`
 	Skills    map[string][]string `json:"skills"` // each --skill directory's files, by the directory
+	// Models is the models.json in PI_CODING_AGENT_DIR, when the driver set one.
+	Models json.RawMessage `json:"models"`
 }
 
 // promptsEnv names the file where the fake appends each prompt command it receives, one JSON
@@ -86,6 +88,9 @@ func recordLaunch(args []string) {
 		}
 	}
 	l.Tools, _ = os.ReadFile(os.Getenv(toolsEnv))
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		l.Models, _ = os.ReadFile(filepath.Join(dir, "models.json"))
+	}
 	b, _ := json.Marshal(l)
 	_ = os.WriteFile(file, b, 0o600)
 }

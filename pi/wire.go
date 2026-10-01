@@ -69,8 +69,9 @@ type usage struct {
 }
 
 // toolResult is a tool_execution_end result, as far as the driver reads it: the respond
-// tool's details are the structured response.
+// tool's details are the structured response, and a failed call's content says why.
 type toolResult struct {
+	Content json.RawMessage `json:"content"`
 	Details json.RawMessage `json:"details"`
 }
 

@@ -111,7 +111,7 @@ func (x *Exchange) push(ev Event) {
 	case EventMessageEnd:
 		x.result.StopReason, x.result.Text = ev.StopReason, ev.Text
 		if ev.Usage != nil {
-			x.result.Usage = *ev.Usage
+			x.result.Usage.add(*ev.Usage)
 		}
 	case EventStructured:
 		x.result.Structured = ev.Structured

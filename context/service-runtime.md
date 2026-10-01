@@ -31,7 +31,7 @@ Planned for step 6, where a service runs workflows over many sessions in a conta
   - A database as a registry: it chooses tools and skills per tenant or per workflow, and
     versions them. A skill source is an `fs.FS` over its rows, which `harness/catalog` reads
     unchanged. A stored tool definition names code that lives elsewhere, an executable on disk
-    or an MCP server (`adapters.md`).
+    or an MCP server (`findings.md`, Payloads).
   - Layered skill search paths with precedence, such as user, workspace, and project, where a
     nearer skill of the same name overrides a farther one, as Pi's own discovery does. `--skills`
     is repeatable today but treats a shared name as an error.
@@ -46,8 +46,25 @@ Planned for step 6, where a service runs workflows over many sessions in a conta
     to tell a loading model from a hung one.
   - A provider error, such as llama.cpp rejecting a malformed tool call, ends the exchange with
     `stopReason: "error"`, and Pi doesn't retry it. A service decides which of these to retry.
-- **The harness's version.** The image pins it. A harness installed as "latest" changed what
-  the driver's flags do between two runs (`findings.md`, Process lifecycle).
+- **The harness's version.** The image pins each harness it carries, and `clutch conform` checks
+  the pins (`mise.toml` for Pi and OpenCode). A harness installed as "latest" changed what the
+  driver's flags do between two runs, and Claude Code, a native install, updated itself outside
+  the driver's sessions (`findings.md`, Process lifecycle). In an image, the install itself is
+  pinned; the driver only keeps the sessions it starts from updating.
+- **Subscription usage limits.** A Claude Code session on a subscription reaches its limits. A
+  service pauses a workflow at a `*harness.LimitError` until its `ResetsAt` rather than failing
+  it, and watches `EventLimit` notices to slow down before the limit.
+- **Context-window compaction.** Each harness compacts a long session on its own; the adapters
+  pass the markers through as `EventHarness`. A long-running workflow needs to know what a
+  compaction drops, per harness, before it relies on a session's memory.
+- **The system prompt.** Pi's can be replaced entirely (`--system-prompt`, or per run from an
+  extension's `before_agent_start`). Claude Code takes `--system-prompt` too, and OpenCode an
+  agent's prompt in its configuration; neither was probed. A `SystemPrompt` option on
+  `harness.Options` would let a workflow give each session its role.
+- **Forcing `respond`.** A structured response depends on the model choosing to call `respond`,
+  which gpt-oss on the router doesn't reliably do after a tool call. Forcing it with the
+  provider's `tool_choice`, through Pi's `before_provider_request` hook, would be sturdier;
+  the payload's shape differs per provider.
 - **Native capability models.**
   - The router's vision, embedding, and audio models share the GPU pool with the text models.
     A vision model beside gpt-oss leaves no room for the others, so a service either sizes the
@@ -55,6 +72,16 @@ Planned for step 6, where a service runs workflows over many sessions in a conta
     before a session selects the model.
   - Audio is split on the client: Gemma 4 E4B loops on clips longer than about 30 seconds, and
     Azure's transcription takes files up to 25 MB.
+- **Harness credentials.**
+  - Pi takes a short-lived token as a command it runs for each request (`!az …`), so a long
+    session never holds an expired one.
+  - OpenCode's configuration takes no command, so its token is fixed when the session opens and
+    a session longer than about an hour fails. It also sits in `OPENCODE_CONFIG_CONTENT`, which
+    every process OpenCode starts, its shell tool's included, inherits: no wider than the Azure
+    CLI's own access, but a service gives OpenCode a token scoped to the model alone.
+  - The driver's MCP server for OpenCode listens on loopback behind a per-session bearer
+    token, since any local user can reach a loopback port and the tools run with the service's
+    privileges.
 - **Model client credentials.**
   - The spike's Azure token comes from the Azure CLI's sign-in. A service takes a managed
     identity instead, either from IMDS over plain HTTP or through an azidentity sub-module,

@@ -1,0 +1,9 @@
+# These are the harness versions clutch's conformance suite (`clutch conform`) pins. The suite skips
+# a harness at any other version unless --any-version is passed, so keep them in step with the pins
+# in clutch/internal/app/harnesses.go.
+#
+# Claude Code is absent because it is a native install, which the driver keeps from updating itself
+# (DISABLE_AUTOUPDATER), so the version on the PATH is the one the suite sees.
+[tools]
+pi = "0.99.2"
+opencode = "1.18.34"

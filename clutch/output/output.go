@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -91,12 +92,31 @@ func EventLine(ev harness.Event) string {
 		detail = "stop=" + ev.StopReason
 	case ev.Kind == harness.EventStructured:
 		detail = cut(compact(ev.Structured), harnessDetail)
+	case ev.Kind == harness.EventLimit && ev.Limit != nil:
+		detail = limitDetail(ev.Limit)
 	case ev.Err != nil:
 		detail = ev.Err.Error()
 	case ev.Tool != nil:
 		detail = toolDetail(ev.Kind, ev.Tool)
 	}
 	return fmt.Sprintf("%s %s %4d %-14s %q", Short(ev.SessionID), Short(ev.ExchangeID.String()), ev.Seq, ev.Kind, detail)
+}
+
+// limitDetail is a limit event's detail: the status, then the window and how much of it is used
+// and when it resets, each only when the harness said. The reset shows as a time of day in the
+// local zone, which is as much as a window of hours calls for.
+func limitDetail(l *harness.LimitStatus) string {
+	parts := []string{"status=" + l.Status}
+	if l.Kind != "" {
+		parts = append(parts, l.Kind)
+	}
+	if l.Utilization > 0 {
+		parts = append(parts, fmt.Sprintf("%.0f%%", l.Utilization*100))
+	}
+	if !l.ResetsAt.IsZero() {
+		parts = append(parts, "resets "+l.ResetsAt.Local().Format("15:04"))
+	}
+	return strings.Join(parts, " ")
 }
 
 // toolDetail is a tool event's detail: the name, then the arguments of a call or the result of

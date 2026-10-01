@@ -65,6 +65,23 @@ func TestEventLine(t *testing.T) {
 			want: `s 33445566    5 structured     ` + strconv.Quote(`{"answer":42}`),
 		},
 		{
+			name: "structured rejected",
+			ev: harness.Event{SessionID: "s", ExchangeID: x, Seq: 5, Kind: harness.EventStructuredRejected,
+				Err: errors.New("city: required")},
+			want: `s 33445566    5 structured_rejected "city: required"`,
+		},
+		{
+			name: "limit",
+			ev: harness.Event{SessionID: "s", ExchangeID: x, Seq: 7, Kind: harness.EventLimit, Limit: &harness.LimitStatus{
+				Status: "allowed", Kind: "five_hour", Utilization: 0.03, ResetsAt: time.Date(2026, 10, 1, 15, 10, 0, 0, time.Local)}},
+			want: `s 33445566    7 limit          "status=allowed five_hour 3% resets 15:10"`,
+		},
+		{
+			name: "limit with only a status",
+			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 8, Kind: harness.EventLimit, Limit: &harness.LimitStatus{Status: "rejected"}},
+			want: `s 33445566    8 limit          "status=rejected"`,
+		},
+		{
 			name: "cut keeps whole characters",
 			ev:   harness.Event{SessionID: "s", ExchangeID: x, Seq: 6, Kind: harness.EventHarness, Raw: []byte(strings.Repeat("x", 79) + "éé")},
 			want: `s 33445566    6 harness        ` + strconv.Quote(strings.Repeat("x", 79)+"…"),

@@ -3,6 +3,7 @@ package scenario
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -35,26 +36,23 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func TestNoteRetriesCountsFailedRespondResults(t *testing.T) {
+func TestNoteRetriesCountsRejectedResponses(t *testing.T) {
 	var out bytes.Buffer
 	rep := NewReporter(output.New(&out, &out, nil))
-	result := func(name string, failed bool) harness.Event {
-		return harness.Event{Kind: harness.EventToolResult, Tool: &harness.ToolEvent{Name: name, IsError: failed}}
-	}
+	rejected := harness.Event{Kind: harness.EventStructuredRejected, Err: errors.New("missing city")}
 	r := &run{events: []harness.Event{
-		{Kind: harness.EventToolCall, Tool: &harness.ToolEvent{Name: respondTool}},
-		result(respondTool, true),
-		result("read", true),
-		result(respondTool, true),
-		result(respondTool, false),
+		rejected,
+		{Kind: harness.EventToolResult, Tool: &harness.ToolEvent{Name: "read", IsError: true}},
+		rejected,
+		{Kind: harness.EventStructured, Structured: json.RawMessage(`{}`)},
 	}}
 	r.noteRetries(rep)
-	if !strings.Contains(out.String(), "respond failed validation 2 time(s)") {
+	if !strings.Contains(out.String(), "failed validation 2 time(s)") {
 		t.Errorf("narration:\n%s", out.String())
 	}
 
 	out.Reset()
-	r.events = []harness.Event{result(respondTool, false)}
+	r.events = []harness.Event{{Kind: harness.EventStructured, Structured: json.RawMessage(`{}`)}}
 	r.noteRetries(rep)
 	if out.Len() != 0 {
 		t.Errorf("a first-time response noted retries:\n%s", out.String())

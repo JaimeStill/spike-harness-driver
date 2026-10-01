@@ -1,0 +1,9 @@
+ACP transcripts of OpenCode 1.18.34 (opencode acp --pure) on the llama.cpp router with
+unsloth/gpt-oss-120b-GGUF:Q4_K_M, captured by teeing OpenCode's stdout while the
+driver ran. They hold OpenCode's side only: the driver's requests aren't in them, so a replay
+encodes each session/prompt itself before the turn it answers. Local paths are replaced with
+/work, and the available-commands lists are cut to one entry.
+
+- tools.jsonl: the handshake, then three turns: one calls the driver's echo tool; two answer
+  through respond tools for two schemas, on the one session.
+- cancel.jsonl: the handshake, a turn cancelled while it streamed, and a turn after it.

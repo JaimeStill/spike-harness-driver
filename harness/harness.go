@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"strings"
+	"time"
 )
 
 // ErrBusy is returned by Send while an earlier exchange on the same session is still open.
@@ -46,6 +48,33 @@ var ErrJournalMismatch = errors.New("harness: the harness no longer holds the se
 // exchange ended, other than by cancellation, without a structured response.
 var ErrNoStructuredResponse = errors.New("harness: the exchange ended without a structured response")
 
+// ErrUsageLimit is matched by a *LimitError: the provider refused the run, or cut it off,
+// because a usage or rate limit was reached.
+var ErrUsageLimit = errors.New("harness: usage limit reached")
+
+// LimitError is an exchange's error when the provider's usage or rate limit refused or ended
+// its run. A caller tells it from a failed run with errors.Is(err, ErrUsageLimit), and waits
+// until ResetsAt before trying again.
+type LimitError struct {
+	// ResetsAt is when the limit resets, and zero when the harness doesn't say.
+	ResetsAt time.Time
+	// Message is the harness's own report of the limit.
+	Message string
+}
+
+func (e *LimitError) Error() string {
+	msg := ErrUsageLimit.Error()
+	if e.Message != "" {
+		msg += ": " + e.Message
+	}
+	if !e.ResetsAt.IsZero() {
+		msg += " (resets " + e.ResetsAt.Format(time.RFC3339) + ")"
+	}
+	return msg
+}
+
+func (e *LimitError) Unwrap() error { return ErrUsageLimit }
+
 // Driver opens sessions on one harness.
 type Driver interface {
 	Open(ctx context.Context, opts Options) (*Session, error)
@@ -54,7 +83,10 @@ type Driver interface {
 // Options selects the session to open and the model it runs against.
 type Options struct {
 	// SessionID opens the harness session with that ID, creating it if the harness has none.
-	// Empty opens a new session under an ID the harness assigns.
+	// Empty opens a new session under an ID the harness assigns. An adapter may refuse an ID
+	// its harness can't create or has lost: OpenCode can't create a session under an ID the
+	// caller chooses, and the Claude Code adapter refuses, with ErrJournalMismatch, a session
+	// Claude Code lost that the Store holds records of.
 	SessionID string
 	// Store keeps the session's exchange records. Nil keeps none.
 	Store Store
@@ -70,7 +102,8 @@ type Options struct {
 	// Skills are the skills the session makes available to the model.
 	Skills []Skill
 	// HarnessTools names the harness's own tools the session enables, such as "read". Nil
-	// keeps the harness's default set; empty enables none.
+	// keeps the harness's default set, and the adapter allows each of those tools to run; a
+	// list enables and allows those tools, beside the driver's own; empty enables none.
 	HarnessTools []string
 }
 
@@ -151,6 +184,21 @@ type Skill struct {
 	Dir string
 }
 
+// ErrInvalidSkill is returned, wrapped, by Skill.Validate for a skill whose name can't be a
+// directory's.
+var ErrInvalidSkill = errors.New("harness: invalid skill")
+
+// Validate checks that s's name can name a directory of its own: not empty, without a slash or
+// a backslash, and neither "." nor "..". An adapter writes or links each skill under its name,
+// and a harness finds a skill by its directory, so a name that is a path would land the skill
+// outside the adapter's directory, or merge it with another.
+func (s Skill) Validate() error {
+	if s.Name == "" || strings.ContainsAny(s.Name, `/\`) || s.Name == "." || s.Name == ".." {
+		return fmt.Errorf("%w: %q is not a directory name", ErrInvalidSkill, s.Name)
+	}
+	return nil
+}
+
 // Request is the payload of one exchange.
 type Request struct {
 	Text string `json:"text"`
@@ -198,12 +246,23 @@ type Result struct {
 	Usage      Usage           `json:"usage"`
 }
 
-// Usage counts the tokens an exchange's last assistant message used. Input excludes tokens
-// read from or written to the provider's prompt cache, which CacheRead and CacheWrite count,
-// so with a warm cache Input alone understates the prompt.
+// Usage counts the tokens a model used. On an EventMessageEnd it is what the adapter reports
+// for that message: an adapter reports usage once, either per message, as Pi does, or per turn
+// on the turn's last message, as Claude Code and OpenCode do. On a Result it is the sum of
+// those reports, which covers every model request of the exchange, tool round trips included.
+// Input excludes tokens read from or written to the provider's prompt cache, which CacheRead
+// and CacheWrite count, so with a warm cache Input alone understates the prompt.
 type Usage struct {
 	Input      int `json:"input"`
 	Output     int `json:"output"`
 	CacheRead  int `json:"cacheRead,omitempty"`
 	CacheWrite int `json:"cacheWrite,omitempty"`
+}
+
+// add adds o's counts to u.
+func (u *Usage) add(o Usage) {
+	u.Input += o.Input
+	u.Output += o.Output
+	u.CacheRead += o.CacheRead
+	u.CacheWrite += o.CacheWrite
 }

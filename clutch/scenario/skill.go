@@ -24,7 +24,6 @@ const (
 	// without it.
 	motto = "Hold the line, shift the load."
 
-	mottoByName = "/skill:clutch-motto What is the clutch motto? Reply with the motto only."
 	mottoPrompt = "What is the clutch motto? Reply with the motto only."
 
 	// weatherSkill is the example skill in clutch/examples/skills, which the skill scenario asks
@@ -43,11 +42,18 @@ func mottoSkill() (harness.Skill, error) {
 	return catalog.Skill(sub)
 }
 
+// MottoSkill returns the embedded clutch-motto skill and the motto it gives, for a caller that
+// checks a model's answer against the skill rather than narrating the scenario.
+func MottoSkill() (skill harness.Skill, phrase string, err error) {
+	skill, err = mottoSkill()
+	return skill, motto, err
+}
+
 // skillScenario shows the two ways a skill reaches the model: invoked by name in the prompt,
-// with no tools at all, and found by the model itself, which reads the skill with the harness's
-// read tool. When --skills loaded the example clutch-weather skill, the model finds that one
-// too.
-func skillScenario(svc *session.Service, needs []Need) Scenario {
+// with no tools at all, and found by the model itself, which loads the skill with the harness's
+// skill tool, as the profile names it. When --skills loaded the example clutch-weather skill,
+// the model finds that one too.
+func skillScenario(svc *session.Service, profile func() Profile, needs []Need) Scenario {
 	return Scenario{
 		Name:    "skill",
 		Summary: "An embedded skill invoked by name and found by the model, and an external one when --skills loads it",
@@ -74,8 +80,9 @@ func skillScenario(svc *session.Service, needs []Need) Scenario {
 						if err != nil {
 							return err
 						}
-						rep.Note("a prompt of /skill:<name> has Pi inline the skill's instructions, so no tool is needed")
-						o, err := ask(ctx, rep, session.Setup{Skills: []harness.Skill{skill}, HarnessTools: []string{}}, mottoByName)
+						p := profile()
+						rep.Note("a prompt of %s<name> has %s inline the skill's instructions, so no tool is needed", p.SkillPrefix, p.Name)
+						o, err := ask(ctx, rep, session.Setup{Skills: []harness.Skill{skill}, HarnessTools: []string{}}, p.SkillPrefix+"clutch-motto "+mottoPrompt)
 						if err != nil {
 							return err
 						}
@@ -83,35 +90,36 @@ func skillScenario(svc *session.Service, needs []Need) Scenario {
 					},
 				},
 				{
-					Intent: "Ask for the motto without naming the skill, in a new session whose only tool is read",
+					Intent: "Ask for the motto without naming the skill, in a new session whose only tool is the harness's skill tool",
 					Action: func(ctx context.Context, rep *Reporter) error {
 						skill, err := mottoSkill()
 						if err != nil {
 							return err
 						}
-						rep.Note("Pi lists skills to the model only when its read or bash tool is active; the model reads SKILL.md itself")
-						o, err := ask(ctx, rep, session.Setup{Skills: []harness.Skill{skill}, HarnessTools: []string{"read"}}, mottoPrompt)
+						p := profile()
+						rep.Note("%s lists skills to the model only when its %s tool is active; the model loads the skill itself", p.Name, p.SkillTool)
+						o, err := ask(ctx, rep, session.Setup{Skills: []harness.Skill{skill}, HarnessTools: []string{p.SkillTool}}, mottoPrompt)
 						if err != nil {
 							return err
 						}
-						if err := r.toolRan("read"); err != nil {
+						if err := r.toolRan(p.SkillTool); err != nil {
 							return err
 						}
 						return replyHasPhrase(o.Result.Text, motto, "the motto")
 					},
 				},
 				{
-					Intent: "Ask about the weather only the external clutch-weather skill knows, in a session whose only tool is read",
+					Intent: "Ask about the weather only the external clutch-weather skill knows, in a session whose only tool is the harness's skill tool",
 					Action: func(ctx context.Context, rep *Reporter) error {
 						if !slices.ContainsFunc(svc.Skills(), func(s harness.Skill) bool { return s.Name == weatherSkill }) {
 							rep.Note("skipped: --skills didn't load a clutch-weather skill; add --skills clutch/examples/skills to include it")
 							return nil
 						}
-						o, err := ask(ctx, rep, session.Setup{HarnessTools: []string{"read"}}, weatherPrompt)
+						o, err := ask(ctx, rep, session.Setup{HarnessTools: []string{profile().SkillTool}}, weatherPrompt)
 						if err != nil {
 							return err
 						}
-						reply := normalize(o.Result.Text)
+						reply := Normalize(o.Result.Text)
 						if !strings.Contains(reply, "overcast") || !strings.Contains(strings.ReplaceAll(reply, " ", ""), "northwest") {
 							return fmt.Errorf("the reply lacks the clutch-weather report: %q", o.Result.Text)
 						}
@@ -130,15 +138,15 @@ func skillScenario(svc *session.Service, needs []Need) Scenario {
 // replyHasPhrase fails unless the reply holds phrase, ignoring case and punctuation, so a model
 // that drops the full stop or the quotes still passes. The failure names phrase by what.
 func replyHasPhrase(reply, phrase, what string) error {
-	if !strings.Contains(normalize(reply), normalize(phrase)) {
+	if !strings.Contains(Normalize(reply), Normalize(phrase)) {
 		return fmt.Errorf("the reply lacks %s %q: %q", what, phrase, reply)
 	}
 	return nil
 }
 
-// normalize lowercases s and turns every run of characters other than letters and digits into
-// one space.
-func normalize(s string) string {
+// Normalize lowercases s and turns every run of characters other than letters and digits into
+// one space, the form the scenarios compare a reply to a phrase in.
+func Normalize(s string) string {
 	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	}), " ")

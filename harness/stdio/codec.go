@@ -11,7 +11,9 @@ import (
 // adapter's normalization lives.
 type Codec interface {
 	// Encode renders cmd as one line, stamped with the correlation id the harness will echo
-	// in its response.
+	// in its response. An empty id is a notification, which the harness doesn't answer, so
+	// the line carries no id. The codec renders id as its protocol's id: a JSON-RPC codec
+	// may send it as a number.
 	Encode(id string, cmd any) ([]byte, error)
 	// Decode parses one line into a response, a request from the harness, or the normalized
 	// events it carries. A line that carries no normalized meaning still yields an
@@ -31,7 +33,9 @@ type Frame struct {
 // Request is one the harness makes of its driver and waits on, such as a call to a tool the
 // driver runs. It is the reverse of a command: the harness asks, and the driver answers.
 type Request struct {
-	// ID is the harness's own id for the request, which the answer carries back.
+	// ID is the harness's own id for the request, which the answer carries back. A codec
+	// whose protocol has ids of more than one JSON type keeps the id's raw JSON text, so
+	// Reply echoes it unchanged.
 	ID string
 	// Body is the request as the codec decoded it, for the adapter's Handler to read.
 	Body any
@@ -44,7 +48,7 @@ type Handler func(ctx context.Context, req Request) (answer any)
 
 // Response answers one command.
 type Response struct {
-	// ID is the correlation id the command was encoded with.
+	// ID is the correlation id the command was encoded with, as Encode was given it.
 	ID string
 	// Err is non-nil when the harness reported that the command failed.
 	Err  error

@@ -1,0 +1,12 @@
+Stream-json transcripts of Claude Code 2.1.286 on claude-haiku-4-5, captured by a probe and
+replayed through the codec. Local paths are replaced with /work, thinking signatures with "sig",
+and the init message's lists of the user's commands are dropped. The control requests and
+responses are left out; the codec tests cover them separately.
+
+- tools.jsonl: a turn that calls the driver's echo tool, then its respond tool (renamed
+  respond_0f3a9c21, the name mcpbridge gives a schema), then answers.
+- skill.jsonl: a turn that invokes a plugin skill through the Skill tool.
+- aborted.jsonl: a turn interrupted while it streamed text.
+- limited.jsonl: written by hand, not captured, since a usage limit can't be reached on demand:
+  a rejected rate-limit notice and a turn the limit refused, in the shapes Claude Code
+  documents and the probe's allowed notice showed.
