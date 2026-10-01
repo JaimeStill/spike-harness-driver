@@ -375,6 +375,70 @@ func TestAnUnansweredSchemaIsTheExchangesError(t *testing.T) {
 	}
 }
 
+func TestARejectedStructuredResponseIsNotTheExchangesError(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	x, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(`{"type":"object"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collect(t, x)
+	invalid := errors.New("missing property answer")
+	c.events <- harness.Event{Kind: harness.EventStructuredRejected, Err: invalid}
+	c.events <- harness.Event{Kind: harness.EventStructured, Structured: json.RawMessage(`{"answer":42}`)}
+	c.finish("stop", "")
+	all := <-events
+	res, err := x.Wait()
+	if err != nil || string(res.Structured) != `{"answer":42}` {
+		t.Fatalf("Wait = %s, %v; a rejection the model recovered from is not the exchange's error", res.Structured, err)
+	}
+	if all[0].Kind != harness.EventStructuredRejected || !errors.Is(all[0].Err, invalid) {
+		t.Fatalf("first event = %+v, want the rejection with its error", all[0])
+	}
+}
+
+func TestUsageSumsOverTheExchange(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	x := send(t, s, t.Context())
+	events := collect(t, x)
+	// A tool round trip: the first message calls a tool, and the second answers.
+	c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: "toolUse",
+		Usage: &harness.Usage{Input: 10, Output: 4, CacheRead: 100}}
+	c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: "stop", Text: "done",
+		Usage: &harness.Usage{Input: 5, Output: 7, CacheRead: 120, CacheWrite: 9}}
+	c.emit(harness.EventEnded)
+	<-events
+	res, err := x.Wait()
+	want := harness.Usage{Input: 15, Output: 11, CacheRead: 220, CacheWrite: 9}
+	if err != nil || res.Usage != want || res.Text != "done" || res.StopReason != "stop" {
+		t.Fatalf("Wait = %+v, %v; want usage %+v and the last message's text", res, err, want)
+	}
+}
+
+func TestALimitErrorIsTheExchangesError(t *testing.T) {
+	c := newFakeConnection()
+	s := newSession(t, c, nil)
+	defer func() { _ = s.Close() }()
+
+	resets := time.Date(2026, 10, 1, 17, 0, 0, 0, time.UTC)
+	x := send(t, s, t.Context())
+	events := collect(t, x)
+	c.events <- harness.Event{Kind: harness.EventLimit, Limit: &harness.LimitStatus{Status: "allowed_warning", Utilization: 0.9}}
+	c.events <- harness.Event{Kind: harness.EventError, Err: &harness.LimitError{ResetsAt: resets, Message: "five-hour limit"}}
+	c.emit(harness.EventEnded)
+	<-events
+	_, err := x.Wait()
+	var limit *harness.LimitError
+	if !errors.Is(err, harness.ErrUsageLimit) || !errors.As(err, &limit) || !limit.ResetsAt.Equal(resets) {
+		t.Fatalf("Wait error = %v, want a *LimitError resetting at %s", err, resets)
+	}
+}
+
 func TestPromptFailure(t *testing.T) {
 	c := newFakeConnection()
 	c.promptErr = errors.New("rejected")

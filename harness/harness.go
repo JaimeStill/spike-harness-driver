@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"time"
 )
 
 // ErrBusy is returned by Send while an earlier exchange on the same session is still open.
@@ -45,6 +46,33 @@ var ErrJournalMismatch = errors.New("harness: the harness no longer holds the se
 // ErrNoStructuredResponse is an exchange's error when its request carried a schema and the
 // exchange ended, other than by cancellation, without a structured response.
 var ErrNoStructuredResponse = errors.New("harness: the exchange ended without a structured response")
+
+// ErrUsageLimit is matched by a *LimitError: the provider refused the run, or cut it off,
+// because a usage or rate limit was reached.
+var ErrUsageLimit = errors.New("harness: usage limit reached")
+
+// LimitError is an exchange's error when the provider's usage or rate limit refused or ended
+// its run. A caller tells it from a failed run with errors.Is(err, ErrUsageLimit), and waits
+// until ResetsAt before trying again.
+type LimitError struct {
+	// ResetsAt is when the limit resets, and zero when the harness doesn't say.
+	ResetsAt time.Time
+	// Message is the harness's own report of the limit.
+	Message string
+}
+
+func (e *LimitError) Error() string {
+	msg := ErrUsageLimit.Error()
+	if e.Message != "" {
+		msg += ": " + e.Message
+	}
+	if !e.ResetsAt.IsZero() {
+		msg += " (resets " + e.ResetsAt.Format(time.RFC3339) + ")"
+	}
+	return msg
+}
+
+func (e *LimitError) Unwrap() error { return ErrUsageLimit }
 
 // Driver opens sessions on one harness.
 type Driver interface {
@@ -198,7 +226,9 @@ type Result struct {
 	Usage      Usage           `json:"usage"`
 }
 
-// Usage counts the tokens an exchange's last assistant message used. Input excludes tokens
+// Usage counts the tokens a model used. On an EventMessageEnd it is that one message's, which an
+// adapter reports once; on a Result it is the sum over every message of the exchange, tool
+// round trips included. Input excludes tokens
 // read from or written to the provider's prompt cache, which CacheRead and CacheWrite count,
 // so with a warm cache Input alone understates the prompt.
 type Usage struct {
@@ -206,4 +236,12 @@ type Usage struct {
 	Output     int `json:"output"`
 	CacheRead  int `json:"cacheRead,omitempty"`
 	CacheWrite int `json:"cacheWrite,omitempty"`
+}
+
+// add adds o's counts to u.
+func (u *Usage) add(o Usage) {
+	u.Input += o.Input
+	u.Output += o.Output
+	u.CacheRead += o.CacheRead
+	u.CacheWrite += o.CacheWrite
 }

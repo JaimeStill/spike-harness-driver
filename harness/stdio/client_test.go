@@ -123,6 +123,9 @@ func peer(mode string) int {
 		case "event":
 			event(c.Data)
 			emit(testLine{ID: c.ID, OK: true})
+		case "note":
+			// A notification gets no response; the event echoes the id it arrived with.
+			event(c.Data + "|" + c.ID)
 		case "big":
 			event(strings.Repeat("x", 100_000))
 			emit(testLine{ID: c.ID, OK: true})
@@ -223,6 +226,22 @@ func TestCallReportsHarnessFailure(t *testing.T) {
 	defer func() { _ = c.Close() }()
 	if _, err := c.Call(t.Context(), testCmd{Op: "fail"}); err == nil || err.Error() != "nope" {
 		t.Fatalf("Call = %v, want the harness's error", err)
+	}
+}
+
+func TestNotifyWaitsForNoResponse(t *testing.T) {
+	c := start(t, "echo", 0)
+	defer func() { _ = c.Close() }()
+	if err := c.Notify(testCmd{Op: "note", Data: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	ev, ok := nextEvent(t, c)
+	if !ok || ev.Text != "hello|" {
+		t.Fatalf("event = %+v, want the note with an empty id", ev)
+	}
+	// The client still correlates calls after a notification.
+	if _, err := c.Call(t.Context(), testCmd{Op: "echo", Data: "1"}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -77,6 +77,17 @@ func (c *Client) Call(ctx context.Context, cmd any) (Response, error) {
 	}
 }
 
+// Notify sends cmd without waiting for a response, for a message the harness doesn't answer,
+// such as a user message on a stream or a JSON-RPC notification. The codec encodes it with an
+// empty id.
+func (c *Client) Notify(cmd any) error {
+	line, err := c.codec.Encode("", cmd)
+	if err != nil {
+		return err
+	}
+	return c.p.WriteLine(line)
+}
+
 // Events yields the harness's normalized events, and closes once the harness has exited.
 func (c *Client) Events() <-chan harness.Event { return c.events.Events() }
 

@@ -2,6 +2,7 @@ package harness
 
 import (
 	"encoding/json"
+	"time"
 	"uuid"
 )
 
@@ -26,6 +27,14 @@ const (
 	// EventStructured carries the exchange's structured response in Structured: the value
 	// the harness validated against the request's schema.
 	EventStructured EventKind = "structured"
+	// EventStructuredRejected reports a structured response that failed validation against
+	// the request's schema, with the failure in Err. The run goes on, and the model may try
+	// again; it doesn't end the exchange or become the exchange's error.
+	EventStructuredRejected EventKind = "structured_rejected"
+	// EventLimit carries the harness's notice of the provider's usage or rate limit in Limit,
+	// without ending the run. A run the limit refuses or cuts off reports an EventError with
+	// a *LimitError instead.
+	EventLimit EventKind = "limit"
 	// EventError carries a harness or process error in Err.
 	EventError EventKind = "error"
 	// EventEnded is the last event of every exchange.
@@ -47,11 +56,14 @@ type Event struct {
 	Tool *ToolEvent
 	// StopReason is set on EventMessageEnd, EventCancelled, and EventEnded.
 	StopReason string
-	// Usage is set on EventMessageEnd when the harness reports it.
+	// Usage is set on EventMessageEnd when the harness reports it: that message's own, which
+	// the session sums into the exchange's Result.
 	Usage *Usage
 	// Structured is set on EventStructured.
 	Structured json.RawMessage
-	// Err is set on EventError. It is the error itself, so callers can match it with
+	// Limit is set on EventLimit.
+	Limit *LimitStatus
+	// Err is set on EventError and EventStructuredRejected. It is the error itself, so callers can match it with
 	// errors.Is, and an Event therefore doesn't serialize directly.
 	Err error
 	// Raw is the harness's own record the event came from, when there is one.
@@ -65,4 +77,18 @@ type ToolEvent struct {
 	Args    json.RawMessage
 	Result  json.RawMessage
 	IsError bool
+}
+
+// LimitStatus is a harness's notice of where a session stands against the provider's usage or
+// rate limit.
+type LimitStatus struct {
+	// Status is the harness's own word for it, such as "allowed", "allowed_warning", or
+	// "rejected".
+	Status string
+	// Kind names the limit, such as a five-hour or a weekly window, when the harness says.
+	Kind string
+	// Utilization is the fraction of the limit used, from 0 to 1, when the harness says.
+	Utilization float64
+	// ResetsAt is when the limit resets, and zero when the harness doesn't say.
+	ResetsAt time.Time
 }
