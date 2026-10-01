@@ -1,6 +1,6 @@
 //go:build unix
 
-package pi
+package cache
 
 import (
 	"fmt"
@@ -19,9 +19,9 @@ func private(dir string) error {
 	case !ok:
 		return nil
 	case int(st.Uid) != os.Getuid():
-		return fmt.Errorf("pi: cache %s belongs to another user", dir)
+		return fmt.Errorf("cache: %s belongs to another user", dir)
 	case fi.Mode().Perm()&0o022 != 0:
-		return fmt.Errorf("pi: cache %s is writable by others (%v)", dir, fi.Mode().Perm())
+		return fmt.Errorf("cache: %s is writable by others (%v)", dir, fi.Mode().Perm())
 	}
 	return nil
 }
