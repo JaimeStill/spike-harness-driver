@@ -1,0 +1,172 @@
+{
+  "name": "review",
+  "input": "Proposal: replace the service's PostgreSQL-backed job queue (a jobs table polled with SELECT ... FOR UPDATE SKIP LOCKED, about 40 jobs a second at peak) with Redis Streams and consumer groups. Jobs would no longer commit in the same transaction as the business rows that enqueue them; a worker would acknowledge a job with XACK after it finishes. Redis would run as a single managed instance with AOF persistence every second. The change removes polling load from the database and should cut median enqueue-to-start latency from about 800 ms to under 50 ms.",
+  "sessions": [
+    {
+      "name": "security"
+    },
+    {
+      "name": "reliability"
+    },
+    {
+      "name": "operations"
+    },
+    {
+      "name": "lead"
+    }
+  ],
+  "steps": [
+    {
+      "id": "security",
+      "session": "security",
+      "prompt": "You are a security reviewer. Review this proposal for security risks only.\n\n{{.Input}}",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise",
+              "reject"
+            ]
+          },
+          "risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "concerns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "verdict",
+          "risk",
+          "concerns"
+        ]
+      }
+    },
+    {
+      "id": "reliability",
+      "session": "reliability",
+      "prompt": "You are a reliability reviewer. Review this proposal for data loss, delivery guarantees, and failure modes only.\n\n{{.Input}}",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise",
+              "reject"
+            ]
+          },
+          "risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "concerns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "verdict",
+          "risk",
+          "concerns"
+        ]
+      }
+    },
+    {
+      "id": "operations",
+      "session": "operations",
+      "prompt": "You are an operations reviewer. Review this proposal for operational cost, monitoring, and on-call burden only.\n\n{{.Input}}",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "revise",
+              "reject"
+            ]
+          },
+          "risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "concerns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "verdict",
+          "risk",
+          "concerns"
+        ]
+      }
+    },
+    {
+      "id": "decide",
+      "session": "lead",
+      "after": [
+        "security",
+        "reliability",
+        "operations"
+      ],
+      "prompt": "You lead the architecture review of this proposal:\n\n{{.Input}}\n\nThree reviewers reported:\n{{range $id, $r := .Steps}}- {{$id}}: {{$r.Structured.verdict}}, {{$r.Structured.risk}} risk. Concerns: {{range $r.Structured.concerns}}{{.}}; {{end}}\n{{end}}\nDecide whether the proposal goes ahead, and name the one condition that matters most.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "accept-with-conditions",
+              "reject"
+            ]
+          },
+          "condition": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "condition"
+        ]
+      }
+    },
+    {
+      "id": "notify",
+      "session": "lead",
+      "after": [
+        "decide"
+      ],
+      "prompt": "Write the proposal's author a message of at most three sentences explaining your decision ({{.Steps.decide.Structured.decision}}) and the condition you named. Plain text."
+    }
+  ]
+}
