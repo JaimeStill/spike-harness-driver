@@ -23,5 +23,5 @@ func newDomain(infra *Infrastructure) *Domain {
 
 // mountDomain builds the direct command families, one per domain.
 func mountDomain(dom *Domain, out *output.Output) []*cobra.Command {
-	return []*cobra.Command{session.Commands(dom.Session, out), workflow.Commands(dom.Workflow, out)}
+	return []*cobra.Command{session.Commands(dom.Session, out), workflow.Commands(dom.Workflow, out), workflow.ServeCommand(dom.Workflow, out)}
 }
