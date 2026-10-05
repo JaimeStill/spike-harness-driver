@@ -2,12 +2,9 @@
 [project]
 kind = "code"
 
-# Remote platform and the command that publishes a finished branch.
+# Remote platform, the command that publishes a finished branch, and the command that merges
+# it once its checks pass.
 [remote]
 platform = "github"
 publish = "gh pr create"
-
-# This repository is an experiment. It serves the standards-lab workspace coordinator, which
-# reads its result.
-[experiment]
-serves = "standards-lab"
+merge = "gh pr checks --watch && gh pr merge --merge --delete-branch"
