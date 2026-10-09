@@ -47,8 +47,8 @@ func init() {
 			command:  "pi",
 			pinned:   "0.99.2",
 			provider: providerLlama,
-			model:    "unsloth/gpt-oss-120b-GGUF:Q4_K_M",
-			vision:   qwenVision,
+			model:    "ggml-org/gpt-oss-120b-GGUF:MXFP4",
+			vision:   routerVision,
 			// Pi and OpenCode run over the router or Azure; Claude Code runs on Anthropic's alone.
 			providers: []string{providerLlama, providerAzure},
 			profile:   scenario.Pi,
@@ -99,8 +99,8 @@ func init() {
 			command:   "opencode",
 			pinned:    "1.18.34",
 			provider:  providerLlama,
-			model:     "unsloth/gpt-oss-120b-GGUF:Q4_K_M",
-			vision:    qwenVision,
+			model:     "ggml-org/gpt-oss-120b-GGUF:MXFP4",
+			vision:    routerVision,
 			providers: []string{providerLlama, providerAzure},
 			profile:   scenario.OpenCode,
 			driver: func(i *Infrastructure) (harness.Driver, error) {

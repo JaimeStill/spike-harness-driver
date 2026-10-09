@@ -176,7 +176,10 @@ code shows about harnesses and the infrastructure over them in general.
     source.
 - **An agent reaches a capability its harness lacks through a tool.** A Go tool whose handler
   calls the direct client gave a Pi session a transcript, which the model used.
-- Qwen3.8-27B, dense, decodes at about 12 tokens a second on the router.
+- Qwen3.8-27B, dense, decodes at about 12 tokens a second on the router. (It was the vision
+  default then. Since 2026-10-09 clutch's router defaults are personal-agents' set A: gpt-oss-120b
+  `MXFP4` for the harness, Gemma 4 26B-A4B for vision, EmbeddingGemma 2 for embeddings, and
+  Gemma 4 E4B for audio; see `setup/router-models.md`.)
 - **Every harness drops an image a model can't take, quietly.** OpenCode replaces it with
   "ERROR: Cannot read image (this model does not support image input). Inform the user.", and
   the exchange succeeds with nothing telling the driver. Claude Code has no such case: every

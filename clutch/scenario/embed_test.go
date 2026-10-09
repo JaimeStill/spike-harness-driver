@@ -54,3 +54,15 @@ func TestTheHoneyPassageComesFirst(t *testing.T) {
 		t.Errorf("passages = %+v", passages)
 	}
 }
+
+func TestEmbedInputTakesEmbeddingGemmasPromptForms(t *testing.T) {
+	want := []string{
+		"task: question answering | query: How do bees make honey?",
+		"title: none | text: " + passages[0].text,
+		"title: none | text: " + passages[1].text,
+		"title: none | text: " + passages[2].text,
+	}
+	if got := embedInput(); !slices.Equal(got, want) {
+		t.Errorf("embedInput() = %q, want %q", got, want)
+	}
+}
