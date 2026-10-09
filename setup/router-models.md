@@ -6,7 +6,7 @@ vision, embeddings, and audio. The router's configuration lives in personal-agen
 never writes that repository. Its presets are in `profiles/unified-96gb.ini`, and why each model
 and its context was chosen is in `reference/model-tiers.md` ("~90-96GB (unified memory)").
 
-The set was confirmed on 2026-10-09 against the router's build, b11529.
+The set runs on the router's llama.cpp build, b11529.
 
 | Role | Model ID | clutch default for |
 |---|---|---|

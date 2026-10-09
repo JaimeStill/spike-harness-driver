@@ -176,10 +176,9 @@ code shows about harnesses and the infrastructure over them in general.
     source.
 - **An agent reaches a capability its harness lacks through a tool.** A Go tool whose handler
   calls the direct client gave a Pi session a transcript, which the model used.
-- Qwen3.8-27B, dense, decodes at about 12 tokens a second on the router. (It was the vision
-  default then. Since 2026-10-09 clutch's router defaults are personal-agents' set A: gpt-oss-120b
-  `MXFP4` for the harness, Gemma 4 26B-A4B for vision, EmbeddingGemma 2 for embeddings, and
-  Gemma 4 E4B for audio; see `setup/router-models.md`.)
+- Qwen3.8-27B, dense, decodes at about 12 tokens a second on the router. It was the vision
+  default before clutch's router defaults moved to personal-agents' set A
+  (`setup/router-models.md`).
 - **Every harness drops an image a model can't take, quietly.** OpenCode replaces it with
   "ERROR: Cannot read image (this model does not support image input). Inform the user.", and
   the exchange succeeds with nothing telling the driver. Claude Code has no such case: every
@@ -191,11 +190,11 @@ code shows about harnesses and the infrastructure over them in general.
   call ("does not match the expected peg-native format") or the model answers in text. On
   haiku and gpt-5-mini, every harness passes every capability. The harness can't make up for
   a model's tool calling.
-- Since 2026-10-09, Pi's bridge sets `tool_choice: "required"` on a request that offers
-  `respond`, and llama.cpp then constrains gpt-oss's output to a tool call. That took Pi's
-  `tool`, `skill`, and `audio-tool` cells from failing to 5 of 5. OpenCode still sends `auto`
-  and still answers in text at times. Rates of `clutch conform --provider llama.cpp`, run 5
-  times from the laptop on 2026-10-09 between 15:10 and 15:20 EDT, are evidence, not a gate:
+- Pi's bridge sets `tool_choice: "required"` on a request that offers `respond`, and
+  llama.cpp then constrains gpt-oss's output to a tool call. That took Pi's `tool`, `skill`,
+  and `audio-tool` cells from failing to 5 of 5. OpenCode sends `auto` and answers in text at
+  times. The rates of `clutch conform --provider llama.cpp`, run 5 times from the laptop, are
+  evidence, not a gate:
 
   | Cell | exchange | cancel | resume | tool | skill | structured | vision | dropped-image | audio-tool |
   |---|---|---|---|---|---|---|---|---|---|
@@ -206,19 +205,19 @@ code shows about harnesses and the infrastructure over them in general.
     loaded: `ggml-org/gpt-oss-120b-GGUF:MXFP4` (the harness model),
     `ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0` (vision), `ggml-org/gemma-4-E4B-it-GGUF:Q8_0`
     (audio), and `ggml-org/embeddinggemma-2-GGUF:Q8_0`.
-  - Settings: personal-agents `0add0e5`. Each model's GGUF-embedded chat template, with no
-    override, and no reasoning effort set. Sampling from each model card: gpt-oss-120b at
-    `temp` 1.0, `top-p` 1.0 (`top-k` 0, `min-p` 0); the Gemma 4 models at 1.0, 0.95, 64
-    (`min-p` 0). clutch at `37fa153`.
+  - Settings: personal-agents `0add0e5` runs each model's GGUF-embedded chat template, with
+    no override and no reasoning effort set, and samples at each model card's values:
+    gpt-oss-120b at `temp` 1.0 and `top-p` 1.0 (`top-k` 0, `min-p` 0), and the Gemma 4 models
+    at 1.0, 0.95, and 64 (`min-p` 0). clutch ran at `37fa153`.
   - Every OpenCode failure read "the exchange ended without a structured response": gpt-oss
     answered in text instead of calling `respond`.
   - One run before the bridge change, on the same router and settings, failed Pi's `tool`,
     `skill`, and `audio-tool` with "does not match the expected peg-native format", and
     OpenCode's `tool`.
 - The ten router scenarios, run with clutch at `5afeac3` and Pi 0.99.2 on the Framework itself
-  against the same router on 2026-10-09, each passed on the first attempt. The review workflow
-  now runs every session on gpt-oss, the harness default, and finished 5 of 5 steps in 39 s;
-  before the forced `respond`, it ran on a Qwen model, which handled `respond` more reliably
+  against the same router, each passed on the first attempt. The review workflow runs every
+  session on gpt-oss, the harness default, and finished 5 of 5 steps in 39 s. Before the forced
+  `respond`, it ran on `unsloth/Qwen3.8-27B-GGUF:Q4_K_XL`, which called `respond` more reliably
   than gpt-oss.
 
 ## Infrastructure shape
