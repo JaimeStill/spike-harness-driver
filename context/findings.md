@@ -215,6 +215,11 @@ code shows about harnesses and the infrastructure over them in general.
   - One run before the bridge change, on the same router and settings, failed Pi's `tool`,
     `skill`, and `audio-tool` with "does not match the expected peg-native format", and
     OpenCode's `tool`.
+- The ten router scenarios, run with clutch at `5afeac3` and Pi 0.99.2 on the Framework itself
+  against the same router on 2026-10-09, each passed on the first attempt. The review workflow
+  now runs every session on gpt-oss, the harness default, and finished 5 of 5 steps in 39 s;
+  before the forced `respond`, it ran on a Qwen model, which handled `respond` more reliably
+  than gpt-oss.
 
 ## Infrastructure shape
 
