@@ -232,7 +232,10 @@ func TestADamagedCacheEntryIsRewritten(t *testing.T) {
 	}
 	s, file = openCached(t, harness.Options{}, cache)
 	closeSession(t, s)
-	want, _ := bridgeFiles.ReadFile("extension/bridge.ts")
+	want, err := bridgeFiles.ReadFile("extension/bridge.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(arg(readLaunch(t, file).Args, "-e"))
 	if err != nil || !bytes.Equal(data, want) {
 		t.Fatalf("the bridge in the cache = %.20q, %v; want it written again", data, err)

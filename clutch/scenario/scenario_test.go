@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -71,8 +72,8 @@ func TestRunStopsAtAFailedNeed(t *testing.T) {
 
 // stubModels returns Models over an endpoint that answers every request the capability
 // scenarios make as a model that got it right would: a chat naming the shapes or the code
-// depending on what the request carries, embeddings that rank the honey passage first, and the
-// recording's transcript.
+// depending on what the request carries, embeddings that rank the honey passage first (and a
+// 400 for input not in EmbeddingGemma 2's prompt forms), and the recording's transcript.
 func stubModels(t *testing.T) func() (scenario.Models, error) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +104,18 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 			if err := json.Unmarshal(body, &req); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			// EmbeddingGemma 2's prompt forms for question answering, from its model card: the
+			// query first, then each passage as a document without a title.
+			for i, in := range req.Input {
+				form := "title: none | text: "
+				if i == 0 {
+					form = "task: question answering | query: "
+				}
+				if !strings.HasPrefix(in, form) {
+					http.Error(w, fmt.Sprintf("input %d %q lacks the prompt form %q", i, in, form), http.StatusBadRequest)
+					return
+				}
 			}
 			// One axis per topic, so each text lies along the topic it mentions.
 			var data []any
