@@ -191,6 +191,30 @@ code shows about harnesses and the infrastructure over them in general.
   call ("does not match the expected peg-native format") or the model answers in text. On
   haiku and gpt-5-mini, every harness passes every capability. The harness can't make up for
   a model's tool calling.
+- Since 2026-10-09, Pi's bridge sets `tool_choice: "required"` on a request that offers
+  `respond`, and llama.cpp then constrains gpt-oss's output to a tool call. That took Pi's
+  `tool`, `skill`, and `audio-tool` cells from failing to 5 of 5. OpenCode still sends `auto`
+  and still answers in text at times. Rates of `clutch conform --provider llama.cpp`, run 5
+  times from the laptop on 2026-10-09 between 15:10 and 15:20 EDT, are evidence, not a gate:
+
+  | Cell | exchange | cancel | resume | tool | skill | structured | vision | dropped-image | audio-tool |
+  |---|---|---|---|---|---|---|---|---|---|
+  | pi 0.99.2 / llama.cpp | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 |
+  | opencode 1.18.34 / llama.cpp | 5/5 | 5/5 | 5/5 | 4/5 | 3/5 | 5/5 | 5/5 | 5/5 | 2/5 |
+
+  - Router: llama.cpp b11529 (`b11529-8ae386707`, upstream Vulkan x64), all four set-A models
+    loaded: `ggml-org/gpt-oss-120b-GGUF:MXFP4` (the harness model),
+    `ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0` (vision), `ggml-org/gemma-4-E4B-it-GGUF:Q8_0`
+    (audio), and `ggml-org/embeddinggemma-2-GGUF:Q8_0`.
+  - Settings: personal-agents `0add0e5`. Each model's GGUF-embedded chat template, with no
+    override, and no reasoning effort set. Sampling from each model card: gpt-oss-120b at
+    `temp` 1.0, `top-p` 1.0 (`top-k` 0, `min-p` 0); the Gemma 4 models at 1.0, 0.95, 64
+    (`min-p` 0). clutch at `37fa153`.
+  - Every OpenCode failure read "the exchange ended without a structured response": gpt-oss
+    answered in text instead of calling `respond`.
+  - One run before the bridge change, on the same router and settings, failed Pi's `tool`,
+    `skill`, and `audio-tool` with "does not match the expected peg-native format", and
+    OpenCode's `tool`.
 
 ## Infrastructure shape
 
@@ -493,9 +517,13 @@ What the spike leaves to the service that adopts it:
   from an extension's `before_agent_start`); Claude Code's `--system-prompt` and OpenCode's agent
   prompt weren't probed. A `SystemPrompt` on `harness.Options`, and on a workflow's session,
   would give each session its role.
-- **Forcing `respond`.** A structured response depends on the model choosing to call `respond`,
-  which gpt-oss doesn't reliably do after a tool call. The provider's `tool_choice`, through Pi's
-  `before_provider_request` hook, would force it; its shape differs per provider.
+- **Forcing `respond`.** Done for Pi. The bridge's `before_provider_request` hook sets
+  `tool_choice: "required"` on an OpenAI-shaped request (Chat Completions or Responses) whose
+  tools include `respond`. The model still chooses which tool to call, so it can call the
+  exchange's other tools first, but it can't end in text, and llama.cpp constrains the output
+  to a tool call. An Anthropic Messages request is left alone, since its forced form
+  (`{"type": "any"}`) is refused with extended thinking. OpenCode stays on `auto`, and its
+  rates are measured (see Capabilities).
 - **Native capability models.** The router's vision, embedding, and audio models share the GPU
   pool with the text models, so a service sizes the set it keeps loaded or swaps models, and a
   swap must reach the harness's catalog before a session selects the model. Gemma 4 E4B loops on
