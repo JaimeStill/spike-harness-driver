@@ -7,3 +7,23 @@
 [tools]
 pi = "0.99.2"
 opencode = "1.18.34"
+
+# The check builds, vets, format-checks, and race-tests every module in go.work. It is hermetic:
+# no test reaches a router, a harness, or the network, and it writes nothing.
+[tasks.check]
+description = "Build, vet, format-check, and race-test every go.work module; writes nothing"
+run = '''
+set -eu
+cd "$MISE_PROJECT_ROOT"
+for mod in $(go work edit -json | jq -r '.Use[].DiskPath'); do
+  echo "check: $mod"
+  (
+    cd "$mod"
+    go build ./...
+    go vet ./...
+    unformatted=$(gofmt -l .)
+    if [ -n "$unformatted" ]; then echo "gofmt: unformatted files:"; echo "$unformatted"; exit 1; fi
+    go test -race ./...
+  )
+done
+'''
