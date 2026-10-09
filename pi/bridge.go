@@ -2,10 +2,11 @@ package pi
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,12 +16,13 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/cache"
 )
 
-// bridgeSource is the bridge extension, which the driver writes out and loads into every Pi
-// it starts. It is the driver's required baseline: discovery stays off, so Pi runs this one
-// extension and none of the user's.
+// bridgeFiles is the bridge extension, which the driver writes out and loads into every Pi it
+// starts: bridge.ts and the module it imports. It is the driver's required baseline: discovery
+// stays off, so Pi runs this one extension and none of the user's. The extension's tests stay
+// out.
 //
-//go:embed extension/bridge.ts
-var bridgeSource []byte
+//go:embed extension/bridge.ts extension/respond.ts
+var bridgeFiles embed.FS
 
 // The titles of the bridge's dialogs, and the tool it registers for a structured response.
 const (
@@ -111,9 +113,11 @@ func newBridge(opts harness.Options, cacheDir string) (*bridge, error) {
 // write writes the tool spec to dir and the extension and skills to cacheDir, and builds the
 // arguments that load them.
 func (b *bridge) write(opts harness.Options, specs []toolSpec, dir, cacheDir string) error {
-	ext, err := cache.Dir(cacheDir, "bridge", cache.FileDigest("bridge.ts", bridgeSource), func(d string) error {
-		return os.WriteFile(filepath.Join(d, "bridge.ts"), bridgeSource, 0o600)
-	})
+	files, err := fs.Sub(bridgeFiles, "extension")
+	if err != nil {
+		return err
+	}
+	ext, err := cache.FS(cacheDir, "bridge", files)
 	if err != nil {
 		return err
 	}

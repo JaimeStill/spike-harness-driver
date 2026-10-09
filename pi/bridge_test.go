@@ -232,9 +232,28 @@ func TestADamagedCacheEntryIsRewritten(t *testing.T) {
 	}
 	s, file = openCached(t, harness.Options{}, cache)
 	closeSession(t, s)
+	want, _ := bridgeFiles.ReadFile("extension/bridge.ts")
 	data, err := os.ReadFile(arg(readLaunch(t, file).Args, "-e"))
-	if err != nil || !bytes.Equal(data, bridgeSource) {
+	if err != nil || !bytes.Equal(data, want) {
 		t.Fatalf("the bridge in the cache = %.20q, %v; want it written again", data, err)
+	}
+}
+
+// Pi loads bridge.ts as code and resolves its import of respond.ts beside it, so the cache holds
+// both, and not the extension's tests.
+func TestTheBridgeIsWrittenWithTheModuleItImports(t *testing.T) {
+	s, file := openCached(t, harness.Options{}, t.TempDir())
+	defer closeSession(t, s)
+	entries, err := os.ReadDir(filepath.Dir(arg(readLaunch(t, file).Args, "-e")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if !slices.Equal(names, []string{"bridge.ts", "respond.ts"}) {
+		t.Fatalf("the bridge's directory holds %q, want bridge.ts and respond.ts", names)
 	}
 }
 
