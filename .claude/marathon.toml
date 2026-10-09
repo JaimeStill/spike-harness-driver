@@ -1,10 +1,11 @@
 # Project kind: this repository holds Go spike source with a build-and-test loop.
 [project]
 kind = "code"
+check = "mise run check"
 
-# Remote platform, the command that publishes a finished branch, and the command that merges
-# it once its checks pass.
+# Remote platform, the command that publishes a finished branch, and the command that merges it.
+# The repository has no CI, so the merge waits on no pull-request checks.
 [remote]
 platform = "github"
 publish = "gh pr create"
-merge = "gh pr checks --watch && gh pr merge --merge --delete-branch"
+merge = "gh pr merge --merge --delete-branch"
