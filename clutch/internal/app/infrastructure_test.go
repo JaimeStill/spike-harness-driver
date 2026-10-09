@@ -101,13 +101,13 @@ func TestModelsTakeTheTargetsDefaultsUnlessOverridden(t *testing.T) {
 		vision, embed, audio string
 		audioInChat          bool
 	}{
-		{nil, "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "Qwen/Qwen3-Embedding-4B-GGUF:Q5_K_M", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0", true},
+		{nil, "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0", "ggml-org/embeddinggemma-2-GGUF:Q8_0", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0", true},
 		{[]string{"--target", "azure"}, "gpt-5-mini", "text-embedding-3-small", "gpt-4o-mini-transcribe", false},
 		{
 			[]string{"--target", "azure", "--vision-model", "gpt-6-luna", "--audio-model", "gpt-transcribe"},
 			"gpt-6-luna", "text-embedding-3-small", "gpt-transcribe", false,
 		},
-		{[]string{"--embed-model", "e"}, "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "e", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0", true},
+		{[]string{"--embed-model", "e"}, "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0", "e", "ggml-org/gemma-4-E4B-it-GGUF:Q8_0", true},
 	}
 	for _, c := range cases {
 		m, err := newInfrastructure(flagged(t, c.args...)).Models()
@@ -118,7 +118,7 @@ func TestModelsTakeTheTargetsDefaultsUnlessOverridden(t *testing.T) {
 		if m.VisionModel != c.vision || m.EmbedModel != c.embed || m.AudioModel != c.audio || m.AudioInChat != c.audioInChat {
 			t.Errorf("%v: %+v", c.args, m)
 		}
-		if m.HarnessVision != "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL" || m.Chat == nil || m.Audio == nil {
+		if m.HarnessVision != "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0" || m.Chat == nil || m.Audio == nil {
 			t.Errorf("%v: %+v", c.args, m)
 		}
 		if (m.Target == "llama.cpp") != (m.Chat == m.Audio) {
@@ -138,12 +138,12 @@ func TestHarnessDefaultsFollowTheHarnessUnlessOverridden(t *testing.T) {
 		provider, model, wide string
 		skillTool             string
 	}{
-		{nil, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
-		{[]string{"--harness", "pi"}, "llama.cpp", "unsloth/gpt-oss-120b-GGUF:Q4_K_M", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{nil, "llama.cpp", "ggml-org/gpt-oss-120b-GGUF:MXFP4", "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0", "read"},
+		{[]string{"--harness", "pi"}, "llama.cpp", "ggml-org/gpt-oss-120b-GGUF:MXFP4", "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0", "read"},
 		{[]string{"--harness", "claude"}, "anthropic", "haiku", "haiku", "Skill"},
 		{[]string{"--harness", "claude", "--model", "sonnet"}, "anthropic", "sonnet", "haiku", "Skill"},
 		{[]string{"--harness", "claude", "--harness-vision-model", "opus"}, "anthropic", "haiku", "opus", "Skill"},
-		{[]string{"--provider", "p", "--model", "m"}, "p", "m", "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL", "read"},
+		{[]string{"--provider", "p", "--model", "m"}, "p", "m", "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0", "read"},
 	}
 	for _, c := range cases {
 		infra := newInfrastructure(flagged(t, c.args...))

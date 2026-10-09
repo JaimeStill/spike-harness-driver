@@ -294,9 +294,9 @@ const (
 	azureModel    = "gpt-5-mini"
 )
 
-// qwenVision is the router's vision model: the llama.cpp target's, and a harness session's when
-// it is sent an image.
-const qwenVision = "unsloth/Qwen3.8-27B-GGUF:Q4_K_XL"
+// routerVision is the router's vision model, Gemma 4 26B-A4B: the llama.cpp target's, and a
+// harness session's when it is sent an image.
+const routerVision = "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0"
 
 // target holds a target's name, its default model IDs, and whether its audio model takes audio
 // in chat.
@@ -311,8 +311,8 @@ type target struct {
 var targets = []target{
 	{
 		name:        targetLlama,
-		vision:      qwenVision,
-		embed:       "Qwen/Qwen3-Embedding-4B-GGUF:Q5_K_M",
+		vision:      routerVision,
+		embed:       "ggml-org/embeddinggemma-2-GGUF:Q8_0",
 		audio:       "ggml-org/gemma-4-E4B-it-GGUF:Q8_0",
 		audioInChat: true,
 	},

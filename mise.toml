@@ -7,11 +7,14 @@
 [tools]
 pi = "0.99.2"
 opencode = "1.18.34"
+# node runs the Pi bridge's TypeScript tests in the check (node --test strips the types).
+node = "26.11.1"
 
-# The check builds, vets, format-checks, and race-tests every module in go.work. It is hermetic:
-# no test reaches a router, a harness, or the network, and it writes nothing.
+# The check builds, vets, format-checks, and race-tests every module in go.work, then runs the Pi
+# bridge's TypeScript tests. It is hermetic: no test reaches a router, a harness, or the network,
+# and it writes nothing.
 [tasks.check]
-description = "Build, vet, format-check, and race-test every go.work module; writes nothing"
+description = "Build, vet, format-check, and race-test every go.work module, and test the Pi bridge; writes nothing"
 run = '''
 set -eu
 cd "$MISE_PROJECT_ROOT"
@@ -26,4 +29,6 @@ for mod in $(go work edit -json | jq -r '.Use[].DiskPath'); do
     go test -race ./...
   )
 done
+echo "check: pi/extension"
+node --test pi/extension/*.test.ts
 '''

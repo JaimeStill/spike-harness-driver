@@ -11,7 +11,9 @@
  *   which ends the run once the model calls it, and appends to the prompt an instruction to
  *   call it; without one, "respond" is inactive. The instruction goes in the prompt because Pi
  *   tells the model about a tool added mid-session only by name and schema, and a model with
- *   other tools to choose from then answers in text.
+ *   other tools to choose from then answers in text. While "respond" is active, a
+ *   before_provider_request hook sets the request's tool_choice to "required" (see respond.ts),
+ *   so the model can't end the exchange in text either.
  *
  * Answers are JSON: {"result": "..."} or {"error": "..."} for a call, and {"schema": {...}} or
  * {} for an exchange.
@@ -20,6 +22,7 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { forceRespond } from "./respond.ts";
 
 const CALL = "pi-driver:call";
 const EXCHANGE = "pi-driver:exchange";
@@ -95,4 +98,8 @@ export default function (pi: ExtensionAPI) {
 			text: `${event.text}\n\nGive your final answer by calling the ${RESPOND} tool with the answer as its arguments, not in text.`,
 		};
 	});
+
+	// The payload's tools are the active ones, so respond is in them only during an exchange
+	// that has a schema.
+	pi.on("before_provider_request", (event) => forceRespond(event.payload, RESPOND));
 }

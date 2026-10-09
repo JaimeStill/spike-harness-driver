@@ -10,10 +10,27 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/model"
 )
 
-// embedQuery is the query in the form Qwen3-Embedding expects, an instruction then the query.
-// A model trained without instructions, such as OpenAI's, embeds the instruction as more text,
-// which leaves the ranking unharmed.
-const embedQuery = "Instruct: Given a question, retrieve passages that answer it\nQuery: How do bees make honey?"
+// embedQuery is the embed scenario's query.
+const embedQuery = "How do bees make honey?"
+
+// queryForm and documentForm are the prompt forms EmbeddingGemma 2's model card gives for
+// question answering: a query names the task, and a document without a title says so. A model
+// trained without prompt forms, such as OpenAI's, embeds the prefix as more text, which leaves
+// the ranking unharmed.
+const (
+	queryForm    = "task: question answering | query: %s"
+	documentForm = "title: none | text: %s"
+)
+
+// embedInput is the embed scenario's one request's input: the query, then each passage, each in
+// its prompt form.
+func embedInput() []string {
+	input := []string{fmt.Sprintf(queryForm, embedQuery)}
+	for _, p := range passages {
+		input = append(input, fmt.Sprintf(documentForm, p.text))
+	}
+	return input
+}
 
 // passage is a text the embed scenario ranks against its query, with a short label to print.
 type passage struct {
@@ -46,11 +63,7 @@ func embedScenario(models func() (Models, error), needs []Need) Scenario {
 							return err
 						}
 						rep.Note("model %s on target %s", m.EmbedModel, m.Target)
-						input := []string{embedQuery}
-						for _, p := range passages {
-							input = append(input, p.text)
-						}
-						resp, err := m.Chat.Embed(ctx, model.EmbedRequest{Model: m.EmbedModel, Input: input})
+						resp, err := m.Chat.Embed(ctx, model.EmbedRequest{Model: m.EmbedModel, Input: embedInput()})
 						if err != nil {
 							return err
 						}

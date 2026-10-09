@@ -63,7 +63,7 @@ func TestEachCellBuildsItsOwnInfrastructure(t *testing.T) {
 	if llama.Pinned != "1.18.34" || llama.Profile.Name != "OpenCode" {
 		t.Errorf("cell = %+v", llama)
 	}
-	if llama.VisionModel != qwenVision || llama.DefaultTakesImages {
+	if llama.VisionModel != routerVision || llama.DefaultTakesImages {
 		t.Errorf("llama.cpp: vision %q, default takes images %v", llama.VisionModel, llama.DefaultTakesImages)
 	}
 	if azure.VisionModel != azureModel || !azure.DefaultTakesImages {
