@@ -5,11 +5,8 @@ This file lists, one line each, the judgement calls the standards-reviewer appli
 
 These pages in the architecture repository apply:
 
-- `principles/comments.md`: every comment is one of the five kinds, in Go source and tests,
-  TypeScript, scripts, and every configuration file (TOML, `.gitignore`, `.dockerignore`, the
-  Containerfile). In Go, the package comment and the exported identifiers' doc comments are the
-  package documentation. A script's header is its package documentation, and a configuration
-  file's header is a short description plus `See` lines to the page that holds its reasoning.
+- `principles/comments.md`: the reasoning a comment points to lives in `docs/` or
+  `deploy/README.md`.
 - `principles/minimal-footprint.md`
 - `principles/rolling-currency.md`
 - `principles/validation-first.md`

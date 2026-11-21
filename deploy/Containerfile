@@ -2,6 +2,7 @@
 # The image a service built on the spike would ship: clutch, the pinned Pi it drives, and tini.
 # See deploy/README.md
 
+# Held at the images the deployment footprint was measured on; a move needs a re-measure.
 ARG GO_IMAGE=golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190
 ARG DEBIAN_IMAGE=debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 ARG NODE_IMAGE=node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c

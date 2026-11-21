@@ -1,16 +1,16 @@
-# The spike's steps, code, and prior art
+# The spike's code, CLI, and prior art
 
-This page lists the steps the spike took, the code they built, and the repositories it reads.
+This page lists the code the spike built in its steps, the `clutch` CLI that drives it, and the
+prior-art repositories the spike reads.
 
-The spike's steps, in dependency order, all exist: the session interface and the Pi adapter
-(step 1), session persistence and resume (step 2), payloads, tool calls, and skills (step 3),
-native capabilities through a direct model client, `model` (step 4), the Claude Code and
-OpenCode adapters with a conformance suite (step 5), and a long-running workflow over sessions
-with a container image (step 6). [`findings.md`](findings.md) records what they showed and
-compares the three harnesses, and [`context/README.md`](../context/README.md#the-answer) states
-the answer. The code is six modules under `go.work`: the root module (the `harness/...` core,
-`model`, and the `workflow/...` layer), `mcpbridge`, the adapters `pi`, `claude`, and `opencode`,
-and `clutch`.
+The spike's steps, in dependency order, all exist: the session interface and the Pi adapter;
+session persistence and resume; payloads, tool calls, and skills; native capabilities through a
+direct model client, `model`; the Claude Code and OpenCode adapters with a conformance suite; and a
+long-running workflow over sessions with a container image. [`findings.md`](findings.md) records
+what they showed and compares the three harnesses, and
+[`context/README.md`](../context/README.md#the-answer) states the answer. The code is six modules
+under `go.work`: the root module (the `harness/...` core, `model`, and the `workflow/...` layer),
+`mcpbridge`, the adapters `pi`, `claude`, and `opencode`, and `clutch`.
 
 `clutch` (`go run ./clutch/cmd/clutch`) drives them. `--harness pi|claude|opencode` picks the
 harness, and `--provider` its models (`llama.cpp` for the router, `azure` for Azure AI Foundry,
