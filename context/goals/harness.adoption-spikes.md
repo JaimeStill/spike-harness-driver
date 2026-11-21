@@ -1,8 +1,8 @@
 # goal · harness.adoption-spikes
 
 - **State:** building
-- **Task:** model-engines
-- **Branch:** model-engines
+- **Task:** model-engines, hosting-upgrades, harness-driver
+- **Branch:** model-engines, hosting-upgrades, harness-driver
 
 ## Tasks
 
@@ -71,9 +71,141 @@ the Python holds; archiving.
 
 Two-way: no release; the spike repository only.
 
+## Task brief · harness.adoption-spikes · hosting-upgrades
+
+**Problem**
+
+spike-hosting-upgrades predates marathon 0.22.0's standards: its check fails on main on four links
+to the deleted goal record, neither lint runs, its context README is half again over budget with no
+capability map or answer pointer, about 460 comment lines fall outside the five kinds, it points at
+a roadmap and experiment section that no longer exist, and uv trails. It stays live until
+v1.ai.hosting's sync archives it.
+
+**Behaviors**
+1. The bench environment pins uv 0.13.9; currency reports only the held Python.
+2. The four links to the deleted goal record become permalinks to the same file at 7a7bfeb; the
+   check passes again; no other text in a dated record changes; STANDARDS' never-edited rule names
+   that exception.
+3. `mise.toml` pins marathon 0.22.0 (`version_prefix = "marathon/v"`) under a `# See` header;
+   currency reports a newer marathon tag.
+4. The check keeps its shellcheck and link steps and also runs lint-context and lint-references,
+   failing if either fails or is missing from PATH (`FAIL: <lint> is not on PATH; run mise
+   install`); its header and task description name what it runs.
+5. lint-context passes: `context/README.md` ≤ 1,000 words; keeps "The question"; adds "The answer"
+   pointing to the root README; "The evidence" keeps its anchor, each item linking the records that
+   prove it; a `## Capability map` of `(built)` entries; Capabilities, Path, References, and the
+   spike's own rules move unchanged to a docs/ page; Rules points to the coordinator's experiment rules.
+6. Every comment in scripts, the skill's scripts, YAML, TOML, and `.gitignore` is one of the five
+   kinds; skill-script reasoning moves to the skill's mode files (`See` lines) or one new reference
+   page SKILL.md doesn't load; other reasoning moves to docs/ or a name; section comments become
+   named functions with behavior unchanged; each shellcheck suppression carries its reason;
+   cross-spike references name their sibling repo and skill references give their path from the
+   root; lint-references passes.
+7. `STANDARDS.md` states the comment rule for scripts and every configuration file.
+8. Every roadmap pointer names `standards-lab/roadmap/index.toml`; every rules pointer names
+   `standards-lab/docs/ai-hosting.md#experiment-rules`; none names the deleted record or section.
+9. No docs/ page moves or renames; no finding or record changes beyond behavior 2; the root
+   README's "The answer" and `docs/convention.md` keep their URLs.
+
+**Test seams**
+- `mise run check`, `mise run currency`, lint-context, lint-references; stripped configs identical;
+  `declare -F` on the measure helpers lists every function it listed before; probe.sh's read-only
+  output on framework and gb10-1, before and after, identical apart from readings that vary per run.
+
+**Slices**
+1. Upgrade uv; repair the four dead links (the check passes).
+2. Configuration comments, sibling prefixes, and the STANDARDS rule.
+3. Script and skill-script comments.
+4. Context and pointers.
+5. Pin and check.
+
+**Out of scope**
+
+Changing the skill's procedure beyond pointers and paths; re-surveying or re-measuring; changing
+any answer or finding; moving docs/ pages; CI; coordinator and ai-hosting edits; the Python hold;
+archiving.
+
+**Door**
+
+Two-way: no release; the spike repository only. The probe runs are read-only.
+
+## Task brief · harness.adoption-spikes · harness-driver
+
+**Problem**
+
+spike-harness-driver, the goal's root, predates marathon 0.22.0's standards: no pin, no currency
+command, no STANDARDS.md, a check that runs neither lint and calls unpinned go and jq, a findings
+note four times its budget holding the answer the coordinator links, an unmarked capability map,
+about 1,900 Go comment lines outside the five kinds, 8 unresolved references, and a pointer to a
+roadmap goal that no longer exists. It stays live until experiment.harness's intake; spike-go-harness
+runs its conform before then.
+
+**Behaviors**
+1. clutch requires pflag v1.1.0; node is 26.13.1; Pi 0.99.2 and OpenCode 1.18.34 stay at their
+   conformance pins, each with its reason beside the pin.
+2. `mise.toml` pins marathon 0.22.0 (`version_prefix = "marathon/v"`), go 1.27.4, and jq 1.8.2,
+   with `task.run_auto_install = false`, under a `# See` header.
+3. A currency command reports every mise tool and every go.work module's direct requirement behind
+   its latest, a newer marathon tag included; it exits nonzero when any trail and reports held pins
+   as held.
+4. The check keeps its steps and also runs lint-context and lint-references, failing if either
+   fails or is missing from PATH (`FAIL: <lint> is not on PATH; run mise install`); its header and
+   task description name what it runs.
+5. lint-context passes: `context/README.md` ≤ 1,000 words with "The question", "The answer" (moved
+   from the findings note, citations as links), and "The evidence" (numbered, agreeing with the
+   coordinator's seven, each linking its finding), each with its anchor, and a `## Capability map`
+   of `(built)` entries; the findings note's other content moves whole and unchanged to
+   `docs/findings.md`.
+6. Every Go comment is package docs, an exported identifier's doc, or one of the other four kinds;
+   doc comments on unexported identifiers and test functions go; reasoning moves to exported or
+   package docs, names, or docs/, never lost; the exported API is unchanged.
+7. Every comment in TypeScript, scripts, TOML, `.gitignore`, `.dockerignore`, and the Containerfile
+   is one of the five kinds; configuration headers are a short description plus `See` lines;
+   lint-references passes.
+8. `STANDARDS.md` exists, stating the comment rule for Go, TypeScript, scripts, and every
+   configuration file, and the repo's judgement calls.
+9. Every roadmap pointer names `standards-lab/roadmap/index.toml`; every pointer to the findings
+   note names its new page or the answer's new home.
+10. No dated finding or answer changes; inbound links work or have a pending edit.
+
+**Test seams**
+- `mise run check` (race tests), `mise run currency`, lint-context, lint-references; `go doc -all`
+  per package identical except added reasoning; stripped configs identical.
+
+**Slices**
+1. Upgrade: pflag v1.1.0, node 26.13.1; Pi and OpenCode held with reasons.
+2. Configuration and TypeScript comments, and STANDARDS.md.
+3. Go comments: root module and mcpbridge.
+4. Go comments: pi, claude, opencode adapters.
+5. Go comments: clutch.
+6. Context and pointers: findings → `docs/findings.md`, answer and evidence into `context/README.md`, map, pointers.
+7. Pin, check, and currency.
+
+**Out of scope**
+
+Re-running conform or re-measuring; changing any answer or finding; golangci-lint (S1); CI; a root
+README; the `go` directive; Claude Code's version; go-ai and ai-hosting edits; deleting
+harness-adoption.md; archiving.
+
+**Door**
+
+Two-way: no release; the spike repository only; the sync's coordinator edits follow on accept.
+
+**Sync (for the session brief)**
+- coordinator: `docs/ai-strategy.md:537` → `…/spike-harness-driver/blob/main/context/README.md#the-answer`;
+  `roadmap/index.toml` drops harness.adoption-spikes from `active`; `roadmap/harness.adoption-spikes.toml` deleted.
+- claude-plugins (harness.adoption's record, locked by that goal → lands as a task/pending edit of
+  it): own harness-adoption.md's deletion and its pointers.
+- root: record deleted after the sync PR merges.
+- next: sites.status-reports (top of `planned`), staged on accept if staging's checks pass.
+
 ## Progress
 
-slices 0/5 committed
+- model-engines: slices 0/5 committed
+- hosting-upgrades: slices 0/5 committed
+- harness-driver: slices 0/7 committed
+- Architect: the three tasks build concurrently, each repository's slices in order; the record
+  stays on the root's `model-engines` branch (worktree) until each ships.
 
 ## Decisions
 
@@ -86,8 +218,9 @@ slices 0/5 committed
   stays at this goal's sync; harness.adoption's sync deletes it, since its `architecture` task and
   v1.client.stack's webappgen task still cite it. This sync deletes only the goal file and record,
   and hands the note's deletion and its pointers to harness.adoption.
-- plan: model-engines and hosting-upgrades share one session-brief review; model-engines waits at
-  `brief ready` on its branch while hosting-upgrades builds, a one-time exception for this goal.
+- plan: model-engines, hosting-upgrades, and harness-driver build concurrently and share one
+  session-brief review; they ship in that order, then the goal syncs. A one-time exception for
+  this goal to "a session advances one task".
 - plan: harness-driver's findings note moves whole to `docs/findings.md`; its answer and evidence
   move into `context/README.md`; coordinator `docs/ai-strategy.md:537` is repointed at sync.
 - plan: harness-driver holds Pi 0.99.2 and OpenCode 1.18.34, the conformance pins, until a live
