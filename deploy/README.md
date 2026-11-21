@@ -31,7 +31,8 @@ the harness runs, so it belongs to that user alone (mode `0700`).
 `clutch` from the Go sources alone.
 
 Neither image carries Claude Code or OpenCode, because an image carries only the harness its
-workflows run on, and Pi is the default (`context/findings.md`, Harness comparison).
+workflows run on, and Pi is the default
+([`docs/findings.md`](../docs/findings.md#harness-comparison), Harness comparison).
 
 ## Running it
 
@@ -51,7 +52,7 @@ curl -N localhost:8080/runs/<id>/events
 - **The model endpoint.** `LLAMA_BASE_URL` points at the router. A tailnet hostname resolves
   with `--network host` on a host that runs Tailscale. `AZURE_OPENAI_BASE_URL` points at Azure,
   but Azure through Pi runs `az` for its token, and the image has no `az`
-  (`context/findings.md`, Deployment).
+  ([`docs/findings.md`](../docs/findings.md#deployment), Deployment).
 - **Stopping.** `docker stop` sends SIGTERM, which `tini` passes to `clutch`. `clutch` stops its
   runs without ending them, closes the event streams, and exits, and the next start resumes the
   runs. `clutch` allows itself 30 seconds for that, and Docker's default grace is 10, so stop it
