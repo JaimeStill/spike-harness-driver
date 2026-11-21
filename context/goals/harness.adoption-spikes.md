@@ -1,6 +1,6 @@
 # goal · harness.adoption-spikes
 
-- **State:** building
+- **State:** brief ready
 - **Task:** model-engines, hosting-upgrades, harness-driver
 - **Branch:** model-engines, hosting-upgrades, harness-driver
 
@@ -201,9 +201,9 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
 
 ## Progress
 
-- model-engines: slices 5/5 committed
-- hosting-upgrades: slices 5/5 committed
-- harness-driver: slices 6/7 committed
+- model-engines: slices 5/5 committed · standards ✓ · spec ✓ · editor ✓
+- hosting-upgrades: slices 5/5 committed · standards ✓ · spec ✓ · editor ✓
+- harness-driver: slices 7/7 committed · standards ✓ · spec ✓ (1 gap closed) · editor ✓
 - Architect: the three tasks build concurrently, each repository's slices in order; the record
   stays on the root's `model-engines` branch (worktree) until each ships.
 
@@ -225,6 +225,11 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
   move into `context/README.md`; coordinator `docs/ai-strategy.md:537` is repointed at sync.
 - architect: the Fable review of every adopted repository's context runs as the final stage of
   harness.adoption's `architecture` task, before the sync that closes harness.adoption.
+- hosting-upgrades: a dead link in a dated record (report, measure, screen) is repointed to the
+  same file at a fixed commit, the one edit those records take; rejected unlinked text (architect).
+- model-engines: each engine guide holds a `scripts.md` with its `host/` libraries' reasoning
+  (STANDARDS.md "Docs"); rejected spreading it over the existing guide pages.
+- harness-driver: currency marks a pin carrying a hold reason `(held)` and still exits nonzero.
 - plan: harness-driver holds Pi 0.99.2 and OpenCode 1.18.34, the conformance pins, until a live
   `clutch conform` run moves them; go 1.27.4 and jq 1.8.2 are pinned.
 
