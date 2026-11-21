@@ -5,8 +5,8 @@ This file lists, one line each, the judgement calls the standards-reviewer appli
 
 These pages in the architecture repository apply:
 
-- `principles/comments.md`: applies to Go source and tests, TypeScript, scripts, and every
-  configuration file (TOML, `.gitignore`, `.dockerignore`, the Containerfile).
+- `principles/comments.md`: the reasoning a comment points to lives in `docs/` or
+  `deploy/README.md`.
 - `principles/minimal-footprint.md`
 - `principles/rolling-currency.md`
 - `principles/validation-first.md`

@@ -18,8 +18,8 @@ node runs the Pi bridge's TypeScript tests in the check (`node --test` strips th
 are pinned because the check and currency call them. marathon's release,
 `github:standards-lab/claude-plugins` at its `marathon/v` tag, provides lint-context and
 lint-references, which the check runs. Tasks never install a missing tool
-(`task.run_auto_install = false`). Of the tasks, only `currency` reads the network; the check reads
-only the Go module proxy on a cold cache.
+(`task.run_auto_install = false`). `currency` reads the network; the check reads it only to fetch
+modules from the Go module proxy on a cold cache.
 
 `mise run check` ([`scripts/check.sh`](../scripts/check.sh)) builds, vets, format-checks, and
 race-tests every module in `go.work`, runs the Pi bridge's TypeScript tests, and runs
