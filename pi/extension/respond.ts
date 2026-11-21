@@ -22,7 +22,6 @@ export function forceRespond(payload: unknown, respond: string): unknown {
 	return { ...payload, tool_choice: "required" };
 }
 
-// offers reports whether tool is an OpenAI function tool named name, in either API's shape.
 function offers(tool: unknown, name: string): boolean {
 	if (typeof tool !== "object" || tool === null) {
 		return false;

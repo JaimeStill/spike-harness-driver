@@ -6,17 +6,20 @@
  * - Each tool in the spec file PI_DRIVER_TOOLS names is registered at load. A call asks the
  *   driver with a "pi-driver:call" input dialog, whose placeholder carries the call, and the
  *   driver's answer is the tool's result or error.
- * - As each prompt arrives, a "pi-driver:exchange" input dialog asks the driver for the
- *   exchange's schema. With one, the bridge registers the "respond" tool with that schema,
- *   which ends the run once the model calls it, and appends to the prompt an instruction to
- *   call it; without one, "respond" is inactive. The instruction goes in the prompt because Pi
- *   tells the model about a tool added mid-session only by name and schema, and a model with
- *   other tools to choose from then answers in text. While "respond" is active, a
- *   before_provider_request hook sets the request's tool_choice to "required" (see respond.ts),
- *   so the model can't end the exchange in text either.
+ * - As each of the driver's prompts arrives, a "pi-driver:exchange" input dialog asks the
+ *   driver for the exchange's schema; an extension's own messages start no exchange. With a
+ *   schema, the bridge registers the "respond" tool with it, replacing the previous exchange's
+ *   schema, which ends the run once the model calls it, and appends to the prompt an
+ *   instruction to call it; without one, "respond" is inactive. The instruction goes in the
+ *   prompt because Pi tells the model about a tool added mid-session only by name and schema,
+ *   and a model with other tools to choose from then answers in text. While "respond" is
+ *   active, a before_provider_request hook sets the request's tool_choice to "required" (see
+ *   respond.ts), so the model can't end the exchange in text either. The request's tools are
+ *   the active ones, so respond is in them only during an exchange that has a schema.
  *
  * Answers are JSON: {"result": "..."} or {"error": "..."} for a call, and {"schema": {...}} or
- * {} for an exchange.
+ * {} for an exchange. A dialog whose signal aborts, as when the run is cancelled, resolves
+ * without an answer, and the call fails.
  */
 
 import { readFileSync } from "node:fs";
@@ -40,8 +43,6 @@ interface Answer {
 	schema?: unknown;
 }
 
-// ask puts body to the driver as an input dialog titled title, and parses its answer. A signal
-// that aborts, as when the run is cancelled, resolves the dialog without an answer.
 async function ask(ctx: ExtensionContext, title: string, body: unknown, signal?: AbortSignal): Promise<Answer> {
 	const answer = await ctx.ui.input(title, JSON.stringify(body), { signal });
 	if (answer === undefined) {
@@ -70,7 +71,6 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("input", async (event, ctx) => {
-		// Only the driver's prompts start an exchange; an extension's own messages don't.
 		if (event.source === "extension") {
 			return { action: "continue" };
 		}
@@ -80,7 +80,6 @@ export default function (pi: ExtensionAPI) {
 			pi.setActiveTools(active);
 			return { action: "continue" };
 		}
-		// Registering again replaces the previous exchange's schema.
 		pi.registerTool({
 			name: RESPOND,
 			label: RESPOND,
@@ -99,7 +98,5 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	// The payload's tools are the active ones, so respond is in them only during an exchange
-	// that has a schema.
 	pi.on("before_provider_request", (event) => forceRespond(event.payload, RESPOND));
 }

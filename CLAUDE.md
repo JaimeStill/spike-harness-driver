@@ -2,7 +2,7 @@
 
 A spike that tests whether Go can drive an external agent harness as the infrastructure for
 agentic work. It is a `code` project run with the marathon workflow. Start from
-`context/README.md`.
+`context/README.md`; `STANDARDS.md` holds the judgement calls the check can't enforce.
 
 The spike serves the Standards Lab workspace's `standards-lab` coordinator
 (`github.com/standards-lab/org`) and never edits it. The repositories listed in
