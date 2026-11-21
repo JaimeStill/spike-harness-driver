@@ -13,4 +13,6 @@
 // through the Models the composition root sets up for one target, since the harness takes
 // images but has nothing for embeddings or audio. They send the fixtures in
 // clutch/examples/media and check the answers against what the fixtures are known to hold.
+//
+// See docs/design.md#the-scenarios
 package scenario

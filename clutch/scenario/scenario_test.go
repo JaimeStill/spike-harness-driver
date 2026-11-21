@@ -70,10 +70,6 @@ func TestRunStopsAtAFailedNeed(t *testing.T) {
 	}
 }
 
-// stubModels returns Models over an endpoint that answers every request the capability
-// scenarios make as a model that got it right would: a chat naming the shapes or the code
-// depending on what the request carries, embeddings that rank the honey passage first (and a
-// 400 for input not in EmbeddingGemma 2's prompt forms), and the recording's transcript.
 func stubModels(t *testing.T) func() (scenario.Models, error) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +101,6 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			// EmbeddingGemma 2's prompt forms for question answering, from its model card: the
-			// query first, then each passage as a document without a title.
 			for i, in := range req.Input {
 				form := "title: none | text: "
 				if i == 0 {
@@ -117,7 +111,6 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 					return
 				}
 			}
-			// One axis per topic, so each text lies along the topic it mentions.
 			var data []any
 			for i, in := range req.Input {
 				v := []float32{0.1, 0.1, 0.1}
@@ -157,18 +150,12 @@ func stubModels(t *testing.T) func() (scenario.Models, error) {
 	return func() (scenario.Models, error) { return m, nil }
 }
 
-// profile returns a function giving p, as Scenarios takes.
 func profile(p scenario.Profile) func() scenario.Profile { return func() scenario.Profile { return p } }
 
-// TestVisionPastItsHarnessStep runs the vision scenario's steps after the first, which the stub
-// harness's fixed reply keeps TestScenariosOverAStubHarness from reaching: the direct client's
-// image request, and the text-only harness session, whose reply must not name the shapes.
 func TestVisionPastItsHarnessStep(t *testing.T) {
 	visionSteps(t, scenario.Pi, []string{"model vision on target stub", "blue square", "the exchange succeeded without the image"})
 }
 
-// TestVisionSkipsTheDroppedImageStepWhereItDoesntApply shows a harness whose models all take
-// images keeps the step and notes why it did nothing, instead of running a text-only session.
 func TestVisionSkipsTheDroppedImageStepWhereItDoesntApply(t *testing.T) {
 	out := visionSteps(t, scenario.Claude, []string{"model vision on target stub", "skipped: every model Claude Code runs takes images"})
 	if strings.Contains(out, "the exchange succeeded without the image") {
@@ -176,8 +163,6 @@ func TestVisionSkipsTheDroppedImageStepWhereItDoesntApply(t *testing.T) {
 	}
 }
 
-// visionSteps runs the vision scenario's steps after the first under p, checks the narration
-// holds each of want, and returns it.
 func visionSteps(t *testing.T, p scenario.Profile, want []string) string {
 	t.Helper()
 	svc := session.New(
@@ -206,8 +191,6 @@ func visionSteps(t *testing.T, p scenario.Profile, want []string) string {
 	return out.String()
 }
 
-// TestSkillUsesTheProfile shows the skill scenario invokes the skill with the profile's prefix
-// and offers the profile's skill tool.
 func TestSkillUsesTheProfile(t *testing.T) {
 	for _, p := range []scenario.Profile{scenario.Pi, scenario.Claude} {
 		t.Run(p.Name, func(t *testing.T) {
@@ -228,7 +211,6 @@ func TestSkillUsesTheProfile(t *testing.T) {
 			steps, cleanup := skill.Steps()
 			defer func() { _ = cleanup() }()
 			rep, out := reporter()
-			// The stub's fixed reply fails each step's check, after the exchange has run.
 			for _, step := range steps[:2] {
 				_ = step.Action(t.Context(), rep)
 			}
@@ -255,16 +237,12 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 		},
 		func() harness.Options { return harness.Options{Store: store} },
 	)
-	// The stub harness replies with the same text whatever it is asked, calls no tools, and
-	// gives no structured response, so the scenarios that check the model's reply fail at
-	// their first check.
 	fails := map[string]string{
 		"tool":       "step 2: the model never called the lookup_code tool",
 		"skill":      "step 1: the reply lacks the motto",
 		"structured": "step 2: exchange ended in error: " + harness.ErrNoStructuredResponse.Error(),
 		"vision":     "step 1: the reply lacks the red circle, blue square, green triangle",
-		// Steps 1 and 2 go to the stub endpoint, which answers them correctly.
-		"audio": "step 3: the model never called the transcribe_recording tool",
+		"audio":      "step 3: the model never called the transcribe_recording tool",
 	}
 	scenarios := scenario.Scenarios(svc, stubModels(t), profile(scenario.Pi), scenario.Needs{})
 	for _, s := range scenarios {
@@ -282,7 +260,6 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 				t.Fatalf("%v\n%s", err, out.String())
 			}
 			if s.Name == "embed" {
-				// The embed scenario drives no harness: the harness has nothing for embeddings.
 				if len(opened) != 0 || !strings.Contains(out.String(), "1. honey") {
 					t.Errorf("opened %d sessions; narration:\n%s", len(opened), out.String())
 				}
@@ -307,7 +284,6 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 				if len(first.Tools) != 0 || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
 					t.Errorf("opened with tools %+v, harness tools %#v", first.Tools, first.HarnessTools)
 				}
-				// The store records each exchange's request, so it shows the schema was sent.
 				recs, err := store.Records(t.Context(), harnesstest.SessionID)
 				if err != nil {
 					t.Fatal(err)
@@ -321,7 +297,6 @@ func TestScenariosOverAStubHarness(t *testing.T) {
 				if first.Model != "harness-vision" || first.HarnessTools == nil || len(first.HarnessTools) != 0 {
 					t.Errorf("opened on %q with harness tools %#v", first.Model, first.HarnessTools)
 				}
-				// The record keeps each image's media type, which shows the image was sent.
 				recs, err := store.Records(t.Context(), harnesstest.SessionID)
 				if err != nil {
 					t.Fatal(err)

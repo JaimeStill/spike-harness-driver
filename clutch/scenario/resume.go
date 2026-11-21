@@ -10,14 +10,11 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// resumePrompts are the two exchanges: the second can only be answered from the first.
 var resumePrompts = [2]string{
 	"Reply with one short sentence: what is Go?",
 	"What was my first question? Answer in one short sentence.",
 }
 
-// resumeScenario runs an exchange, ends the harness process, resumes the session by ID in a
-// new process, and runs a second exchange that depends on the first.
 func resumeScenario(svc *session.Service, needs []Need) Scenario {
 	return Scenario{
 		Name:    "resume",
@@ -75,7 +72,6 @@ func resumeScenario(svc *session.Service, needs []Need) Scenario {
 	}
 }
 
-// listExchanges notes the run's recorded exchanges, and fails unless want is among them.
 func (r *run) listExchanges(ctx context.Context, rep *Reporter, want uuid.UUID) error {
 	recs, err := r.sess.Exchanges(ctx)
 	if err != nil {

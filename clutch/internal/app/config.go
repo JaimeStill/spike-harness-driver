@@ -35,7 +35,6 @@ type Config struct {
 	AzureScope string
 }
 
-// bind registers cfg's flags on fs.
 func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.Harness, "harness", harnessPi, "the harness to drive: "+strings.Join(harnessNames(), " | "))
 	fs.StringVar(&cfg.Provider, "provider", "", "the harness's model provider; empty takes the harness's own: "+defaultsHelp(func(h harnessSpec) string { return h.provider }))
@@ -55,7 +54,6 @@ func (cfg *Config) bind(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.AzureScope, "azure-scope", "https://ai.azure.com", "the Entra ID scope of the azure target's token")
 }
 
-// defaultsHelp lists what each harness takes for a flag left empty, for the flag's help.
 func defaultsHelp(of func(harnessSpec) string) string {
 	parts := make([]string, len(harnesses))
 	for i, h := range harnesses {
@@ -64,9 +62,6 @@ func defaultsHelp(of func(harnessSpec) string) string {
 	return strings.Join(parts, ", ")
 }
 
-// defaultState is clutch's directory in the user's cache directory, which, unlike the shared
-// temporary directory, no other user can write to. It falls back to the temporary directory
-// when the user has no cache directory.
 func defaultState() string {
 	if dir, err := os.UserCacheDir(); err == nil {
 		return filepath.Join(dir, "clutch")

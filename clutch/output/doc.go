@@ -5,4 +5,6 @@
 // Results go to stdout and errors to stderr. An event line leads with the last eight
 // characters of its session and exchange IDs, which differ between IDs made in the same
 // millisecond, then its sequence number, kind, and detail.
+//
+// See docs/design.md#the-output
 package output

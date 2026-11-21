@@ -18,14 +18,10 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// versionTimeout bounds one harness's --version, which only prints.
 const versionTimeout = 30 * time.Second
 
-// cellKey names one cell of the conformance matrix: a harness over a provider.
 type cellKey struct{ harness, provider string }
 
-// matrix returns every cell the harnesses table defines, in the table's order: each harness
-// over each of its providers.
 func matrix() []cellKey {
 	var keys []cellKey
 	for _, h := range harnesses {
@@ -36,10 +32,6 @@ func matrix() []cellKey {
 	return keys
 }
 
-// selectCells narrows the matrix to the cells whose harness is among names and whose provider
-// is among providers; an empty list names all. It fails for a name that is no harness, or a
-// provider no harness runs over, and for filters that together leave no cell, such as claude
-// with azure, which is more likely a mistake than a request for nothing.
 func selectCells(names, providers []string) ([]cellKey, error) {
 	for _, n := range names {
 		if _, err := lookupHarness(n); err != nil {
@@ -73,13 +65,6 @@ func selectCells(names, providers []string) ([]cellKey, error) {
 	return keys, nil
 }
 
-// newCell builds the cell for one harness over one provider from a copy of base, the flags the
-// command was run with. The copy takes the cell's harness and provider and empties --model and
-// --harness-vision-model, since a model ID belongs to one provider, so each cell runs on its
-// harness's own defaults. It drops --skills and --tools, which would add to what the capabilities
-// offer a session, and keeps --target, --state, and the Azure scope. The cell builds its driver,
-// options, and models through its own Infrastructure, the code path every other command uses, so
-// the per-harness defaults and the azure provider's setup apply as they do there.
 func newCell(base Config, k cellKey) (conform.Cell, error) {
 	h, err := lookupHarness(k.harness)
 	if err != nil {
@@ -102,15 +87,12 @@ func newCell(base Config, k cellKey) (conform.Cell, error) {
 		DefaultTakesImages: infra.defaultTakesImages(),
 		Models:             infra.Models,
 	}
-	// A cell whose own flags don't validate, such as a bad --azure-scope on the azure provider,
-	// is skipped with the reason rather than failing the whole run.
 	if err := infra.Validate(); err != nil {
 		cell.Needs = append([]scenario.Need{{What: "valid flags", Check: func(context.Context) error { return err }}}, cell.Needs...)
 	}
 	return cell, nil
 }
 
-// harnessVersion runs command --version and returns the first line it prints.
 func harnessVersion(ctx context.Context, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, versionTimeout)
 	defer cancel()
@@ -121,7 +103,6 @@ func harnessVersion(ctx context.Context, command string) (string, error) {
 	return firstLine(string(out))
 }
 
-// firstLine returns the first line of s that isn't blank, trimmed.
 func firstLine(s string) (string, error) {
 	for line := range strings.SplitSeq(s, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
@@ -131,10 +112,6 @@ func firstLine(s string) (string, error) {
 	return "", errors.New("--version printed nothing")
 }
 
-// conformCommand builds "conform", which runs the conformance suite over the harnesses and
-// providers it selects and prints the matrix. It runs under the root's --target, --state, and
-// --azure-scope, and ignores the rest of the persistent flags that name one harness, one
-// provider, or one model: the matrix spans them.
 func conformCommand(cfg *Config, out *output.Output) *cobra.Command {
 	var (
 		names, providers []string
@@ -208,7 +185,6 @@ func conformCommand(cfg *Config, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// cellList lists the matrix's cells for the help.
 func cellList() string {
 	var parts []string
 	for _, k := range matrix() {
@@ -217,7 +193,6 @@ func cellList() string {
 	return strings.Join(parts, ", ")
 }
 
-// pinList lists each harness's pinned version for the help.
 func pinList() string {
 	parts := make([]string, len(harnesses))
 	for i, h := range harnesses {
@@ -226,7 +201,6 @@ func pinList() string {
 	return strings.Join(parts, ", ")
 }
 
-// providerList lists the providers any harness runs over, in the table's order.
 func providerList() string {
 	var ps []string
 	for _, k := range matrix() {

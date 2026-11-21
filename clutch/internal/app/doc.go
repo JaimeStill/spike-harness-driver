@@ -15,4 +15,6 @@
 //
 // It is the only package that names an adapter or a target: every package beneath it works
 // against harness.Driver and the model clients it sets up.
+//
+// See docs/design.md#the-composition-root
 package app

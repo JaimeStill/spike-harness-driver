@@ -26,7 +26,6 @@ func Commands(svc *Service, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// runCommand builds "workflow run", which starts a run and follows it to its end.
 func runCommand(svc *Service, out *output.Output) *cobra.Command {
 	var (
 		limit int
@@ -70,7 +69,6 @@ func runCommand(svc *Service, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// resumeCommand builds "workflow resume", which takes up an unfinished run.
 func resumeCommand(svc *Service, out *output.Output) *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
@@ -101,7 +99,6 @@ func resumeCommand(svc *Service, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// cancelCommand builds "workflow cancel", which ends an unfinished run.
 func cancelCommand(svc *Service, out *output.Output) *cobra.Command {
 	return &cobra.Command{
 		Use:   "cancel <run-id>",
@@ -121,7 +118,6 @@ func cancelCommand(svc *Service, out *output.Output) *cobra.Command {
 	}
 }
 
-// listCommand builds "workflow list".
 func listCommand(svc *Service, out *output.Output) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -132,7 +128,6 @@ func listCommand(svc *Service, out *output.Output) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// The runs that can be read print even when another's log can't, which is the error.
 			states, err := r.Runs(cmd.Context())
 			if len(states) == 0 && err == nil {
 				out.Printf("no runs")
@@ -145,7 +140,6 @@ func listCommand(svc *Service, out *output.Output) *cobra.Command {
 	}
 }
 
-// showCommand builds "workflow show", which prints a run's state as JSON.
 func showCommand(svc *Service, out *output.Output) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <run-id>",
@@ -170,8 +164,6 @@ func showCommand(svc *Service, out *output.Output) *cobra.Command {
 	}
 }
 
-// follow prints the run's events with a Seq above after until the run ends or ctx does, then the
-// run's state. A run that didn't end done is an error, so the exit code says how it went.
 func follow(ctx context.Context, r *workflow.Runner, id string, after int, out *output.Output) error {
 	s, err := Follow(ctx, r, id, after, func(e workflow.Event) {
 		if line := EventLine(e); line != "" {
@@ -192,7 +184,6 @@ func follow(ctx context.Context, r *workflow.Runner, id string, after int, out *
 	return nil
 }
 
-// resultWidth bounds a result's text on a step_ended line.
 const resultWidth = 160
 
 // EventLine formats a run event as one line: the time, the logged event's number, its kind,
@@ -240,8 +231,6 @@ func EventLine(e workflow.Event) string {
 	return head
 }
 
-// summary is a result as one cut line: the structured response when there is one, else the
-// text.
 func summary(res harness.Result) string {
 	s := res.Text
 	if len(res.Structured) > 0 {

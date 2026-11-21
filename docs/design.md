@@ -1,8 +1,8 @@
 # Design
 
-The reasoning behind the root module's packages, the MCP bridge, and the harness adapters: what
-each unexported part does and why it is built that way. Each package's own documentation, which
-`go doc` prints, gives its API and points to its section here.
+The reasoning behind the root module's packages, the MCP bridge, the harness adapters, and the
+clutch CLI: what each unexported part does and why it is built that way. Each package's own
+documentation, which `go doc` prints, gives its API and points to its section here.
 
 ## The session
 
@@ -731,3 +731,454 @@ replay holds OpenCode's side only, so it encodes a session/prompt under each id 
 a stop reason, before the turn it ends; the handshake ends with the model's selection, answered
 as id 3. A cancel the session sends as soon as Prompt returns reaches OpenCode after the prompt,
 so it aborts the turn: an exchange whose context has already ended is aborted at once.
+
+## The clutch CLI
+
+Module [`clutch`](../clutch/): the command-line application over the driver, its narrated
+scenarios, and its conformance suite. Each package's documentation gives its part of the CLI; the
+subsections here give the reasoning beneath it.
+
+### The composition root
+
+Package [`app`](../clutch/internal/app/).
+
+**The layers.** `commands` is the list of mounts: the direct command families from domain.go,
+which `mountDomain` builds one per domain, the scenario mount and listing from scenarios.go, and
+the conformance suite from conform.go. commands.go composes them and does nothing else.
+`mountScenarios` builds "scenario", with one subcommand per scenario, each narrating through the
+output, and the scenarios' `listCommand` builds "list", which prints the listing. `newRoot` builds
+the root command with the flags bound. Before any subcommand runs, it fails when the flags name a
+harness clutch has no adapter for, or a --skills or --tools directory that doesn't load; run
+without a subcommand, it prints its help and the scenario listing.
+
+**The flags.** `bind` registers the configuration's flags, and `defaultsHelp` lists what each
+harness takes for a flag left empty, for the flag's help. `defaultState` is clutch's directory in
+the user's cache directory, which, unlike the shared temporary directory, no other user can write
+to; it falls back to the temporary directory when the user has no cache directory.
+
+**The harnesses.** `harnessSpec` describes one harness: its name, its executable, the version the
+conformance suite pins, the defaults for --provider, --model, and --harness-vision-model when
+their flags are unset, the providers the conformance suite runs it over, how the scenarios talk
+to it, and how to build its driver from the flags. `harnesses` is the table of the harnesses
+clutch has an adapter for, in the order help and errors list them, as `harnessNames` returns
+them; `lookupHarness` finds one by name. Adding a harness is an entry in the table, a profile in
+the scenario package, and the adapter's import. init builds the table, since its builders read
+the flags through the Infrastructure, which looks the table up. Pi and OpenCode run over the
+router or Azure; Claude Code runs on Anthropic's alone.
+
+Pi's cache directory sits beside its sessions, so the files a session's history names last as
+long. On the azure provider, Pi takes the provider from the models.json in an agent directory of
+clutch's own, which then stands in for the user's ~/.pi/agent. Its key is the az command, which
+Pi runs for each request, so the token never goes stale. Its models are the session's and, when
+it differs, the harness vision model, so either is selectable; every model clutch runs on Azure
+takes images and reasons. Claude Code keeps its own sessions; its cache is the one Pi's driver
+uses, and since each entry is named by its content, the two don't meet. OpenCode's state
+directory holds its configuration, data, and sessions in place of the user's.
+
+`openCodeProviders` are the endpoints an OpenCode session runs on, which the driver writes into
+OpenCode's configuration. The router's are the harness vision model, listed as taking images,
+and the session's model, which the driver lists as text only when it isn't the vision model, so
+OpenCode sees what each model takes. LLAMA_BASE_URL is the router's root, and OpenCode's provider
+takes the OpenAI-compatible base beneath it. On the azure provider, OpenCode talks to Azure's v1
+API through @ai-sdk/openai: the OpenAI-compatible package sends max_tokens, which Azure's
+reasoning models reject. Its models are the session's and the harness vision model, both taking
+images, as every model clutch runs on Azure does. Its key is an Entra ID token, fetched once:
+OpenCode's configuration takes no command, so a session that outlives the token, about an hour,
+fails. `azTokenTimeout` bounds that fetch. It runs az, which reaches Entra ID over the network,
+before any harness starts and under no context of the command's, so an unreachable network would
+otherwise hang clutch with nothing on screen; az answers in seconds when it can answer at all.
+
+**The Infrastructure.** It holds the tools and skills that Validate loaded from the --tools and
+--skills directories, the HTTP client that sends every direct model request whichever client
+makes it, and `az`, which runs the Azure CLI for the azure target's tokens and which a test
+replaces. Pi runs the azure provider's key as a command line that names the scope, so
+`scopeForm`, the form of an Entra ID scope clutch takes, is an https URL with no character a
+shell would read. `loadSkills` loads the skills under each directory, with their directories, so
+the harness reads each skill where it lives; `loadTools` loads the command tools on the same
+terms. A directory holding none is an error, as is a name two directories share: either is more
+likely a mistyped flag than intended.
+
+`spec` returns the harness the flags name. Validate has already failed for a name with no
+adapter, so an unknown one gives the zero harnessSpec, whose empty defaults nothing reads.
+`provider` is the harness's model provider: --provider, or the harness's own. `defaultModel` and
+`defaultVision` are the models a session runs on, and one sent an image runs on, when the flags
+name none: the azure provider's, or the harness's own. `harnessVision` is the model a harness
+session sent an image runs on: --harness-vision-model, or the default vision model.
+`defaultTakesImages` is whether a session's default model takes images, as every model on Azure
+does, so on Azure the default model can't show a dropped image.
+
+`azureNeeds` are the needs of Azure: AZURE_OPENAI_BASE_URL and the Azure CLI. With provider set,
+they apply when the harness's provider is azure; with target set, when the target is.
+`llamaNeed` is the need for LLAMA_BASE_URL: with provider set, it applies when the harness's
+provider is llama.cpp; with target set, when the target is; with both set, when either is.
+
+**The targets.** The targets are the endpoints the direct model client talks to.
+`providerLlama` is the harness's provider for the llama.cpp router, the same name the router's
+target has. `providerAzure` is the harness provider for Azure AI Foundry's v1 API, which Pi and
+OpenCode reach as an OpenAI-compatible endpoint with an Entra ID token, and `azureModel` its
+default model, which takes images and reasons. `routerVision` is the router's vision model,
+Gemma 4 26B-A4B: the llama.cpp target's, and a harness session's when it is sent an image. A
+`target` holds a target's name, its default model IDs, and whether its audio model takes audio in
+chat; Azure's transcription models take audio only through transcription, and its chat models
+take none. `targets` lists them in the order help and errors list them, as `targetNames` returns
+them, and `lookupTarget` finds one by name; setup/router-models.md and setup/azure-foundry.md say
+why each model was chosen.
+
+`modelTimeout` bounds one direct model request, from sending it to reading its response. The
+router loads a model on its first request, which for the 27B vision model takes a minute or more
+before a reasoning model's answer starts. The bound is generous because it exists to catch an
+endpoint that has hung, not one that is slow. The llama.cpp client's base is the
+OpenAI-compatible API root beneath LLAMA_BASE_URL, where the router serves every route. Azure's v1
+/audio/transcriptions route answered 404 DeploymentNotFound for a deployment that existed (checked
+2026-09-30), while the older deployment route works, so transcription gets its own client on that
+route: `azureAudioBase` is the route's base URL for a deployment, the v1 API root ending in
+/openai/v1 with /v1 replaced by /deployments/<deployment>, and `azureAudioVersion` is the
+api-version it takes.
+
+**The Azure token.** The Infrastructure's `azureToken` is its single token source for the azure
+target, so every client shares one cached token. An `azRunner` runs the Azure CLI with arguments
+and returns what it writes to standard output; `runAz` runs az, and a failure carries az's
+standard error, which says why, such as an expired sign-in. The token goes only to standard
+output. The `azureToken` type is a model.TokenSource for Entra ID tokens from the Azure CLI's
+sign-in: it runs az account get-access-token once, and again only as the token nears its expiry,
+and holds the token in memory alone, never printing or writing it anywhere. Its mutex guards the
+cache and is held across a refresh, so requests that find the token stale together run az once.
+`tokenMargin` is how long before its expiry a cached token is replaced. Azure checks a token when
+a request arrives, so the margin need only cover the request's travel time and any skew between
+this machine's clock and Azure's; five minutes is ample for both, and costs only a refresh a few
+minutes early on a token that lasts an hour or more. `parseAzToken` reads the token and its
+expiry from az account get-access-token's JSON. The expiry is expires_on, in seconds since the
+epoch, which newer versions of az give as a number and older ones as a string; when expires_on is
+absent, the expiry is expiresOn, in the local zone, whose layout is `azTokenTime`. An error never
+quotes the output, which holds the token.
+
+**The workflow sessions.** `sessionOpenTimeout` bounds a workflow session's start-up handshake,
+as the session domain bounds its own. `sessionOpener` opens a workflow's sessions in a directory.
+Each session's Infrastructure is built from a copy of the flags with the session's harness,
+provider, and model, as `sessionConfig` gives them, the way the conformance suite builds a cell's,
+so the per-harness defaults and the azure provider's setup apply as they do for every other
+command. A harness other than the flags' takes its own provider and models unless the session
+names them, and a provider other than the flags' its own model, since a model ID belongs to one
+provider. The session enables none of the harness's own tools: a workflow session offers the
+model the --tools and --skills sessions offer, and nothing that reaches the service's files or
+shell.
+
+**The conformance cells.** `cellKey` names one cell of the conformance matrix: a harness over a
+provider. `matrix` returns every cell the harnesses table defines, in the table's order: each
+harness over each of its providers. `selectCells` narrows the matrix to the cells whose harness
+and provider are among those named, an empty list naming all. It fails for a name that is no
+harness, or a provider no harness runs over, and for filters that together leave no cell, such as
+claude with azure, which is more likely a mistake than a request for nothing.
+
+`newCell` builds the cell for one harness over one provider from a copy of the flags the command
+was run with. The copy takes the cell's harness and provider and empties --model and
+--harness-vision-model, since a model ID belongs to one provider, so each cell runs on its
+harness's own defaults. It drops --skills and --tools, which would add to what the capabilities
+offer a session, and keeps --target, --state, and the Azure scope. The cell builds its driver,
+options, and models through its own Infrastructure, the code path every other command uses, so
+the per-harness defaults and the azure provider's setup apply as they do there. A cell whose own
+flags don't validate, such as a bad --azure-scope on the azure provider, is skipped with the
+reason rather than failing the whole run. `harnessVersion` runs the harness's --version, bounded
+by `versionTimeout` since it only prints, and returns the first line that isn't blank.
+
+`conformCommand` builds "conform", which runs the suite over the harnesses and providers it
+selects and prints the matrix. It runs under the root's --target, --state, and --azure-scope, and
+ignores the rest of the persistent flags that name one harness, one provider, or one model: the
+matrix spans them. Its help lists the matrix's cells, each harness's pinned version, and the
+providers any harness runs over, in the table's order.
+
+**The tests.** `flagged` returns a Config with every flag at its default, then set as the
+arguments give them. The session domain reads the same options as the scenarios, so session send
+offers the loaded tools and skills too. The skills root isn't a tools root: a mistyped flag fails
+rather than loading nothing. The needs tests run with a PATH holding neither az nor a harness; the
+provider and the target share the one need, and a harness on the router still needs
+LLAMA_BASE_URL whatever the target. `fakeAz` is an az that prints tokens in turn, each expiring at
+its expiry, and counts its runs, which shows two clients sharing the one cached token: az runs
+once, for the scope the flag names. On the azure provider, Pi and OpenCode default to
+gpt-5-mini; Pi's key is the az command in its own agent directory, and OpenCode's a token, through
+@ai-sdk/openai. A harness vision model other than the session's is listed too, taking images, so
+a session can select it. A scope a shell would read is refused, since it reaches a command line.
+A conformance cell leaves out the base's --skills and --tools.
+
+### The session domain
+
+Package [`session`](../clutch/domain/session/).
+
+`sendCommand` builds "session send", which opens a session, runs one exchange, and closes it, and
+`exchangesCommand` builds "session exchanges", which lists a session's recorded exchanges.
+`parseSchema` reads --schema's value: inline JSON when it starts with "{", otherwise the path of a
+JSON file. The schema must be an object schema, the only kind a structured response takes, which
+the session would also refuse; checking it in the command fails before a harness starts. An empty
+value asks for none. `openTimeout` bounds a harness's start-up handshake. OpenWith concatenates the
+options function's tools and skills with the caller's into new slices, so the options function's
+slices are never appended to in place.
+
+**The tests.** `longPrompt` streams until it is cancelled. The options function's slices are
+given spare capacity, which an in-place append would use to leak one Open's setup into the next.
+harnesstest keeps no journal, so a resume has nothing to verify against. The stub harness gives no
+structured response, so an exchange with a schema ends in ErrNoStructuredResponse, which shows the
+schema reached the harness; the record keeps each image's media type, which shows the request
+carried it.
+
+### The workflow domain
+
+Package [`workflow`](../clutch/domain/workflow/).
+
+**The commands.** `runCommand` builds "workflow run", which starts a run and follows it to its
+end; `resumeCommand` builds "workflow resume", which takes up an unfinished run; `cancelCommand`
+builds "workflow cancel", which ends an unfinished run; `listCommand` builds "workflow list"; and
+`showCommand` builds "workflow show", which prints a run's state as JSON. The list prints the runs
+that can be read even when another's log can't, which is then the error, and the HTTP list
+likewise reports a log that can't be read beside the others, not in place of them. `follow`
+prints the run's events with a Seq above the one given until the run ends or the context does,
+then the run's state. A run that didn't end done is an error, so the exit code says how it went.
+A step_ended line shows its result's `summary`, the structured response when there is one and
+otherwise the text, cut to `resultWidth`.
+
+**The service.** `shutdownTimeout` bounds stopping a run on an interrupt: cancelling its exchanges
+and closing its sessions. The service's subscription to a run outlives the follow's context, so
+the events of a shutdown still arrive.
+
+**Serving.** `maxWorkflow` bounds a posted workflow's body, and `fail` writes an error with the
+status its kind calls for. `readHeaderTimeout` bounds reading a request's headers. The server sets
+no other timeout, because an event stream lasts as long as its run. On an interrupt, serve shuts
+the runner down first, which closes the event streams, since the server's Shutdown waits for
+them; it then waits for the server to return, which it does with http.ErrServerClosed once
+Shutdown has begun.
+
+**The tests.** `resumeHint` is the line an interrupted run ends with. `newService` returns a
+Service whose sessions run on the scripted harness, with the run log and exchange records in a
+state directory; with streaming on, a prompt holding `longPrompt` streams until it is cancelled.
+The interrupt test's second step streams until the interrupt, which stops the run without ending
+it; a new process, whose harness answers, takes the run up: the first step keeps its result, and
+only the second runs. `events` reads an event stream until it closes, returning each event's
+kind, after handing each logged event to a callback. A reconnect picks up after the last event it
+saw, and a live run cancels, its stream ending with the run cancelled. A run ID that can't name a
+log is an unknown run, and an ended run's caught-up stream is 204, so an EventSource stops
+reconnecting. `syncBuffer` is a Buffer the server's goroutine writes while the test reads, and
+`startServe` runs "serve" on a free port until the returned stop is called, returning its base
+URL and output. The next serve, whose harness answers, resumes an interrupted run, and a client
+picks its stream up where it left off.
+
+### The output
+
+Package [`output`](../clutch/output/).
+
+`harnessDetail` is how much of a harness event's raw record, a tool's arguments or result, or a
+structured response an event line keeps. Whether events with no normalized meaning are printed is
+read at each event, so it can follow a flag parsed after the Output is built. `limitDetail` is a
+limit event's detail: the status, then the window, how much of it is used, and when it resets,
+each only when the harness said. The reset shows as a time of day in the local zone, which is as
+much as a window of hours calls for. `toolDetail` is a tool event's detail: the name, then the
+arguments of a call or the result of a result, each compacted and cut. `compact` returns raw JSON
+without insignificant space, or as it is if it doesn't parse, and `cut` keeps at most n bytes,
+ending on a whole character, and marks what it dropped.
+
+### The scenarios
+
+Package [`scenario`](../clutch/scenario/).
+
+**The run.** A `run` is the state one scenario run shares between its steps; its events are the
+events of the run's last exchange. `open` opens a new session for the run and notes its ID;
+`resume` opens the session an ID names, a new one when the ID is empty; `openWith` does the same,
+offering a setup's tools and skills. `exchange` runs an exchange on the run's session, narrating
+its events and result, and keeps its events. `ended` fails when the exchange wasn't accepted, or
+ended in an error rather than a stop or a cancellation, and `toolRan` fails unless the run's last
+exchange both called the named tool and received its result. `close` closes the run's session, if
+one is open.
+
+**Exchange, cancel, and resume.** `exchangeScenario` opens a session, runs one exchange to its
+end, and closes the session; `exchangePrompt` asks for a short answer, so the exchange ends on its
+own quickly. `cancelScenario` opens a session, cancels one exchange mid-stream, and closes the
+session; `cancelPrompt` asks for a long answer, so the exchange is still streaming when it is
+cancelled. `resumeScenario` runs an exchange, ends the harness process, resumes the session by ID
+in a new process, and runs a second exchange that depends on the first, as `resumePrompts` are
+written: the second can only be answered from the first. `listExchanges` notes the run's recorded
+exchanges, and fails unless the one wanted is among them.
+
+**Tools.** `toolScenario` opens a session offering a tool whose handler runs in this process, has
+the model call it, and, when --tools loaded the example fingerprint tool, has the model call that
+command tool too. `lookupCodeTool` is a tool defined and run in Go, with `lookupSchema` its
+argument schema; its handler narrates each call, so the narration shows the call leaving the
+harness, the handler running here, and the result going back. `lookupPerson` is whose access code
+the scenario asks for, and `accessCode` is the code lookup_code returns for a name: derived from a
+hash, so the model can't guess it and a reply holding it shows the tool ran. `fingerprintTool` is
+the example command tool in clutch/examples/tools, and `fingerprint` is what it returns for a
+text, computed here to check the model's reply against. `replyHas` fails unless the reply holds
+what is wanted, ignoring case; the failure names it by what it is.
+
+**Skills.** `skills` holds the skills the skill scenario embeds, one directory each. `motto` is the
+fact the embedded clutch-motto skill gives, which the model can't know without it. `mottoSkill`
+loads that skill through catalog, the loader an external skill goes through, so an embedded skill
+is held to the same rules. `weatherSkill` is the example skill in clutch/examples/skills, which
+the scenario asks about when --skills loaded it. `skillScenario` shows the two ways a skill
+reaches the model: invoked by name in the prompt, with no tools at all, and found by the model
+itself, which loads the skill with the harness's skill tool, as the profile names it. When
+--skills loaded the example clutch-weather skill, the model finds that one too. Its `ask` runs a
+prompt in a new session opened with a setup, closing the run's previous session first.
+`replyHasPhrase` fails unless the reply holds a phrase, ignoring case and punctuation, so a model
+that drops the full stop or the quotes still passes.
+
+**Structured responses.** `structuredScenario` asks for structured responses on one session with
+no harness tools: each exchange carries its own schema, `capitalSchema`, `colorsSchema`, and
+`greetingSchema`, a different shape for each exchange, so the respond tool the harness offers
+takes a new shape each time; `capital`, `colors`, and `greeting` are the Go types each response
+decodes into. The last exchange also checks the contract whichever way the model goes: a
+structured response that decodes, or ErrNoStructuredResponse. `greetingPrompt` asks for the
+greeting as a structured response outright: a prompt that asked for plain text instead
+contradicted the instruction the harness adds for a schema, and gpt-oss on llama.cpp then failed
+about half its runs with a malformed tool call. The scenario's `ask` runs a prompt with a schema,
+notes any validation retries, and fails unless the exchange ended with a response that decodes.
+The last step reads the outcome itself, because `ended` fails on any outcome error and
+ErrNoStructuredResponse is one this step accepts. `decode` decodes a structured response, failing
+when there is none, and `noteRetries` notes how many structured responses the run's last exchange
+offered that failed validation against the schema, each of which the harness returned to the
+model to try again.
+
+**Vision.** `visionScenario` sends one image three ways: to a harness session on a model that
+takes images, to the direct client, and, for a harness that drops an image a text-only model
+can't take, to a harness session on the text-only default model, which shows what it does with
+one. A harness whose models all take images skips that step, as the profile says. Its `ask` sends
+the shapes image in a new session with no harness tools, on the given model or the default one,
+closing the run's previous session first, and `noteChat` notes a direct chat response: its text,
+why it stopped, and its token usage. `shapesType` is media.Shapes's media type, and `shapes` pairs
+each shape in it with its color.
+
+`namesShapes` fails unless the reply names each shape with its color. A shape counts as named with
+its color when, at one of its mentions, the color word nearest it is that color, so "a red
+circle", "the circle is red", and a table row "| Circle | Red |" all pass, while a reply that
+swaps two colors doesn't. It ignores case. `colorWords` are the colors it looks for, the fixture's
+three and others a model might name, so a wrong color is seen as one rather than skipped.
+`tokenize` splits a reply into tokens, words and clause breaks, dropping every other character: a
+`token` is a lowercase word of letters and digits or, when it is a break, a mark that ends a
+clause: a comma, a semicolon, a sentence's end, or a line's. `shapeHasColor` reports whether, at
+some mention of a shape, the nearest color word is the color. Nearest counts the clause breaks
+crossed first and the words between second, so a color in the shape's own clause wins over a
+closer one across a comma or a line's end; a full tie goes to the color before, as an adjective
+precedes its noun in English. `nearestColor` walks from a shape in one direction to the first
+color word, the `colorHit`, and `closer` reports whether one hit is nearer its shape than
+another.
+
+**Embeddings.** `embedScenario` embeds a query and three passages with the direct client, in one
+request, and ranks the passages by their similarity to the query. It needs no harness: the
+harness has nothing for embeddings. `embedQuery` is its query, and `passages` its candidates, each
+a `passage` with a short label to print; the first answers the query, and the ranking must put it
+first. `embedInput` is the one request's input: the query, then each passage, each in its prompt
+form. `queryForm` and `documentForm` are the prompt forms EmbeddingGemma 2's model card gives for
+question answering: a query names the task, and a document without a title says so. A model
+trained without prompt forms, such as OpenAI's, embeds the prefix as more text, which leaves the
+ranking unharmed. `rank` orders candidates by their cosine similarity to the query, most similar
+first, returning the candidates' indexes in that order and each candidate's score by its own
+index. `cosine` accumulates in float64, since a sum of a few thousand float32 products loses
+precision in float32.
+
+**Audio.** `audioScenario` transcribes a recording with the direct client, asks a chat model about
+it when the target's audio model takes audio in chat, and then gives the recording to a harness
+session through a Go tool that transcribes it. The harness takes no audio itself, so a tool is how
+an agent gets a transcript. `transcribeTool` is that tool's name; `transcribeRecordingTool`
+builds it, a Go tool whose handler transcribes media.Phrase with the audio client and narrates
+each call. `transcribeSchema` is its argument schema, which takes no arguments, because the tool
+holds the recording. `phraseCode` is the access code the speaker in media.Phrase says, and
+`phraseFile` is media.Phrase's filename, whose extension tells the endpoint its format.
+
+`hasCode` fails unless a text holds the access code, as numerals or spoken digits, run together
+or apart: "7429", "7 4 2 9", "7-4-2-9", and "seven four two nine" all pass. A longer run of digits
+holding the code, such as "17429", doesn't, and a sentence break or a bracket ends a run, so "7429
+(four digits)" passes. `digitRuns` returns each run of consecutive words that are all numerals or
+spoken digits, `digitWords` mapping each spoken digit to its numeral, joined into one string of
+numerals. `runBreaks` are the marks that end a run: a comma, a hyphen, or a space joins digits, as
+in "7,429" and "seven, four, two, nine"; a sentence's end, a colon, or a bracket ends them.
+
+**The tests.** `stubModels` returns Models over an endpoint that answers every request the
+capability scenarios make as a model that got it right would: a chat naming the shapes or the code
+depending on what the request carries, embeddings that rank the honey passage first, and the
+recording's transcript. It answers 400 for input not in EmbeddingGemma 2's prompt forms for
+question answering, the query first and then each passage as a document without a title, and its
+embeddings put each text along one axis per topic it mentions. The embed scenario checks that
+passages[0] ranks first, so it must be the honey one. `profile` returns a function giving a
+profile, as Scenarios takes.
+
+The stub harness replies with the same text whatever it is asked, calls no tools, and gives no
+structured response, so the scenarios that check the model's reply fail at their first check,
+after the exchange has run; the embed scenario drives no harness. Steps the stub endpoint answers
+pass. The vision scenario's steps after the first, which the stub harness's fixed reply keeps the
+whole-scenario test from reaching, run on their own through `visionSteps`, which checks the
+narration holds each line wanted: the direct client's image request, and the text-only harness
+session, whose reply must not name the shapes. A harness whose models all take images keeps the
+dropped-image step and notes why it did nothing, instead of running a text-only session. The skill
+scenario invokes the skill with the profile's prefix and offers the profile's skill tool. The store
+records each exchange's request, so it shows a schema was sent, and keeps each image's media type,
+which shows an image was sent. The tool test's fingerprint is the value
+clutch/examples/tools/fingerprint/run.py prints for {"text":"clutch"}.
+
+### The conformance suite
+
+Package [`conform`](../clutch/conform/).
+
+**Running.** `runCell` checks a cell's needs and version, then runs its capabilities, and
+`runCapability` runs one capability under its own timeout: one that runs out of time fails, and
+the run goes on. A `check` runs a capability: a nil error is a pass, with a one-line reason; a
+`notApplicable` error, which a check returns when the capability doesn't apply to the cell, is
+n/a; any other error is a failure. `execute` runs the capability and sorts its error into a
+status. An `env` is what a check runs against: its cell, and where its events go, with the cell's
+latency, which the exchange capability fills, and how long the last open took.
+`displayVersion` is the word of a version line the matrix shows: its first, without a leading
+"v".
+
+**The prompts.** Each prompt that wants a structured answer asks for it outright, because a model
+asked to reply in both text and a structured response is told two things. The checks compare the
+values asked for exactly, so no check reads the model's wording; the schemas are those of the
+structured responses the capabilities ask for. `cancelAfter` is how many text deltas the cancel
+capability lets through. `droppedPrompt` is the scenario's plain prompt: the dropped-image
+capability documents what the harness does with the image, and asks for nothing it could check,
+since the harness's text for a dropped image is behavior to record, not wording to judge.
+`shapesType` is media.Shapes's media type, and `phraseCode` the access code the speaker in
+media.Phrase says.
+
+**Sessions and exchanges.** `open` opens the session an ID names with a setup, or a new one for
+an empty ID, and runs a function on it, closing it after; a failure to close is an error when the
+function found none. `send` runs an exchange to its end and returns how it ended and its events;
+its error is non-nil only when the harness didn't accept the prompt. `ask` is send for an exchange
+that must end on its own: it fails on an error, a cancellation, and a stop reason of error, as
+`ended` judges. `askFor` asks a prompt with a schema and decodes the structured response.
+`noTools` opens a session with none of the harness's own tools, which leaves a structured
+response, and the Go tool a capability offers, the only things the model can use.
+
+**The capabilities.** `checkExchange` runs a plain exchange, and measures the cell's latency on
+it: the session's open, and the time from sending to the first text and to the end. The resume
+capability's code word is from `newCodeWord`: two of the common `codeWords`, so a model copies them
+as written, and a number, which a model can't guess and can only know from the first exchange, and
+which no earlier run used. Its first session is closed before the second opens, so the harness
+process has ended; the service builds a new driver for each open, and the second session is a new
+process resuming the first's history. `newCode` returns a code no earlier run used, for the tool
+capability. `goTool` returns a Go tool whose handler counts its calls and answers with what a
+function returns for the call's arguments; the `calls` count is the proof the model called it and
+the driver ran it here, whatever the model then said. A `shapeColor` is one entry of the vision
+capability's structured response, and `replyCut` is how much of a reply a reason keeps.
+
+**The checks.** The checks in checks.go are pure: they compare what a model returned to what is
+known, and read events, so each can be tested without a harness. `decode` decodes a structured
+response, failing when there is none. `fold` is a value's form for comparison: lowercase, with
+runs of space collapsed to one and none at the ends. A structured value is compared exactly in
+this form, never by what it contains. `sameValue` fails unless a value is the one wanted, to case
+and spacing. `sameMotto` fails unless the motto is the one wanted once case, punctuation, and
+spacing are set aside, so a model that adds the full stop or quotes the motto still passes, and
+one that changes a word doesn't. `checkCapital` fails unless the response names Paris and France.
+`checkColors` fails unless the count is 3 and the colors, as a set, are the `primaryColors`, the
+pigment primaries the colors capability asks for. `checkShapes` fails unless the set of shapes
+and colors is the fixture's, `fixtureShapes`, as "shape color": none missing, and none extra.
+`shapeKey` is a shape and its color in the form checkShapes compares them in. The fixture's square
+is a rectangle to a model that measures it, so "rectangle" counts as "square"; a plural and case
+don't matter either. `toolRan` fails unless the events show a call of the named tool and its
+result. `truncate` keeps at most n bytes of a reason, on one line and ending on a whole character,
+marking what it dropped, and `shortID` keeps an ID's last eight characters.
+
+**The rendering.** `renderLatency` writes the latency the exchange capability measured on each
+cell that has it, one sample each: the session's open, which starts the harness, and the plain
+exchange's first text and end, from sending the prompt. `seconds` renders a duration in seconds to
+a tenth, or "-" for none. `reasonHeading` writes the heading over the reasons once, and
+`oneLine` puts a reason on one line.
+
+**The tests.** `stubCell` is a cell over the scripted harness: it streams and stops, and answers
+no schema. So exchange and cancel pass, and every capability that needs a structured response
+fails, none of them stopping the rest.

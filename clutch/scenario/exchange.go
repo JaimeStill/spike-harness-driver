@@ -6,10 +6,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 )
 
-// exchangePrompt asks for a short answer, so the exchange ends on its own quickly.
 const exchangePrompt = "Reply with one short sentence: what is Go?"
 
-// exchangeScenario opens a session, runs one exchange to its end, and closes the session.
 func exchangeScenario(svc *session.Service, needs []Need) Scenario {
 	return Scenario{
 		Name:    "exchange",

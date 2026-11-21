@@ -25,10 +25,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/model"
 )
 
-// modelTimeout bounds one direct model request, from sending it to reading its response. The
-// router loads a model on its first request, which for the 27B vision model takes a minute or
-// more before a reasoning model's answer starts. The bound is generous because it exists to
-// catch an endpoint that has hung, not one that is slow.
 const modelTimeout = 10 * time.Minute
 
 // Infrastructure resolves the harness the flags name, the store that keeps exchange records,
@@ -37,14 +33,11 @@ const modelTimeout = 10 * time.Minute
 // itself: each session the domain opens starts, and ends, its own harness process, and each
 // model request makes its own connection.
 type Infrastructure struct {
-	cfg *Config
-	// tools and skills are what Validate loaded from the --tools and --skills directories.
+	cfg    *Config
 	tools  []harness.Tool
 	skills []harness.Skill
-	// http sends every direct model request, whichever client makes it.
-	http *http.Client
-	// az runs the Azure CLI for the azure target's tokens; a test replaces it.
-	az azRunner
+	http   *http.Client
+	az     azRunner
 
 	tokenOnce sync.Once
 	token     *azureToken
@@ -65,7 +58,6 @@ func (i *Infrastructure) Validate() error {
 	if _, err := lookupTarget(i.cfg.Target); err != nil {
 		return err
 	}
-	// Pi runs the azure provider's key as a command line that names the scope.
 	if i.provider() == providerAzure && !scopeForm.MatchString(i.cfg.AzureScope) {
 		return fmt.Errorf("--azure-scope %q: want an https URL of letters, digits, and . - / : only", i.cfg.AzureScope)
 	}
@@ -81,17 +73,12 @@ func (i *Infrastructure) Validate() error {
 	return nil
 }
 
-// scopeForm is the form of an Entra ID scope clutch takes: an https URL with no character a
-// shell would read.
 var scopeForm = regexp.MustCompile(`^https://[A-Za-z0-9./:-]+$`)
 
-// loadSkills loads the skills under each directory. A directory holding none is an error, as
-// is a name two directories share: either is more likely a mistyped flag than intended.
 func loadSkills(dirs []string) ([]harness.Skill, error) {
 	var all []harness.Skill
 	where := map[string]string{}
 	for _, dir := range dirs {
-		// Loaded with their directories, so the harness reads each skill where it lives.
 		skills, err := catalog.SkillsDir(dir)
 		if err != nil {
 			return nil, fmt.Errorf("--skills %s: %w", dir, err)
@@ -110,7 +97,6 @@ func loadSkills(dirs []string) ([]harness.Skill, error) {
 	return all, nil
 }
 
-// loadTools loads the command tools under each directory, on the same terms as loadSkills.
 func loadTools(dirs []string) ([]harness.Tool, error) {
 	var all []harness.Tool
 	where := map[string]string{}
@@ -142,18 +128,13 @@ func (i *Infrastructure) Driver() (harness.Driver, error) {
 	return h.driver(i)
 }
 
-// spec returns the harness the flags name. Validate has already failed for a name with no
-// adapter, so an unknown one gives the zero harnessSpec, whose empty defaults nothing reads.
 func (i *Infrastructure) spec() harnessSpec {
 	h, _ := lookupHarness(i.cfg.Harness)
 	return h
 }
 
-// provider is the harness's model provider: --provider, or the harness's own.
 func (i *Infrastructure) provider() string { return cmp.Or(i.cfg.Provider, i.spec().provider) }
 
-// defaultModel and defaultVision are the models a session runs on, and one sent an image runs
-// on, when the flags name none: the azure provider's, or the harness's own.
 func (i *Infrastructure) defaultModel() string {
 	if i.provider() == providerAzure {
 		return azureModel
@@ -168,14 +149,10 @@ func (i *Infrastructure) defaultVision() string {
 	return i.spec().vision
 }
 
-// harnessVision is the model a harness session sent an image runs on: --harness-vision-model,
-// or the default vision model.
 func (i *Infrastructure) harnessVision() string {
 	return cmp.Or(i.cfg.HarnessVisionModel, i.defaultVision())
 }
 
-// defaultTakesImages is whether a session's default model takes images, as every model on
-// Azure does.
 func (i *Infrastructure) defaultTakesImages() bool { return i.provider() == providerAzure }
 
 // Profile returns how the scenarios talk to the harness the flags name.
@@ -217,8 +194,6 @@ func (i *Infrastructure) Needs() scenario.Needs {
 	}
 }
 
-// azureNeeds are the needs of Azure: AZURE_OPENAI_BASE_URL and the Azure CLI. With provider
-// set, they apply when the harness's provider is azure; with target set, when the target is.
 func (i *Infrastructure) azureNeeds(provider, target bool) []scenario.Need {
 	var when []string
 	if provider {
@@ -253,9 +228,6 @@ func (i *Infrastructure) azureNeeds(provider, target bool) []scenario.Need {
 	}
 }
 
-// llamaNeed is the need for LLAMA_BASE_URL. With provider set, it applies when the harness's
-// provider is llama.cpp. With target set, it applies when the target is. With both set, it
-// applies when either is.
 func (i *Infrastructure) llamaNeed(provider, target bool) scenario.Need {
 	var when []string
 	if provider {
@@ -276,38 +248,26 @@ func (i *Infrastructure) llamaNeed(provider, target bool) scenario.Need {
 	}
 }
 
-// The targets the direct model client talks to.
 const (
 	targetLlama = "llama.cpp"
 	targetAzure = "azure"
 )
 
-// providerLlama is the harness's provider for the llama.cpp router, the same name the router's
-// target has.
 const providerLlama = "llama.cpp"
 
-// providerAzure is the harness provider for Azure AI Foundry's v1 API, which Pi and OpenCode
-// reach as an OpenAI-compatible endpoint with an Entra ID token, and azureModel its default
-// model, which takes images and reasons.
 const (
 	providerAzure = "azure"
 	azureModel    = "gpt-5-mini"
 )
 
-// routerVision is the router's vision model, Gemma 4 26B-A4B: the llama.cpp target's, and a
-// harness session's when it is sent an image.
 const routerVision = "ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0"
 
-// target holds a target's name, its default model IDs, and whether its audio model takes audio
-// in chat.
 type target struct {
 	name                 string
 	vision, embed, audio string
 	audioInChat          bool
 }
 
-// targets are the targets, in the order help and errors list them. setup/router-models.md and
-// setup/azure-foundry.md say why each model was chosen.
 var targets = []target{
 	{
 		name:        targetLlama,
@@ -316,8 +276,6 @@ var targets = []target{
 		audio:       "ggml-org/gemma-4-E4B-it-GGUF:Q8_0",
 		audioInChat: true,
 	},
-	// Azure's transcription models take audio only through transcription, and its chat models
-	// take none.
 	{
 		name:   targetAzure,
 		vision: "gpt-5-mini",
@@ -326,7 +284,6 @@ var targets = []target{
 	},
 }
 
-// targetNames returns the targets' names, in the order help and errors list them.
 func targetNames() []string {
 	names := make([]string, len(targets))
 	for i, t := range targets {
@@ -335,7 +292,6 @@ func targetNames() []string {
 	return names
 }
 
-// lookupTarget returns the target named name.
 func lookupTarget(name string) (target, error) {
 	for _, t := range targets {
 		if t.name == name {
@@ -345,7 +301,6 @@ func lookupTarget(name string) (target, error) {
 	return target{}, fmt.Errorf("unknown target %q (known: %s)", name, strings.Join(targetNames(), ", "))
 }
 
-// azureAudioVersion is the api-version the azure target's transcription route takes.
 const azureAudioVersion = "2025-04-01-preview"
 
 // Models returns the direct model clients for the --target endpoint, with the model IDs the
@@ -357,13 +312,12 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		return scenario.Models{}, err
 	}
 	m := scenario.Models{
-		Target:        i.cfg.Target,
-		VisionModel:   cmp.Or(i.cfg.VisionModel, t.vision),
-		EmbedModel:    cmp.Or(i.cfg.EmbedModel, t.embed),
-		AudioModel:    cmp.Or(i.cfg.AudioModel, t.audio),
-		AudioInChat:   t.audioInChat,
-		HarnessVision: i.harnessVision(),
-		// Every model on Azure takes images, so the default model can't show a dropped one.
+		Target:             i.cfg.Target,
+		VisionModel:        cmp.Or(i.cfg.VisionModel, t.vision),
+		EmbedModel:         cmp.Or(i.cfg.EmbedModel, t.embed),
+		AudioModel:         cmp.Or(i.cfg.AudioModel, t.audio),
+		AudioInChat:        t.audioInChat,
+		HarnessVision:      i.harnessVision(),
 		DefaultTakesImages: i.defaultTakesImages(),
 	}
 	switch t.name {
@@ -372,8 +326,6 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		if base == "" {
 			return scenario.Models{}, errors.New("LLAMA_BASE_URL is not set")
 		}
-		// LLAMA_BASE_URL is the router's root, which Pi's provider takes. The client needs the
-		// OpenAI-compatible API root beneath it, where the router serves every route.
 		m.Chat, err = model.New(model.Config{BaseURL: strings.TrimSuffix(base, "/") + "/v1", HTTP: i.http})
 		m.Audio = m.Chat
 	case targetAzure:
@@ -385,9 +337,6 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 		if m.Chat, err = model.New(model.Config{BaseURL: base, Token: token, HTTP: i.http}); err != nil {
 			return scenario.Models{}, err
 		}
-		// Azure's v1 /audio/transcriptions route answered 404 DeploymentNotFound for a
-		// deployment that existed (checked 2026-09-30), while the older deployment route
-		// works. Transcription therefore gets its own client on that route.
 		audio, aerr := azureAudioBase(base, m.AudioModel)
 		if aerr != nil {
 			return scenario.Models{}, aerr
@@ -405,8 +354,6 @@ func (i *Infrastructure) Models() (scenario.Models, error) {
 	return m, nil
 }
 
-// azureAudioBase is the deployment route's base URL for deployment: base, the v1 API root
-// ending in /openai/v1, with /v1 replaced by /deployments/<deployment>.
 func azureAudioBase(base, deployment string) (string, error) {
 	root, ok := strings.CutSuffix(strings.TrimSuffix(base, "/"), "/v1")
 	if !ok {
@@ -415,8 +362,6 @@ func azureAudioBase(base, deployment string) (string, error) {
 	return root + "/deployments/" + url.PathEscape(deployment), nil
 }
 
-// azureToken returns the Infrastructure's single token source for the azure target, so every
-// client shares one cached token.
 func (i *Infrastructure) azureToken() *azureToken {
 	i.tokenOnce.Do(func() {
 		i.token = &azureToken{scope: i.cfg.AzureScope, run: i.az, now: time.Now}
@@ -424,11 +369,8 @@ func (i *Infrastructure) azureToken() *azureToken {
 	return i.token
 }
 
-// azRunner runs the Azure CLI with args and returns what it writes to standard output.
 type azRunner func(ctx context.Context, args ...string) ([]byte, error)
 
-// runAz runs az. A failure carries az's standard error, which says why, such as an expired
-// sign-in. The token goes only to standard output.
 func runAz(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "az", args...)
 	var stderr bytes.Buffer
@@ -440,22 +382,13 @@ func runAz(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// tokenMargin is how long before its expiry a cached token is replaced. Azure checks a token
-// when a request arrives, so the margin need only cover the request's travel time and any skew
-// between this machine's clock and Azure's. Five minutes is ample for both, and costs only a
-// refresh a few minutes early on a token that lasts an hour or more.
 const tokenMargin = 5 * time.Minute
 
-// azureToken is a model.TokenSource for Entra ID tokens from the Azure CLI's sign-in. It runs
-// az account get-access-token once, and again only as the token nears its expiry. The token
-// is held in memory alone, and never printed or written anywhere.
 type azureToken struct {
 	scope string
 	run   azRunner
 	now   func() time.Time
 
-	// mu guards the cache, and is held across a refresh, so requests that find the token stale
-	// together run az once.
 	mu      sync.Mutex
 	token   string
 	expires time.Time
@@ -481,13 +414,8 @@ func (a *azureToken) Token(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-// azTokenTime is the layout of az's expiresOn, a time in the local zone.
 const azTokenTime = "2006-01-02 15:04:05.999999"
 
-// parseAzToken reads the token and its expiry from az account get-access-token's JSON. The
-// expiry is expires_on, in seconds since the epoch, which newer versions of az give as a number
-// and older ones as a string. When expires_on is absent, the expiry is expiresOn, in the local
-// zone. An error never quotes the output, which holds the token.
 func parseAzToken(out []byte) (string, time.Time, error) {
 	var v struct {
 		AccessToken string          `json:"accessToken"`

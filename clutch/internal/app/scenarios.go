@@ -7,8 +7,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/clutch/scenario"
 )
 
-// mountScenarios builds "scenario", with one subcommand per scenario, each narrating through
-// out.
 func mountScenarios(scenarios []scenario.Scenario, out *output.Output) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scenario",
@@ -22,7 +20,6 @@ func mountScenarios(scenarios []scenario.Scenario, out *output.Output) *cobra.Co
 	return cmd
 }
 
-// listCommand builds "list", which prints the scenario listing.
 func listCommand(scenarios []scenario.Scenario) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",

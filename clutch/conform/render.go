@@ -50,9 +50,6 @@ func Render(w io.Writer, reports []Report) {
 	_, _ = fmt.Fprintln(w, Summary(reports))
 }
 
-// renderLatency writes the latency the exchange capability measured on each cell that has it,
-// one sample each: the session's open, which starts the harness, and the plain exchange's first
-// text and end, from sending the prompt.
 func renderLatency(w io.Writer, reports []Report) {
 	var rows []Report
 	for _, r := range reports {
@@ -73,7 +70,6 @@ func renderLatency(w io.Writer, reports []Report) {
 	_ = tw.Flush()
 }
 
-// seconds renders d in seconds to a tenth, or "-" for none.
 func seconds(d time.Duration) string {
 	if d <= 0 {
 		return "-"
@@ -81,7 +77,6 @@ func seconds(d time.Duration) string {
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
-// reasonHeading writes the heading over the reasons once, and returns true.
 func reasonHeading(w io.Writer, wrote bool) bool {
 	if !wrote {
 		_, _ = fmt.Fprintf(w, "\nWhy not pass:\n")
@@ -117,5 +112,4 @@ func Failures(reports []Report) int {
 	return n
 }
 
-// oneLine puts a reason on one line.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

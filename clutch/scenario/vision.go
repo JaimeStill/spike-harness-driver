@@ -15,24 +15,16 @@ import (
 
 const (
 	shapesPrompt = "Name each shape in this image and its color."
-	// shapesType is media.Shapes's media type.
-	shapesType = "image/png"
+	shapesType   = "image/png"
 )
 
-// shapes pairs each shape in media.Shapes with its color.
 var shapes = [][2]string{{"circle", "red"}, {"square", "blue"}, {"triangle", "green"}}
 
-// colorWords are the colors namesShapes looks for, the fixture's three and others a model might
-// name, so a wrong color is seen as one rather than skipped.
 var colorWords = []string{
 	"red", "blue", "green", "yellow", "orange", "purple", "violet", "pink", "brown", "black",
 	"white", "gray", "grey", "cyan", "magenta",
 }
 
-// visionScenario sends one image three ways: to a harness session on a model that takes
-// images, to the direct client, and, for a harness that drops an image a text-only model can't
-// take, to a harness session on the text-only default model, which shows what it does with one.
-// A harness whose models all take images skips that step, as the profile says.
 func visionScenario(svc *session.Service, models func() (Models, error), profile func() Profile, needs []Need) Scenario {
 	return Scenario{
 		Name:    "vision",
@@ -41,8 +33,6 @@ func visionScenario(svc *session.Service, models func() (Models, error), profile
 		Steps: func() ([]Step, func() error) {
 			r := &run{svc: svc}
 			image := []harness.Image{{MediaType: shapesType, Data: media.Shapes}}
-			// ask sends the shapes image in a new session with no harness tools, on modelID, or
-			// the default model when it is empty, closing the run's previous session first.
 			ask := func(ctx context.Context, rep *Reporter, modelID string) (session.Outcome, error) {
 				if err := r.close(); err != nil {
 					return session.Outcome{}, err
@@ -124,16 +114,11 @@ func visionScenario(svc *session.Service, models func() (Models, error), profile
 	}
 }
 
-// noteChat notes a direct chat response: its text, why it stopped, and its token usage.
 func noteChat(rep *Reporter, resp model.ChatResponse) {
 	rep.Note("reply: %q", resp.Text)
 	rep.Note("finish=%s usage=%d/%d", resp.FinishReason, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 }
 
-// namesShapes fails unless the reply names each shape in media.Shapes with its color. A shape
-// counts as named with its color when, at one of its mentions, the color word nearest it is
-// that color, so "a red circle", "the circle is red", and a table row "| Circle | Red |" all
-// pass, while a reply that swaps two colors doesn't. It ignores case.
 func namesShapes(reply string) error {
 	toks := tokenize(reply)
 	var missing []string
@@ -148,14 +133,11 @@ func namesShapes(reply string) error {
 	return nil
 }
 
-// token is a lowercase word of letters and digits, or, when brk is set, a mark that ends a
-// clause: a comma, a semicolon, a sentence's end, or a line's.
 type token struct {
 	word string
 	brk  bool
 }
 
-// tokenize splits s into words and clause breaks, dropping every other character.
 func tokenize(s string) []token {
 	var toks []token
 	var word strings.Builder
@@ -180,10 +162,6 @@ func tokenize(s string) []token {
 	return toks
 }
 
-// shapeHasColor reports whether, at some mention of shape, the nearest color word is color.
-// Nearest counts the clause breaks crossed first and the words between second, so a color in
-// the shape's own clause wins over a closer one across a comma or a line's end. A full tie goes
-// to the color before, as an adjective precedes its noun in English.
 func shapeHasColor(toks []token, shape, color string) bool {
 	for i, t := range toks {
 		if t.word != shape && t.word != shape+"s" {
@@ -205,13 +183,11 @@ func shapeHasColor(toks []token, shape, color string) bool {
 	return false
 }
 
-// colorHit is the first color word found walking from a shape in one direction.
 type colorHit struct {
 	word          string
 	breaks, words int
 }
 
-// closer reports whether h is nearer its shape than o.
 func (h colorHit) closer(o colorHit) bool {
 	if h.breaks != o.breaks {
 		return h.breaks < o.breaks
@@ -219,7 +195,6 @@ func (h colorHit) closer(o colorHit) bool {
 	return h.words < o.words
 }
 
-// nearestColor walks from toks[i] in direction step to the first color word.
 func nearestColor(toks []token, i, step int) (colorHit, bool) {
 	var h colorHit
 	for j := i + step; j >= 0 && j < len(toks); j += step {

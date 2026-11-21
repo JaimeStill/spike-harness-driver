@@ -89,8 +89,6 @@ func TestRunOverTheStubDriver(t *testing.T) {
 	if l := r.Latency; l == nil || l.Turn <= 0 || l.FirstText <= 0 || l.FirstText > l.Turn || l.Open <= 0 {
 		t.Errorf("latency = %+v, want the exchange's open, first text, and turn", l)
 	}
-	// The stub streams and stops, so exchange and cancel pass; it can't answer a schema, so
-	// every capability that needs a structured response fails, none of them stopping the rest.
 	want := map[string]Status{
 		"exchange": Pass, "cancel": Pass,
 		"resume": Fail, "tool": Fail, "skill": Fail, "structured": Fail, "vision": Fail,
@@ -221,7 +219,6 @@ func TestRenderOfAllPassingHasNoReasons(t *testing.T) {
 	}
 }
 
-// stubCell is a cell over the scripted harness: it streams and stops, and answers no schema.
 func stubCell(t *testing.T) Cell {
 	t.Helper()
 	d := harnesstest.Driver{Stream: "essay"}

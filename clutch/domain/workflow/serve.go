@@ -16,8 +16,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow/sse"
 )
 
-// readHeaderTimeout bounds reading a request's headers. The server sets no other timeout,
-// because an event stream lasts as long as its run.
 const readHeaderTimeout = 10 * time.Second
 
 // ServeCommand builds "serve", which serves the runs over HTTP until it is signalled.
@@ -85,9 +83,7 @@ func serve(ctx context.Context, svc *Service, out *output.Output, addr string, l
 	out.Printf("-- stopping: runs stay unfinished for the next serve to resume")
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	// Shut the runner down first, which closes the event streams; the server's Shutdown waits for
-	// them.
 	err = errors.Join(r.Shutdown(sctx), srv.Shutdown(sctx))
-	<-served // http.ErrServerClosed, once Shutdown has begun
+	<-served
 	return err
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow/sse"
 )
 
-// maxWorkflow bounds a posted workflow's body.
 const maxWorkflow = 1 << 20
 
 // Handler serves the runner's runs over HTTP:
@@ -42,7 +41,6 @@ func Handler(r *workflow.Runner, opts sse.Options) http.Handler {
 		reply(w, http.StatusCreated, map[string]string{"id": id})
 	})
 	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, req *http.Request) {
-		// A log that can't be read is reported beside the others, not in place of them.
 		states, err := r.Runs(req.Context())
 		listing := struct {
 			Runs   []workflow.State `json:"runs"`
@@ -74,7 +72,6 @@ func Handler(r *workflow.Runner, opts sse.Options) http.Handler {
 	return mux
 }
 
-// fail writes err with the status its kind calls for.
 func fail(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {

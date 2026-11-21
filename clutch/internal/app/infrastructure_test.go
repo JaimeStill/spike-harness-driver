@@ -45,7 +45,6 @@ func TestValidateLoadsTheSourcesIntoEverySessionsOptions(t *testing.T) {
 	if len(opts.Skills) != 1 || opts.Skills[0].Name != "clutch-weather" {
 		t.Errorf("skills = %+v", opts.Skills)
 	}
-	// The session domain reads the same options, so session send offers them too.
 	svc := newDomain(infra).Session
 	if len(svc.Tools()) != 1 || len(svc.Skills()) != 1 {
 		t.Errorf("session domain offers %d tools, %d skills", len(svc.Tools()), len(svc.Skills()))
@@ -66,7 +65,6 @@ func TestTheExampleToolRuns(t *testing.T) {
 	}
 }
 
-// flagged returns a Config with every flag at its default, then set as args give them.
 func flagged(t *testing.T, args ...string) *Config {
 	t.Helper()
 	cfg := &Config{}
@@ -210,7 +208,8 @@ func TestModelsNeedTheTargetsBaseURL(t *testing.T) {
 }
 
 func TestTheTargetsNeeds(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // no az, no harness
+	pathWithNoAzOrHarness := t.TempDir()
+	t.Setenv("PATH", pathWithNoAzOrHarness)
 	t.Setenv("LLAMA_BASE_URL", "")
 	t.Setenv("AZURE_OPENAI_BASE_URL", "")
 	failing := func(needs []scenario.Need) []string {
@@ -226,7 +225,6 @@ func TestTheTargetsNeeds(t *testing.T) {
 	if got := failing(llama.Models); !slices.Equal(got, []string{"LLAMA_BASE_URL set when the target is llama.cpp"}) {
 		t.Errorf("llama.cpp target: failing %v", got)
 	}
-	// The provider and the target share the one need.
 	if got := failing(llama.Both); !slices.Equal(got, []string{
 		"the harness executable on the PATH", "LLAMA_BASE_URL set when the provider or the target is llama.cpp",
 	}) {
@@ -238,7 +236,6 @@ func TestTheTargetsNeeds(t *testing.T) {
 	}) {
 		t.Errorf("azure target: failing %v", got)
 	}
-	// The harness still talks to the router, so its provider still needs LLAMA_BASE_URL.
 	if got := failing(azure.Both); len(got) != 4 || got[1] != "LLAMA_BASE_URL set when the provider or the target is llama.cpp" {
 		t.Errorf("azure target, both: failing %v", got)
 	}
@@ -259,7 +256,6 @@ func TestAzureAudioBase(t *testing.T) {
 	}
 }
 
-// fakeAz is an az that prints tokens in turn, each expiring at its expiry, and counts its runs.
 type fakeAz struct {
 	mu      sync.Mutex
 	runs    int
@@ -322,7 +318,6 @@ func TestTheAzureClientsRouteAndAuthenticate(t *testing.T) {
 	if !slices.Equal(reqs, want) {
 		t.Errorf("requests = %+v\nwant %+v", reqs, want)
 	}
-	// Both clients share the one cached token: az ran once, for the scope the flag names.
 	if az.runs != 1 || !slices.Equal(az.args, []string{"account", "get-access-token", "--resource", "https://scope.test", "-o", "json"}) {
 		t.Errorf("az ran %d times, last with %v", az.runs, az.args)
 	}
@@ -410,8 +405,6 @@ func TestParseAzToken(t *testing.T) {
 	}
 }
 
-// On the azure provider, Pi and OpenCode default to gpt-5-mini; Pi's key is the az command
-// in its own agent directory, and OpenCode's a token, through @ai-sdk/openai.
 func TestTheAzureProvider(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_BASE_URL", "https://example.invalid/openai/v1")
 	state := t.TempDir()
@@ -448,8 +441,6 @@ func TestTheAzureProvider(t *testing.T) {
 		t.Errorf("opencode provider = %+v", oc)
 	}
 
-	// A harness vision model other than the session's is listed too, taking images, so a
-	// session can select it.
 	vision := "gpt-5-vision"
 	infra = newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--state", state,
 		"--azure-scope", "https://scope.test", "--harness-vision-model", vision))
@@ -475,7 +466,6 @@ func TestTheAzureProvider(t *testing.T) {
 		t.Errorf("opencode's azure models = %+v, want the session's and the vision model, taking images", ms)
 	}
 
-	// The scope reaches a command line, so one a shell would read is refused.
 	bad := newInfrastructure(flagged(t, "--harness", "pi", "--provider", "azure", "--azure-scope", "https://x; rm -rf ~"))
 	if err := bad.Validate(); err == nil {
 		t.Error("Validate took a scope a shell would read")

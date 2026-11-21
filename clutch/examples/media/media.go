@@ -1,5 +1,6 @@
 // Package media holds the media fixtures the capability scenarios send to a model, embedded so
-// a scenario finds them whatever its working directory. README.md says how each was made.
+// a scenario finds them whatever its working directory. clutch/examples/media/README.md says how
+// each was made.
 package media
 
 import _ "embed"

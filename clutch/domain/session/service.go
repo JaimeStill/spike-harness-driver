@@ -11,7 +11,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// openTimeout bounds a harness's start-up handshake.
 const openTimeout = 30 * time.Second
 
 // Service runs exchanges on one harness.
@@ -89,7 +88,6 @@ func (s *Service) OpenWith(ctx context.Context, id string, setup Setup) (*harnes
 	}
 	opts := s.options()
 	opts.SessionID = id
-	// Concat copies, so the options function's slices are never appended to in place.
 	opts.Tools = slices.Concat(opts.Tools, setup.Tools)
 	opts.Skills = slices.Concat(opts.Skills, setup.Skills)
 	if setup.Model != "" {

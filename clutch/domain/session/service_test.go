@@ -17,7 +17,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/internal/harnesstest"
 )
 
-// longPrompt streams until it is cancelled.
 const longPrompt = "long"
 
 func newService(opened *harness.Options) *session.Service {
@@ -101,7 +100,6 @@ func TestOpenWithAddsTheSetup(t *testing.T) {
 		Model:        "m",
 		HarnessTools: []string{"bash"},
 	}
-	// A spare capacity would let an in-place append leak one Open's setup into the next.
 	base.Tools = slices.Grow(base.Tools, 4)
 	var opened harness.Options
 	svc := session.New(
@@ -213,7 +211,6 @@ func TestSendResumesAndExchangesLists(t *testing.T) {
 		if strings.Count(got, "exchange ") != 1 || !strings.Contains(got, `prompt: "hi"`) {
 			t.Errorf("%v:\n%s", args, got)
 		}
-		// harnesstest keeps no journal, so there is nothing to verify against.
 		if (verify != "") != strings.Contains(got, "not verified: the harness keeps no journal") {
 			t.Errorf("%v: verification line:\n%s", args, got)
 		}
@@ -267,8 +264,6 @@ func TestSendSchema(t *testing.T) {
 				}
 				return
 			}
-			// The stub harness gives no structured response, so the exchange ends in
-			// ErrNoStructuredResponse, which shows the schema reached the harness.
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -298,7 +293,6 @@ func TestRunSendsTheImages(t *testing.T) {
 	if _, err := svc.Run(t.Context(), sess, session.Exchange{Prompt: "what is this?", Images: []harness.Image{img}}, session.Observer{}); err != nil {
 		t.Fatal(err)
 	}
-	// The record keeps each image's media type, which shows the request carried it.
 	recs, err := store.Records(t.Context(), sess.ID())
 	if err != nil {
 		t.Fatal(err)

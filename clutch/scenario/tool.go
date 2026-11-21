@@ -15,23 +15,16 @@ import (
 )
 
 const (
-	// lookupPerson is whose access code the tool scenario asks for.
 	lookupPerson = "alice"
 	lookupPrompt = "What is the access code for alice? Use the lookup_code tool, then reply with the code only."
 
-	// fingerprintTool is the example command tool in clutch/examples/tools, which the tool
-	// scenario calls when --tools loaded it.
 	fingerprintTool   = "fingerprint"
 	fingerprintText   = "clutch"
 	fingerprintPrompt = "Fingerprint the text clutch with the fingerprint tool, then reply with the fingerprint only."
 )
 
-// lookupSchema is lookup_code's argument schema.
 var lookupSchema = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"The person's name."}},"required":["name"]}`)
 
-// toolScenario opens a session offering a tool whose handler runs in this process, has the
-// model call it, and, when --tools loaded the example fingerprint tool, has the model call that
-// command tool too.
 func toolScenario(svc *session.Service, needs []Need) Scenario {
 	return Scenario{
 		Name:    "tool",
@@ -90,9 +83,6 @@ func toolScenario(svc *session.Service, needs []Need) Scenario {
 	}
 }
 
-// lookupCodeTool is a tool defined and run in Go. Its handler narrates each call through rep,
-// so the narration shows the call leaving the harness, the handler running here, and the result
-// going back.
 func lookupCodeTool(rep *Reporter) harness.Tool {
 	return harness.Tool{
 		Name:        "lookup_code",
@@ -115,21 +105,16 @@ func lookupCodeTool(rep *Reporter) harness.Tool {
 	}
 }
 
-// accessCode is the code lookup_code returns for name: derived from a hash, so the model can't
-// guess it and a reply holding it shows the tool ran.
 func accessCode(name string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(name))))
 	return "ZX-" + strings.ToUpper(hex.EncodeToString(sum[:3]))
 }
 
-// fingerprint is what the example fingerprint tool returns for text, computed here to check
-// the model's reply against.
 func fingerprint(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:6])
 }
 
-// replyHas fails unless the reply holds want, ignoring case. The failure names want by what.
 func replyHas(reply, want, what string) error {
 	if !strings.Contains(strings.ToLower(reply), strings.ToLower(want)) {
 		return fmt.Errorf("the reply lacks %s %s: %q", what, want, reply)

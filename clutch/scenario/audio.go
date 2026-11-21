@@ -15,32 +15,22 @@ import (
 )
 
 const (
-	// phraseCode is the access code the speaker in media.Phrase says.
 	phraseCode = "7429"
-	// phraseFile is media.Phrase's filename, whose extension tells the endpoint its format.
 	phraseFile = "phrase.wav"
 
 	audioPrompt      = "What access code does the speaker say?"
 	transcribePrompt = "Use the transcribe_recording tool to transcribe the voice recording, then tell me the access code it gives."
 
-	// transcribeTool is the Go tool that hands the harness's model a transcript.
 	transcribeTool = "transcribe_recording"
 )
 
-// transcribeSchema is transcribe_recording's argument schema. The tool takes no arguments,
-// because it holds the recording.
 var transcribeSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
-// digitWords maps each spoken digit to its numeral.
 var digitWords = map[string]string{
 	"zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
 	"five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
 }
 
-// audioScenario transcribes a recording with the direct client, asks a chat model about it
-// when the target's audio model takes audio in chat, and then gives the recording to a harness
-// session through a Go tool that transcribes it. The harness takes no audio itself, so a tool
-// is how an agent gets a transcript.
 func audioScenario(svc *session.Service, models func() (Models, error), needs []Need) Scenario {
 	return Scenario{
 		Name:    "audio",
@@ -135,8 +125,6 @@ func TranscribeRecording(ctx context.Context, m Models) (string, error) {
 	return t.Text, err
 }
 
-// transcribeRecordingTool is a Go tool whose handler transcribes media.Phrase with m's audio
-// client. Its handler narrates each call through rep.
 func transcribeRecordingTool(rep *Reporter, m Models) harness.Tool {
 	return harness.Tool{
 		Name:        transcribeTool,
@@ -153,10 +141,6 @@ func transcribeRecordingTool(rep *Reporter, m Models) harness.Tool {
 	}
 }
 
-// hasCode fails unless text holds the access code phraseCode, as numerals or spoken digits,
-// run together or apart: "7429", "7 4 2 9", "7-4-2-9", and "seven four two nine" all pass. A
-// longer run of digits holding the code, such as "17429", doesn't, and a sentence break or a
-// bracket ends a run, so "7429 (four digits)" passes.
 func hasCode(text string) error {
 	for _, run := range digitRuns(text) {
 		if run == phraseCode {
@@ -166,13 +150,8 @@ func hasCode(text string) error {
 	return fmt.Errorf("the reply lacks the access code %s: %q", phraseCode, text)
 }
 
-// runBreaks are the marks that end a run of digits. A comma, a hyphen, or a space joins digits,
-// as in "7,429" and "seven, four, two, nine"; a sentence's end, a colon, or a bracket ends
-// them.
 const runBreaks = ".!?;:()[]{}\n"
 
-// digitRuns returns each run of consecutive words in text that are all numerals or spoken
-// digits, joined into one string of numerals.
 func digitRuns(text string) []string {
 	var runs []string
 	var run, word strings.Builder
