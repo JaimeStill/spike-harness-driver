@@ -8,3 +8,7 @@ The spike serves the Standards Lab workspace's `standards-lab` coordinator
 (`github.com/standards-lab/org`) and never edits it. The repositories listed in
 `references.toml` are read-only: read them, and never write to them. Dependencies are published
 versions, never a `replace` directive.
+
+- **Check:** `mise run check`, which builds, vets, format-checks, and race-tests every `go.work`
+  module, tests the Pi bridge, and runs lint-context and lint-references.
+- **Currency:** `mise run currency`, which reports every pin behind its latest.

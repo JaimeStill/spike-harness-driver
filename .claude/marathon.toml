@@ -3,6 +3,7 @@
 [project]
 kind = "code"
 check = "mise run check"
+currency = "mise run currency"
 
 [remote]
 platform = "github"

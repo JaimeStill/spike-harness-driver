@@ -1,26 +1,21 @@
-# The harnesses clutch's conformance suite pins, the tools the check runs, and the check.
+# The harnesses clutch's conformance suite pins, the tools the check and currency run, and their tasks.
 # See docs/configuration.md#the-tools-and-the-check
+[settings]
+task.run_auto_install = false
+
 [tools]
+"github:standards-lab/claude-plugins" = { version = "0.22.0", version_prefix = "marathon/v" }
+go = "1.27.4"
+jq = "1.8.2"
 pi = "0.99.2" # held at the version `clutch conform` measured; a move to 1.x needs a live conform run
 opencode = "1.18.34" # held at the version `clutch conform` measured; a move to 2.x needs a live conform run
 node = "26.13.1"
 
 [tasks.check]
-description = "Build, vet, format-check, and race-test every go.work module, and test the Pi bridge; writes nothing"
-run = '''
-set -eu
-cd "$MISE_PROJECT_ROOT"
-for mod in $(go work edit -json | jq -r '.Use[].DiskPath'); do
-  echo "check: $mod"
-  (
-    cd "$mod"
-    go build ./...
-    go vet ./...
-    unformatted=$(gofmt -l .)
-    if [ -n "$unformatted" ]; then echo "gofmt: unformatted files:"; echo "$unformatted"; exit 1; fi
-    go test -race ./...
-  )
-done
-echo "check: pi/extension"
-node --test pi/extension/*.test.ts
-'''
+description = "Build, vet, format-check, and race-test every go.work module, test the Pi bridge, and run lint-context and lint-references; writes nothing"
+run = "scripts/check.sh"
+
+[tasks.currency]
+description = "Report every pin behind its latest, exiting nonzero if any"
+run = "scripts/currency.sh"
+quiet = true

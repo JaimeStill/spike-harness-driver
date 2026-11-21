@@ -13,11 +13,30 @@ held at the versions `clutch conform` measured, each with its reason beside the 
 Claude Code is absent because it is a native install, which the driver keeps from updating itself
 (`DISABLE_AUTOUPDATER`), so the version on the PATH is the one the suite sees.
 
-node runs the Pi bridge's TypeScript tests in the check (`node --test` strips the types).
+node runs the Pi bridge's TypeScript tests in the check (`node --test` strips the types). go and
+jq are pinned because the check and currency call them. marathon's release,
+`github:standards-lab/claude-plugins` at its `marathon/v` tag, provides lint-context and
+lint-references, which the check runs. Tasks never install a missing tool
+(`task.run_auto_install = false`); `mise install` is the one step that reads the network.
 
-`mise run check` builds, vets, format-checks, and race-tests every module in `go.work`, then runs
-the Pi bridge's TypeScript tests. It is hermetic: no test reaches a router, a harness, or the
-network, and it writes nothing.
+`mise run check` ([`scripts/check.sh`](../scripts/check.sh)) builds, vets, format-checks, and
+race-tests every module in `go.work`, runs the Pi bridge's TypeScript tests, and runs
+lint-context and lint-references. Every step runs, and the check fails if any failed; a lint
+missing from the PATH fails it with `FAIL: <lint> is not on PATH; run mise install`. It is
+hermetic: no test reaches a router, a harness, or the network, and it writes nothing.
+
+## Currency
+
+`mise run currency` ([`scripts/currency.sh`](../scripts/currency.sh)) reports every pin behind
+its latest and exits nonzero if any trail: each mise tool, a newer marathon tag included, and each
+`go.work` module's direct requirements. Pi and OpenCode are reported while they are held; the
+comment beside each pin says why.
+
+- The requirements are read in workspace mode, as the modules build: with `GOWORK=off`, opencode
+  fails on a go.sum entry that only mcpbridge's go.sum holds.
+- A requirement's latest is the module proxy's newer release, or else the version the workspace
+  selects, so a pin another workspace module has outgrown is reported too.
+- The workspace's own modules are not requirements, and are skipped.
 
 ## References
 
@@ -40,7 +59,8 @@ dependencies are published versions, never a `replace` directive.
 ## marathon
 
 [`.claude/marathon.toml`](../.claude/marathon.toml) sets the project kind: this repository holds
-Go spike source with a build-and-test loop, checked by `mise run check`. Its remote section names
+Go spike source with a build-and-test loop, checked by `mise run check`, with its currency
+reported by `mise run currency`. Its remote section names
 the platform, the command that publishes a finished branch, and the command that merges it. The
 repository has no CI, so the merge waits on no pull-request checks.
 
