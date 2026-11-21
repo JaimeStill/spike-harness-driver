@@ -223,6 +223,8 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
   this goal to "a session advances one task".
 - plan: harness-driver's findings note moves whole to `docs/findings.md`; its answer and evidence
   move into `context/README.md`; coordinator `docs/ai-strategy.md:537` is repointed at sync.
+- architect: the Fable review of every adopted repository's context runs as the final stage of
+  harness.adoption's `architecture` task, before the sync that closes harness.adoption.
 - plan: harness-driver holds Pi 0.99.2 and OpenCode 1.18.34, the conformance pins, until a live
   `clutch conform` run moves them; go 1.27.4 and jq 1.8.2 are pinned.
 
@@ -230,7 +232,18 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
 
 - coordinator · standards-lab: `roadmap/harness.adoption-spikes.toml`: delete;
   `roadmap/index.toml`: remove harness.adoption-spikes from `active`.
-- coordinator · standards-lab: `roadmap/harness.adoption.toml`, task `architecture`'s summary:
-  the goal's sync deletes `context/harness-adoption.md` and its pointers
-  (`context/README.md:104-105`, `roadmap/harness.adoption.toml:5,13`,
-  `roadmap/v1.client.stack.toml:132`).
+- coordinator · standards-lab: `roadmap/harness.adoption.toml`, task `architecture`: `repos`
+  stays `["architecture"]` for its core work; its summary gains two stages after the core work:
+  - **Fable review**, the task's final stage before the sync: a Fable-model subagent reviews the
+    context of every adopted repository, ai-hosting included, and the task's plan proposes its
+    scope and batching before it runs. Each repository's context must (1) be accurate and well
+    formed, lose no critical information, and keep nothing extraneous or outdated; (2) describe
+    only what is currently, objectively true, or what helps a move to an anticipated future
+    state, flagging for removal any log of how or why something changed that produced no
+    standard or principle ruling; (3) read in a natural flow from its entry point (README,
+    `context/README.md`): any branch of links builds understanding from its concepts,
+    foundations before specifics, with no dead ends, forward references to undefined ideas, or
+    circular detours.
+  - **Sync**: the goal's sync deletes `context/harness-adoption.md` and its pointers
+    (`context/README.md:104-105`, `roadmap/harness.adoption.toml:5,13`,
+    `roadmap/v1.client.stack.toml:132`).
