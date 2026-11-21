@@ -173,8 +173,8 @@ func ValidateSchema(schema json.RawMessage) error {
 }
 
 // Skill is a skill: a directory, <dir>, holding <dir>/SKILL.md, whose frontmatter names and
-// describes it, and any files the skill refers to. FS is rooted at that directory, so a skill may live on
-// disk (os.DirFS) or be embedded in a Go library (fs.Sub of an embed.FS).
+// describes it, and any files the skill refers to. FS is rooted at that directory, so a skill
+// may live on disk (os.DirFS) or be embedded in a Go library (fs.Sub of an embed.FS).
 type Skill struct {
 	// Name is the skill's name, as the frontmatter of <dir>/SKILL.md gives it.
 	Name string

@@ -20,8 +20,8 @@ const skillFile = "SKILL.md"
 var skillName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Skill loads the skill whose directory, <dir>, is the root of fsys. The frontmatter of
-// <dir>/SKILL.md must give a name and a description: Pi refuses a skill without a description, and a skill
-// the harness refuses would fail the session later rather than here.
+// <dir>/SKILL.md must give a name and a description: Pi refuses a skill without a description,
+// and a skill the harness refuses would fail the session later rather than here.
 func Skill(fsys fs.FS) (harness.Skill, error) {
 	name, err := readSkill(fsys)
 	if err != nil {
@@ -31,8 +31,8 @@ func Skill(fsys fs.FS) (harness.Skill, error) {
 }
 
 // Skills loads every skill directly under the root of fsys, sorted by name. A subdirectory,
-// <dir>, without <dir>/SKILL.md isn't a skill and is skipped. A skill's name must equal its directory's,
-// as the Agent Skills layout requires, so no two skills share a name.
+// <dir>, without <dir>/SKILL.md isn't a skill and is skipped. A skill's name must equal its
+// directory's, as the Agent Skills layout requires, so no two skills share a name.
 func Skills(fsys fs.FS) ([]harness.Skill, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {

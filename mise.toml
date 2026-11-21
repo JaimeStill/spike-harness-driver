@@ -1,4 +1,5 @@
-# The harnesses clutch's conformance suite pins, the tools the check and currency run, and their tasks.
+# The harnesses clutch's conformance suite pins, the tools the check and currency run, and their
+# tasks.
 # See docs/configuration.md#the-tools-and-the-check
 [settings]
 task.run_auto_install = false
