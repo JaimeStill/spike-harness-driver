@@ -15,7 +15,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/filestore"
 )
 
-// openAt opens the session id on a fake Pi that keeps its sessions in dir, recording in store.
 func openAt(t *testing.T, dir, id string, store harness.Store) (*harness.Session, error) {
 	t.Helper()
 	d := fakeDriver("ok")
@@ -25,7 +24,6 @@ func openAt(t *testing.T, dir, id string, store harness.Store) (*harness.Session
 	return d.Open(ctx, harness.Options{Provider: "llama.cpp", Model: "m", SessionID: id, Store: store})
 }
 
-// exchange runs one plain exchange on s to its end.
 func exchange(t *testing.T, s *harness.Session) *harness.Exchange {
 	t.Helper()
 	x, err := s.Send(t.Context(), harness.Request{Text: "what is Go?"})
@@ -53,7 +51,6 @@ func TestResumeKeepsTheSessionAndItsExchangeIDs(t *testing.T) {
 	x1 := exchange(t, first)
 	closeSession(t, first)
 
-	// A second Pi process, and a new Store over the same directory, as after a restart.
 	store = filestore.New(filepath.Join(dir, "exchanges"))
 	second, err := openAt(t, dir, "resume-1", store)
 	if err != nil {
@@ -69,9 +66,6 @@ func TestResumeKeepsTheSessionAndItsExchangeIDs(t *testing.T) {
 	if len(recs) != 2 || recs[0].ExchangeID != x1.ID() || recs[1].ExchangeID != x2.ID() {
 		t.Fatalf("records = %+v, want exchanges %s then %s", recs, x1.ID(), x2.ID())
 	}
-	// Each exchange is bound to the entries its run appended: the session's system message,
-	// user, and assistant for the first, user and assistant for the second. The entries that
-	// setting the model appended on each open belong to neither.
 	entries, kinds := readEntries(t, filepath.Join(dir, "pi", "resume-1.entries"))
 	want := [][]string{{"system", "user", "assistant"}, {"user", "assistant"}}
 	for i, r := range recs {
@@ -109,9 +103,6 @@ func TestResumingALostSessionIsAMismatch(t *testing.T) {
 	}
 }
 
-// TestEntryIDsFromCapturedResponses reads the get_entries responses captured from Pi 0.87.1:
-// a new session after set_model, the same session after one exchange, the entries since the
-// first, and a since that names no entry.
 func TestEntryIDsFromCapturedResponses(t *testing.T) {
 	lines := readLines(t, "entries.jsonl")
 	if len(lines) != 4 {
@@ -141,7 +132,6 @@ func TestEntryIDsFromCapturedResponses(t *testing.T) {
 	}
 }
 
-// readEntries reads the fake Pi's persisted journal: each entry's ID and kind.
 func readEntries(t *testing.T, path string) (ids, kinds []string) {
 	t.Helper()
 	f, err := os.Open(path)

@@ -16,14 +16,11 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// fakeDriver returns a Driver whose Claude Code is this test binary in fake mode, recording its
-// launch and prompts in dir, with dir as its configuration directory.
 func fakeDriver(dir string) Driver {
 	return Driver{
 		Command:   os.Args[0],
 		ConfigDir: dir,
-		// A race-enabled binary sleeps a second at exit unless told not to.
-		Env: []string{fakeEnv + "=1", "GORACE=atexit_sleep_ms=0",
+		Env: []string{fakeEnv + "=1", noRaceExitSleep,
 			launchEnv + "=" + filepath.Join(dir, "launch"), promptsEnv + "=" + filepath.Join(dir, "prompts"),
 			configEnv + "=" + filepath.Join(dir, "config")},
 	}
@@ -39,7 +36,6 @@ func open(t *testing.T, d Driver, opts harness.Options) *harness.Session {
 	return s
 }
 
-// exchange sends req and returns the exchange's events and result.
 func exchange(t *testing.T, s *harness.Session, req harness.Request) ([]harness.Event, harness.Result, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -56,7 +52,6 @@ func exchange(t *testing.T, s *harness.Session, req harness.Request) ([]harness.
 	return events, res, err
 }
 
-// lines reads a file the fake recorded, one JSON value per line.
 func lines[T any](t *testing.T, path string) []T {
 	t.Helper()
 	f, err := os.Open(path)
@@ -121,7 +116,6 @@ func TestToolsRunThroughTheDriversServer(t *testing.T) {
 		t.Errorf("tool events = %v", tools)
 	}
 
-	// Arguments that don't match the tool's schema fail without reaching the handler.
 	got = nil
 	_, res, _ = exchange(t, s, harness.Request{Text: `tool:echo:{"text":7}`})
 	if got != nil || !strings.Contains(res.Text, "schema") {
@@ -139,8 +133,6 @@ func TestAStructuredResponsePerSchema(t *testing.T) {
 	if err != nil || string(res.Structured) != `{"city":"Paris"}` {
 		t.Fatalf("first = %s, %v", res.Structured, err)
 	}
-	// The second schema renames the respond tool; the fake answers with whatever respond it
-	// listed last, so this passes only if the prompt waited for the new listing.
 	events, res, err := exchange(t, s, harness.Request{Text: `structured:{"count":3}`, Schema: count})
 	if err != nil || string(res.Structured) != `{"count":3}` {
 		t.Fatalf("second = %s, %v", res.Structured, err)
@@ -150,7 +142,6 @@ func TestAStructuredResponsePerSchema(t *testing.T) {
 			t.Errorf("respond surfaced as a tool event: %+v", ev.Tool)
 		}
 	}
-	// A response that fails the schema is rejected, and the exchange owes one still.
 	events, _, err = exchange(t, s, harness.Request{Text: `structured:{"count":"three"}`, Schema: count})
 	if !errors.Is(err, harness.ErrNoStructuredResponse) {
 		t.Fatalf("error = %v, want ErrNoStructuredResponse", err)
@@ -165,7 +156,6 @@ func TestAStructuredResponsePerSchema(t *testing.T) {
 	}
 }
 
-// respondNameOf is mcpbridge's name for a schema's respond tool, read from a server.
 func respondNameOf(schema json.RawMessage) string {
 	srv, _ := newBridgeForTest()
 	_ = srv.SetSchema(schema)
@@ -192,8 +182,6 @@ func TestCancelInterruptsTheTurn(t *testing.T) {
 	}
 }
 
-// Claude Code exits with status 1 when its last turn failed, which an interrupted turn does;
-// the exchange has reported it, so closing the session is no error.
 func TestCloseAfterAnInterruptedTurn(t *testing.T) {
 	s, err := fakeDriver(t.TempDir()).Open(t.Context(), harness.Options{})
 	if err != nil {
@@ -223,8 +211,6 @@ func TestPermissions(t *testing.T) {
 			t.Errorf("%s: %q, want %q", tool, res.Text, want)
 		}
 	}
-	// A session that keeps Claude Code's default tools allows each of them; one that enables
-	// none allows only the driver's.
 	defaults := open(t, fakeDriver(t.TempDir()), harness.Options{})
 	if _, res, _ := exchange(t, defaults, harness.Request{Text: "permit:Bash"}); res.Text != "allow" {
 		t.Errorf("with the default tools, Bash: %q, want allow", res.Text)
@@ -235,8 +221,6 @@ func TestPermissions(t *testing.T) {
 	}
 }
 
-// Claude Code keeps its sessions and its login in the configuration directory, so the driver
-// passes ConfigDir to it: the directory holds looks in is the one Claude Code uses.
 func TestConfigDirReachesClaudeCode(t *testing.T) {
 	dir := t.TempDir()
 	open(t, fakeDriver(dir), harness.Options{})
@@ -251,7 +235,6 @@ func TestLaunch(t *testing.T) {
 	skill := harness.Skill{Name: "motto", FS: fstest.MapFS{"SKILL.md": {Data: []byte("# motto")}}}
 	open(t, fakeDriver(dir), harness.Options{Model: "haiku", HarnessTools: []string{}, Skills: []harness.Skill{skill}, SessionID: id})
 
-	// A session Claude Code holds, in any project, is resumed.
 	held := filepath.Join(dir, "projects", "-elsewhere")
 	if err := os.MkdirAll(held, 0o700); err != nil {
 		t.Fatal(err)
@@ -294,7 +277,6 @@ func TestLaunch(t *testing.T) {
 	}
 }
 
-// memStore is a harness.Store in memory.
 type memStore struct{ recs []harness.Record }
 
 func (m *memStore) Put(_ context.Context, r harness.Record) error {
@@ -312,8 +294,6 @@ func (m *memStore) Records(_ context.Context, id string) ([]harness.Record, erro
 	return out, nil
 }
 
-// A session the driver recorded exchanges of, which Claude Code no longer holds, fails to open
-// rather than starting fresh under the same ID.
 func TestALostSessionIsAMismatch(t *testing.T) {
 	dir := t.TempDir()
 	store := &memStore{}
@@ -322,11 +302,9 @@ func TestALostSessionIsAMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = s.Close()
-	// The fake keeps no transcript, so the session is lost.
 	if _, err := fakeDriver(dir).Open(t.Context(), harness.Options{SessionID: s.ID(), Store: store}); !errors.Is(err, harness.ErrJournalMismatch) {
 		t.Fatalf("Open = %v, want ErrJournalMismatch", err)
 	}
-	// An ID with no records is a new session.
 	open(t, fakeDriver(dir), harness.Options{SessionID: "0f7d8f43-0000-4000-8000-000000000009", Store: store})
 }
 

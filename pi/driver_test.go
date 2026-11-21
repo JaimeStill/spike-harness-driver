@@ -37,8 +37,6 @@ func closeSession(t *testing.T, s *harness.Session) {
 	}
 }
 
-// drain collects an exchange's events until the channel closes. With stopAfter > 0 it calls
-// onDelta after that many text deltas.
 func drain(t *testing.T, x *harness.Exchange, stopAfter int, onDelta func()) []harness.Event {
 	t.Helper()
 	var events []harness.Event
@@ -62,8 +60,6 @@ func drain(t *testing.T, x *harness.Exchange, stopAfter int, onDelta func()) []h
 	}
 }
 
-// checkScoped verifies that every event carries the session and exchange IDs, that sequence
-// numbers run from 1 without gaps, and that the exchange ends with EventEnded.
 func checkScoped(t *testing.T, s *harness.Session, x *harness.Exchange, events []harness.Event) {
 	t.Helper()
 	for i, ev := range events {
@@ -196,7 +192,7 @@ func TestTheLlamaProviderLoadsItsBuiltinExtension(t *testing.T) {
 			if got := strings.Contains(args, "-e builtin:llama.cpp"); got != tc.want {
 				t.Fatalf("args %q: loads builtin:llama.cpp = %v, want %v", args, got, tc.want)
 			}
-			if !l.Extension {
+			if !l.ExtensionExists {
 				t.Fatalf("args %q: the bridge extension isn't loaded", args)
 			}
 		})
@@ -233,7 +229,6 @@ func TestSetModelGivesUpOnAModelPiNeverLists(t *testing.T) {
 }
 
 func TestSetModelWaitsOnlyForTheLlamaCatalog(t *testing.T) {
-	// The wait is long, so a retry would show; neither case may retry.
 	for _, tc := range []struct {
 		name, command, provider string
 	}{
@@ -303,7 +298,6 @@ func TestCancelMidStream(t *testing.T) {
 				t.Fatalf("Wait = %+v, %v; want aborted, nil", res, err)
 			}
 
-			// The session stays usable after a cancellation.
 			x2, err := s.Send(t.Context(), harness.Request{Text: "what is Go?"})
 			if err != nil {
 				t.Fatal(err)
@@ -329,8 +323,6 @@ func TestPiExitEndsTheExchange(t *testing.T) {
 	}
 }
 
-// Providers are written into the agent directory's models.json, which Pi reads from
-// PI_CODING_AGENT_DIR, and a "!" key stays a command for Pi to run per request.
 func TestProvidersGoIntoTheAgentDirectory(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "launch.json")
 	d := fakeDriver("ok")

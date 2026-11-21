@@ -12,28 +12,24 @@
 // The bridge was checked against Pi 0.87.1. It imports Pi's built-in modules
 // (@earendil-works/pi-coding-agent and typebox), whose names have changed before, so a Pi
 // upgrade is checked against it.
+//
+// See docs/design.md#the-pi-adapter
 package pi
 
 import "encoding/json"
 
-// record is one line read from Pi's stdout: a response to a command when Type is "response",
-// and an event otherwise.
 type record struct {
 	Type string `json:"type"`
 
-	// Response fields. ID echoes the command's id.
 	ID      string          `json:"id"`
 	Command string          `json:"command"`
 	Success bool            `json:"success"`
 	Error   string          `json:"error"`
 	Data    json.RawMessage `json:"data"`
 
-	// message_update carries a delta.
 	AssistantMessageEvent *assistantEvent `json:"assistantMessageEvent"`
-	// message_start, message_end, and turn_end carry a message.
-	Message *message `json:"message"`
+	Message               *message        `json:"message"`
 
-	// tool_execution_* fields.
 	ToolCallID string          `json:"toolCallId"`
 	ToolName   string          `json:"toolName"`
 	Args       json.RawMessage `json:"args"`
@@ -46,8 +42,6 @@ type assistantEvent struct {
 	Delta string `json:"delta"`
 }
 
-// message is an AgentMessage. Content is a string for some roles and a block list for
-// assistant messages, so it stays raw until an assistant message needs its text.
 type message struct {
 	Role         string          `json:"role"`
 	Content      json.RawMessage `json:"content"`
@@ -68,16 +62,11 @@ type usage struct {
 	CacheWrite int `json:"cacheWrite"`
 }
 
-// toolResult is a tool_execution_end result, as far as the driver reads it: the respond
-// tool's details are the structured response, and a failed call's content says why.
 type toolResult struct {
 	Content json.RawMessage `json:"content"`
 	Details json.RawMessage `json:"details"`
 }
 
-// uiRequest is an extension_ui_request, as far as the driver reads it. It has a line shape of
-// its own: a confirm or notify request's message is a string, where an event's is an
-// AgentMessage.
 type uiRequest struct {
 	ID          string `json:"id"`
 	Method      string `json:"method"`
@@ -85,21 +74,14 @@ type uiRequest struct {
 	Placeholder string `json:"placeholder"`
 }
 
-// dialog is an extension_ui_request that waits for an answer: a select, confirm, input, or
-// editor dialog. The bridge's requests are input dialogs whose placeholder carries the
-// request.
 type dialog struct {
 	Method      string
 	Title       string
 	Placeholder string
 }
 
-// dialogs are the extension UI methods that wait for an answer. The others, such as notify,
-// are fire-and-forget.
 var dialogs = map[string]bool{"select": true, "confirm": true, "input": true, "editor": true}
 
-// dialogAnswer is an extension_ui_response. Value answers an input dialog; Cancelled dismisses
-// any dialog.
 type dialogAnswer struct {
 	Type      string  `json:"type"`
 	ID        string  `json:"id"`
@@ -107,7 +89,6 @@ type dialogAnswer struct {
 	Cancelled bool    `json:"cancelled,omitempty"`
 }
 
-// command is one line written to Pi's stdin. Fields a command doesn't use stay empty.
 type command struct {
 	ID       string  `json:"id,omitempty"`
 	Type     string  `json:"type"`
@@ -118,21 +99,16 @@ type command struct {
 	Since    string  `json:"since,omitempty"`
 }
 
-// image is an image a prompt carries: its data in base64, with no data: prefix. Pi replaces it
-// with a note for a model whose input doesn't include images, and still accepts the prompt.
 type image struct {
 	Type     string `json:"type"`
 	Data     string `json:"data"`
 	MimeType string `json:"mimeType"`
 }
 
-// state is the data of a get_state response, as far as the driver reads it.
 type state struct {
 	SessionID string `json:"sessionId"`
 }
 
-// entries is the data of a get_entries response, as far as the driver reads it: each
-// session entry's stable ID, in append order.
 type entries struct {
 	Entries []struct {
 		ID string `json:"id"`

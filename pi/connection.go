@@ -12,16 +12,12 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// connection is Pi's harness.Connection over a stdio.Client. It answers the bridge's dialogs:
-// tool calls, and the schema of the exchange whose run is starting.
 type connection struct {
 	client *stdio.Client
 	bridge *bridge
 
-	mu sync.Mutex
-	// schema is the open exchange's, which the bridge asks for as each run starts.
+	mu     sync.Mutex
 	schema json.RawMessage
-	// run ends the tool calls of the exchange Cancel cancels.
 	run    context.Context
 	endRun context.CancelFunc
 }
@@ -81,9 +77,6 @@ func (c *connection) Close() error {
 	return errors.Join(c.client.Close(), c.bridge.remove())
 }
 
-// answer answers one of Pi's dialogs. The bridge's are input dialogs: a tool call, answered
-// once the tool has run, and the exchange's schema. Any other dialog is dismissed, since no
-// one is there to answer it, and a dialog left waiting would hold up the run.
 func (c *connection) answer(ctx context.Context, req stdio.Request) any {
 	d, ok := req.Body.(dialog)
 	if !ok || d.Method != "input" {
@@ -136,7 +129,6 @@ func (c *connection) Since(ctx context.Context, id string) ([]string, error) {
 	return entryIDs(r.Data)
 }
 
-// entryIDs reads the entry IDs from a get_entries response's data.
 func entryIDs(data json.RawMessage) ([]string, error) {
 	var e entries
 	if err := json.Unmarshal(data, &e); err != nil {

@@ -40,4 +40,6 @@
 // directory, replaying its history as updates, which belong to no exchange. It can't create a
 // session under an ID the caller chooses, and fails loudly on an ID it doesn't hold. The stream
 // offers no read of a session's entries, so the connection keeps no harness.Journal.
+//
+// See docs/design.md#the-opencode-adapter
 package opencode

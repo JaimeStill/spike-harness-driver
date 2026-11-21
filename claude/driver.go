@@ -18,26 +18,15 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// streamArgs run Claude Code headless over stream-json in both directions, with the partial
-// messages that carry text as it streams.
 var streamArgs = []string{
 	"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 	"--include-partial-messages",
 }
 
-// isolationArgs keep the user's settings, CLAUDE.md files, hooks, and MCP servers out of the
-// session, so the prompt and the tools are the driver's: no setting sources load, and only the
-// MCP servers --mcp-config names connect. Permission prompts come to the driver as
-// can_use_tool requests. --bare would isolate more, but it refuses the subscription login.
 var isolationArgs = []string{"--setting-sources", "", "--strict-mcp-config", "--permission-prompts", "host"}
 
-// isolationEnv keeps auto memory out of the session and the CLI from updating itself under the
-// driver. CLAUDECODE is set when the driver runs inside a Claude Code session, and would
-// change how the harness behaves.
 var isolationEnv = []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "DISABLE_AUTOUPDATER=1", "CLAUDECODE="}
 
-// pluginName is the name of the plugin that carries the session's skills. Claude Code names
-// each skill <plugin>:<skill>.
 const pluginName = "driver"
 
 // Provider is the one model provider Claude Code runs on in this driver: Anthropic's, through
@@ -133,7 +122,6 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 		_ = remove()
 		return nil, fmt.Errorf("claude: %w", err)
 	}
-	// ConfigDir comes last, so the directory Claude Code uses is the one holds looked in.
 	env := slices.Concat(isolationEnv, d.Env)
 	if d.ConfigDir != "" {
 		env = append(env, "CLAUDE_CONFIG_DIR="+d.ConfigDir)
@@ -159,8 +147,6 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-// sessionID returns the session's ID and whether Claude Code already holds it. A new session's
-// ID is a new UUID, and an ID the caller names must be one, as Claude Code requires.
 func (d Driver) sessionID(id string) (string, bool, error) {
 	if id == "" {
 		return uuid.New().String(), false, nil
@@ -174,9 +160,6 @@ func (d Driver) sessionID(id string) (string, bool, error) {
 	return id, held, err
 }
 
-// holds reports whether Claude Code keeps a transcript of session id in any project. Claude Code
-// stores a transcript under a directory named after the session's working directory, and resumes
-// the session from any directory.
 func (d Driver) holds(id string) (bool, error) {
 	dir := d.ConfigDir
 	if dir == "" {
@@ -193,10 +176,6 @@ func (d Driver) holds(id string) (bool, error) {
 	return len(matches) > 0, err
 }
 
-// lost fails with harness.ErrJournalMismatch when the caller names a session that Claude Code keeps
-// no transcript of but the store holds exchange records for. Claude Code lost the session, and
-// opening it would silently start a fresh one under the same ID. lost stands in for the journal
-// check a harness.Journal gives, which Claude Code's stream doesn't offer.
 func lost(ctx context.Context, opts harness.Options, id string, resume bool) error {
 	if resume || opts.SessionID == "" || opts.Store == nil {
 		return nil
@@ -212,9 +191,6 @@ func lost(ctx context.Context, opts harness.Options, id string, resume bool) err
 	return nil
 }
 
-// writePlugin writes a plugin that carries skills into root, and returns its directory, or ""
-// for no skills. It stages the plugin in tmp, then caches it under a name its content decides,
-// so a resumed session finds the files its history names.
 func writePlugin(skills []harness.Skill, root, tmp string) (string, error) {
 	if len(skills) == 0 {
 		return "", nil

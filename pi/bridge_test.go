@@ -17,14 +17,11 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// openWith opens a fake Pi session with opts, recording its launch in the returned file.
 func openWith(t *testing.T, opts harness.Options) (*harness.Session, string) {
 	t.Helper()
 	return openCached(t, opts, "")
 }
 
-// openCached opens a fake Pi session with opts and the driver cache in cache, recording its
-// launch in the returned file.
 func openCached(t *testing.T, opts harness.Options, cache string) (*harness.Session, string) {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "launch.json")
@@ -40,7 +37,6 @@ func openCached(t *testing.T, opts harness.Options, cache string) (*harness.Sess
 	return s, file
 }
 
-// run runs req on s to its end.
 func run(t *testing.T, s *harness.Session, req harness.Request) ([]harness.Event, harness.Result, error) {
 	t.Helper()
 	x, err := s.Send(t.Context(), req)
@@ -85,7 +81,6 @@ func TestAToolRunsInGo(t *testing.T) {
 		t.Fatalf("usage = %+v, want the cache read", res.Usage)
 	}
 
-	// A handler's error reaches the model as a failed call; the exchange carries on.
 	events, res, err = run(t, s, harness.Request{Text: toolPrompt + "lookup missing"})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +109,6 @@ func TestAStructuredResponse(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 
-	// Without a schema the bridge gives the run no respond tool, and the fake answers in text.
 	_, res, err = run(t, s, harness.Request{Text: structuredPrompt})
 	if err != nil || res.Structured != nil {
 		t.Fatalf("no schema: result = %+v, %v", res, err)
@@ -146,7 +140,7 @@ func TestTheLaunchLoadsTheBridgeToolsAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !l.Extension {
+	if !l.ExtensionExists {
 		t.Error("the bridge extension wasn't on disk at launch")
 	}
 	for _, want := range [][]string{rpcArgs, {"-t", "read,lookup,respond"}} {
@@ -158,7 +152,7 @@ func TestTheLaunchLoadsTheBridgeToolsAndSkills(t *testing.T) {
 	if err := json.Unmarshal(l.Tools, &specs); err != nil || len(specs) != 1 || specs[0].Name != "lookup" {
 		t.Errorf("tool spec = %s", l.Tools)
 	}
-	files := l.Skills[arg(l.Args, "--skill")]
+	files := l.SkillFiles[arg(l.Args, "--skill")]
 	slices.Sort(files)
 	if !slices.Equal(files, []string{"SKILL.md", filepath.Join("refs", "phrases.md")}) {
 		t.Errorf("skill files = %v", files)
@@ -205,7 +199,6 @@ func TestToolsTheBridgeRefuses(t *testing.T) {
 	}
 }
 
-// Pi runs the bridge as code, so a cache anyone else can write to is refused.
 func TestACacheOthersCanWriteIsRefused(t *testing.T) {
 	cache := t.TempDir()
 	if err := os.Chmod(cache, 0o777); err != nil {
@@ -221,7 +214,6 @@ func TestACacheOthersCanWriteIsRefused(t *testing.T) {
 	}
 }
 
-// A cache entry whose content no longer has its digest is written again, not trusted.
 func TestADamagedCacheEntryIsRewritten(t *testing.T) {
 	cache := t.TempDir()
 	s, file := openCached(t, harness.Options{}, cache)
@@ -242,8 +234,6 @@ func TestADamagedCacheEntryIsRewritten(t *testing.T) {
 	}
 }
 
-// Pi loads bridge.ts as code and resolves its import of respond.ts beside it, so the cache holds
-// both, and not the extension's tests.
 func TestTheBridgeIsWrittenWithTheModuleItImports(t *testing.T) {
 	s, file := openCached(t, harness.Options{}, t.TempDir())
 	defer closeSession(t, s)
@@ -260,7 +250,6 @@ func TestTheBridgeIsWrittenWithTheModuleItImports(t *testing.T) {
 	}
 }
 
-// A tool call in progress ends when its exchange is cancelled.
 func TestCancelEndsAToolCall(t *testing.T) {
 	started := make(chan struct{})
 	b, err := newBridge(harness.Options{Tools: []harness.Tool{{
@@ -295,7 +284,6 @@ func TestCancelEndsAToolCall(t *testing.T) {
 	}
 }
 
-// readLaunch reads what the fake recorded of its launch.
 func readLaunch(t *testing.T, file string) launch {
 	t.Helper()
 	var l launch
@@ -309,7 +297,6 @@ func readLaunch(t *testing.T, file string) launch {
 	return l
 }
 
-// arg returns the value that follows flag in args, or "" without one.
 func arg(args []string, flag string) string {
 	if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
 		return args[i+1]
@@ -323,8 +310,6 @@ func greetSkill(text string) harness.Skill {
 	}}
 }
 
-// With a cache, the extension and a skill that isn't on disk get paths their content decides:
-// the same across sessions, kept after Close, and new when the content changes.
 func TestTheCacheGivesStablePaths(t *testing.T) {
 	cache := t.TempDir()
 	launchOf := func(skill harness.Skill) launch {
@@ -351,7 +336,6 @@ func TestTheCacheGivesStablePaths(t *testing.T) {
 	}
 }
 
-// A skill already on disk is loaded where it lives, not copied.
 func TestASkillOnDiskIsLoadedInPlace(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "greet")
 	if err := os.CopyFS(dir, greetSkill("Say hi.").FS); err != nil {
@@ -370,7 +354,6 @@ func TestASkillOnDiskIsLoadedInPlace(t *testing.T) {
 	}
 }
 
-// containsRun reports whether args hold want as a contiguous run.
 func containsRun(args, want []string) bool {
 	for i := 0; i+len(want) <= len(args); i++ {
 		if slices.Equal(args[i:i+len(want)], want) {

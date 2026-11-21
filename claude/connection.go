@@ -17,31 +17,21 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// connection is Claude Code's harness.Connection over a stdio.Client. It answers Claude Code's
-// control requests: the MCP messages of the driver's MCP server, which it relays through an
-// mcpbridge tunnel, and permission checks.
 type connection struct {
-	client *stdio.Client
-	tools  *mcpbridge.Server
-	tunnel *mcpbridge.Tunnel
-	// allowed holds the harness tools the session allows. Nil, for a session that keeps
-	// Claude Code's default tools, allows every tool; empty allows none but the driver's.
-	allowed map[string]bool
-	remove  func() error
-	// listWait bounds how long Prompt waits for Claude Code to list the tools again after
-	// the respond tool changed.
+	client   *stdio.Client
+	tools    *mcpbridge.Server
+	tunnel   *mcpbridge.Tunnel
+	allowed  map[string]bool
+	remove   func() error
 	listWait time.Duration
 
-	mu sync.Mutex
-	// run ends the tool calls of the exchange Cancel cancels.
+	mu     sync.Mutex
 	run    context.Context
 	endRun context.CancelFunc
 }
 
 var _ harness.Connection = (*connection)(nil)
 
-// newConnection returns a connection for a session whose harness tools are allowed, which is
-// nil when the session keeps Claude Code's default tools.
 func newConnection(tools *mcpbridge.Server, allowed []string, listWait time.Duration) *connection {
 	c := &connection{tools: tools, listWait: listWait}
 	if allowed != nil {
@@ -117,10 +107,6 @@ func (c *connection) Close() error {
 	return errors.Join(closeErr(c.client.Close()), c.tunnel.Close(), c.remove())
 }
 
-// closeErr is the error of Claude Code's exit once Close asked for it. When the last turn failed,
-// an interrupted one included, Claude Code exits with status 1 at the end of its input. The
-// exchange of that turn has already reported the failure, so closeErr ignores status 1. A harness
-// killed after WaitDelay, or any other status, is still an error.
 func closeErr(err error) error {
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 {
@@ -129,9 +115,6 @@ func closeErr(err error) error {
 	return err
 }
 
-// outbound relays a message the MCP server sends unasked, such as notifications/tools/list_changed,
-// to Claude Code as an mcp_message control request. It runs on the server's goroutine, so it hands
-// the message on and returns.
 func (c *connection) outbound(msg json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -140,7 +123,6 @@ func (c *connection) outbound(msg json.RawMessage) {
 	}()
 }
 
-// answer answers one of Claude Code's control requests. An error answer is an error reply.
 func (c *connection) answer(ctx context.Context, req stdio.Request) any {
 	r, ok := req.Body.(controlRequest)
 	if !ok {
@@ -156,15 +138,8 @@ func (c *connection) answer(ctx context.Context, req stdio.Request) any {
 	}
 }
 
-// notificationAck is the reply to an MCP notification, which has no response of its own; the
-// Agent SDKs send the same.
 var notificationAck = json.RawMessage(`{"jsonrpc":"2.0","result":{}}`)
 
-// relay passes one MCP message to the MCP server and returns its response. A tool call runs
-// until Cancel ends the exchange's run, or until Claude Code exits. Any other message, such as
-// a tool listing, a ping, or the handshake, belongs to the session rather than the run, so it
-// runs until Claude Code exits: a listing Cancel cut short would leave Claude Code without the
-// tools.
 func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	if r.ServerName != serverName {
 		return fmt.Errorf("claude: no MCP server %q", r.ServerName)
@@ -188,7 +163,6 @@ func (c *connection) relay(ctx context.Context, r controlRequest) any {
 	return map[string]json.RawMessage{"mcp_response": resp}
 }
 
-// toolCall reports whether msg is an MCP tools/call request.
 func toolCall(msg json.RawMessage) bool {
 	var m struct {
 		Method string `json:"method"`
@@ -196,9 +170,6 @@ func toolCall(msg json.RawMessage) bool {
 	return json.Unmarshal(msg, &m) == nil && m.Method == "tools/call"
 }
 
-// permit answers a permission check. The driver's own tools, and the harness tools the session
-// allows, run: those its HarnessTools name, or, for a session that keeps Claude Code's default
-// tools, any of them. Anything else is denied, since no one is there to ask.
 func (c *connection) permit(r controlRequest) any {
 	if strings.HasPrefix(r.ToolName, toolPrefix) || c.allowed == nil || c.allowed[r.ToolName] {
 		input := r.Input

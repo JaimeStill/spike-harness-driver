@@ -17,16 +17,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// rpcArgs start Pi in RPC mode without discovering the user's extensions, skills, and context
-// files, which would otherwise change the prompt or send dialogs no one answers. Explicit -e
-// and --skill paths still load, which is how the bridge and the session's skills arrive. Pi
-// persists the session.
 var rpcArgs = []string{"--mode", "rpc", "-ne", "-ns", "-nc"}
 
-// llamaProvider is the name of Pi's llama.cpp provider, which Pi ships as a built-in extension.
-// Since Pi 0.99, -ne disables built-in extensions too, so for a session on this provider the
-// driver loads the extension by name. The user's extensions and the other built-ins, such as
-// MCP, stay out.
 const llamaProvider = "llama.cpp"
 
 // Driver starts one Pi process per session. Pi persists each session, so a later process
@@ -96,10 +88,6 @@ type Model struct {
 	Reasoning bool
 }
 
-// writeAgentDir writes the providers into dir's models.json, creating dir private to the
-// current user. Pi runs a "!" key as a command, and its settings can load extensions, so no one
-// else may write the directory: one that exists already, writable by others or another user's,
-// is refused.
 func writeAgentDir(dir string, providers map[string]Provider) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("pi: agent directory: %w", err)
@@ -134,8 +122,6 @@ func writeAgentDir(dir string, providers map[string]Provider) error {
 	if err != nil {
 		return err
 	}
-	// Written to a temporary name and renamed, so a session starting beside another that
-	// shares the directory never reads it half written.
 	tmp, err := os.CreateTemp(dir, ".models-*.json")
 	if err != nil {
 		return fmt.Errorf("pi: models.json: %w", err)
@@ -215,13 +201,8 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-// catalogPoll is how often setModel asks again for a model Pi doesn't list yet.
 const catalogPoll = 100 * time.Millisecond
 
-// setModel selects the session's model. On llama.cpp, a model Pi answers it doesn't list may
-// still arrive with Pi's background catalog refresh, so setModel asks again for up to wait.
-// Every other failure, such as Pi having exited or a model another provider lacks, returns at
-// once.
 func setModel(ctx context.Context, c *stdio.Client, opts harness.Options, wait time.Duration) error {
 	cmd := command{Type: "set_model", Provider: opts.Provider, ModelID: opts.Model}
 	deadline := time.Now().Add(wait)
@@ -238,8 +219,6 @@ func setModel(ctx context.Context, c *stdio.Client, opts harness.Options, wait t
 	}
 }
 
-// catalogMiss reports whether err is Pi's own answer that it doesn't list a llama.cpp model,
-// the one failure a catalog refresh can still mend.
 func catalogMiss(opts harness.Options, err error) bool {
 	var failed *commandError
 	return opts.Provider == llamaProvider && errors.As(err, &failed) &&
