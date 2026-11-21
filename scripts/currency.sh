@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Prints `<file>: <tool> <pin> -> <latest>` for each pin behind its latest, and exits 1 if any;
-# prints nothing when all are current. Compares mise.toml's tools, a newer marathon tag included,
-# with their latest. A pin held on purpose, as Pi's and OpenCode's are at the versions clutch's
-# conformance suite measured, carries a comment beside it saying why; a trailing held pin is
-# reported like any other, marked `(held)`.
+# Prints `<file>: <tool> <pin> -> <latest>` for each mise.toml and go.mod pin behind its latest, and
+# exits 1 if any; prints nothing when all are current. Compares mise.toml's tools, a newer marathon
+# tag included, with their latest. A pin held on purpose, as Pi's and OpenCode's are at the versions
+# clutch's conformance suite measured, carries a comment beside it saying why; a trailing held pin
+# is reported like any other, marked `(held)`.
 # Compares each go.work module's direct requirements in its go.mod with their latest on the module
 # proxy, in workspace mode, skipping the workspace's own modules. Reads the network.
 # See docs/configuration.md#currency

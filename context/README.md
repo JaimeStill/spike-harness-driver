@@ -59,28 +59,18 @@ a harness:** one, pinned, Pi by default, in about 215 MB
 
 ## The evidence
 
-1. **Tools and skills** run on all three harnesses: a Go tool reaches Pi through its extension and
-   Claude Code and OpenCode through MCP. Proven by a demo: `clutch conform`, every capability on
-   Azure and Anthropic for all three harnesses. Finding:
-   [Capabilities](../docs/findings.md#capabilities).
-2. **Native capabilities.** A harness passes only vision, and drops an image a model can't take
-   quietly; embeddings and audio need the `model` client. Proven by a demo: `model` on the router
-   and Azure, and a Go tool giving a Pi session a transcript. Finding:
-   [Capabilities](../docs/findings.md#capabilities).
-3. **Sessions** outlive their process and resume by ID with their history;
-   `ErrJournalMismatch` catches Pi's cwd-scoped sessions. Proven by a run: `clutch conform`'s
-   `resume`, and live follow-ups from a new process. Finding:
-   [Sessions](../docs/findings.md#sessions).
-4. **Exchanges.** A session carries one exchange at a time under a driver-assigned ID, each
-   harness's cancellation maps to one outcome, and a structured response is a `respond` tool.
-   Proven by a run: `clutch conform`'s `exchange`, `cancel`, and `structured`. Finding:
-   [Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads).
-5. **Workflows.** A standard-library layer of about 1,800 lines runs a DAG of exchanges with a
-   concurrency limit, cancellation, SSE with replay, and resume after SIGINT, `kill -9`, and
-   `docker stop`. Proven by a demo: `clutch workflow` and `clutch serve`, in the
-   architect-validated checkpoints 1–3. Finding: [Workflows](../docs/findings.md#workflows).
+1. **Tools and skills.** Proven by a demo: `clutch conform`, every capability on Azure and
+   Anthropic for all three harnesses. Finding: [Capabilities](../docs/findings.md#capabilities).
+2. **Native capabilities.** Proven by a demo: `model` on the router and Azure, and a Go tool
+   giving a Pi session a transcript. Finding: [Capabilities](../docs/findings.md#capabilities).
+3. **Sessions.** Proven by a run: `clutch conform`'s `resume`, and live follow-ups from a new
+   process. Finding: [Sessions](../docs/findings.md#sessions).
+4. **Exchanges.** Proven by a run: `clutch conform`'s `exchange`, `cancel`, and `structured`.
+   Finding: [Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads).
+5. **Workflows.** Proven by a demo: `clutch workflow` and `clutch serve`. Finding:
+   [Workflows](../docs/findings.md#workflows).
 6. **The service image** is 215 MB, idles at about 10 MiB, and adds about 95 MiB per Pi session.
-   Proven by a demo: `deploy/`, checkpoint 3. Finding: [Deployment](../docs/findings.md#deployment),
+   Proven by a demo: `deploy/`. Finding: [Deployment](../docs/findings.md#deployment),
    [Harness comparison](../docs/findings.md#harness-comparison).
 7. **Managed identity and IL6.** The Azure managed-identity path and IL6 hold. Checked on paper
    only; nothing ran against them. Finding:
@@ -110,8 +100,8 @@ a harness:** one, pinned, Pi by default, in about 215 MB
   [`workflow`](../workflow/), [`workflow/filestore`](../workflow/filestore/), and
   [`workflow/sse`](../workflow/sse/); reasoning in
   [The workflow runner](../docs/design.md#the-workflow-runner).
-- **Adapters** (built): Pi (`--mode rpc` or `json`), Claude Code (`claude -p --output-format
-  stream-json`, or the Agent SDK), and OpenCode (its server API, or `opencode acp` over stdio), in
+- **Adapters** (built): Pi (`pi --mode rpc`), Claude Code (`claude -p`, stream-json in both
+  directions), and OpenCode (`opencode acp --pure` over stdio), in
   [`pi`](../pi/), [`claude`](../claude/), and [`opencode`](../opencode/); reasoning in
   [The Pi adapter](../docs/design.md#the-pi-adapter),
   [The Claude Code adapter](../docs/design.md#the-claude-code-adapter), and

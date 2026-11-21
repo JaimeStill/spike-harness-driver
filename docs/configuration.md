@@ -14,25 +14,26 @@ held at the versions `clutch conform` measured, each with its reason beside the 
 Claude Code is absent from `mise.toml` because it is a native install, which the driver keeps from updating itself
 (`DISABLE_AUTOUPDATER`), so the version on the PATH is the one the suite sees.
 
-node runs the Pi bridge's TypeScript tests in the check (`node --test` strips the types). go and
-jq are pinned because the check and currency call them. marathon's release,
+node runs the Pi bridge's TypeScript tests in the check (`node --test` strips the types). go and jq
+are pinned because the check and currency call them. marathon's release,
 `github:standards-lab/claude-plugins` at its `marathon/v` tag, provides lint-context and
 lint-references, which the check runs. Tasks never install a missing tool
-(`task.run_auto_install = false`); `mise install` is the one step that reads the network.
+(`task.run_auto_install = false`). Of the tasks, only `currency` reads the network; the check reads
+only the Go module proxy on a cold cache.
 
 `mise run check` ([`scripts/check.sh`](../scripts/check.sh)) builds, vets, format-checks, and
 race-tests every module in `go.work`, runs the Pi bridge's TypeScript tests, and runs
 lint-context and lint-references. Every step runs, and the check fails if any failed; a lint
-missing from the PATH fails it with `FAIL: <lint> is not on PATH; run mise install`. It is
-hermetic: no test reaches a router, a harness, or the network, and it writes nothing.
+missing from the PATH fails it with `FAIL: <lint> is not on PATH; run mise install`. No test
+reaches a router, a harness, or the network, and the check writes nothing.
 
 ## Currency
 
-`mise run currency` ([`scripts/currency.sh`](../scripts/currency.sh)) reports every pin behind
-its latest and exits nonzero if any trail: each mise tool, a newer marathon tag included, and each
-`go.work` module's direct requirements. A pin with a comment beside it in `mise.toml` is held,
-and the comment says why; a held pin that trails is still reported, marked `(held)`, as Pi's and
-OpenCode's are.
+`mise run currency` ([`scripts/currency.sh`](../scripts/currency.sh)) reports every `mise.toml` and
+`go.mod` pin behind its latest and exits nonzero if any trail: each mise tool, a newer marathon tag
+included, and each `go.work` module's direct requirements. A pin with a comment beside it in
+`mise.toml` is held, and the comment says why; a held pin that trails is still reported, marked
+`(held)`, as Pi's and OpenCode's are.
 
 - The requirements are read in workspace mode, as the modules build: with `GOWORK=off`, opencode
   fails on a go.sum entry that only mcpbridge's go.sum holds.
@@ -45,9 +46,6 @@ OpenCode's are.
 [`references.toml`](../references.toml) lists the repositories this spike reads. Each key maps
 to the canonical remote for one repository. `references.local.toml` (not committed) maps the same
 key to its directory on this machine. The keys match the standards-lab references catalog.
-
-These repositories are read-only for this spike. Read them, and never write to them. Code
-dependencies are published versions, never a `replace` directive.
 
 - **tau** (`tau-protocol`, `tau-format`, `tau-provider`, `tau-agent`, `tau-orchestrate`,
   `tau-platform`): the organization's earlier agentic infrastructure.

@@ -1,16 +1,16 @@
 # Azure AI Foundry target
 
-Step 4 checks the direct model client against a cloud target as well as the router. This
-runbook sets up an Azure AI Foundry resource with three model deployments and keyless access,
-and keeps the connection details out of this public repository.
+The `model` client is checked against a cloud target as well as the router. This runbook sets up an
+Azure AI Foundry resource with three model deployments and keyless access, and keeps the connection
+details out of this public repository.
 
 It follows the precedent herald set: Azure AI Foundry, with managed identity in production.
 Here, local development uses the Azure CLI's sign-in in place of the managed identity. Either
 way the client sends an Entra ID bearer token, and no API key exists to leak.
 
-Checked against Microsoft Learn on 2026-09-25, the model choices against eastus2's live catalog
-(`az cognitiveservices model list -l eastus2`) on 2026-09-30, and every step run end to end on
-2026-09-30. Where the docs disagreed, the run settled it, and the runbook states the result.
+Checked against Microsoft Learn, the model choices against eastus2's live catalog
+(`az cognitiveservices model list -l eastus2`), and every step run end to end. Where the docs
+disagreed, the run settled it, and the runbook states the result.
 
 ## What gets created
 

@@ -17,6 +17,6 @@ description = "Build, vet, format-check, and race-test every go.work module, tes
 run = "scripts/check.sh"
 
 [tasks.currency]
-description = "Report every pin behind its latest, exiting nonzero if any"
+description = "Report every mise.toml and go.mod pin behind its latest, exiting nonzero if any"
 run = "scripts/currency.sh"
 quiet = true

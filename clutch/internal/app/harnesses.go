@@ -37,7 +37,7 @@ func init() {
 		{
 			name:      harnessPi,
 			command:   "pi",
-			pinned:    "0.99.2",
+			pinned:    "0.99.2", // Held at the version `clutch conform` measured; a move to 1.x needs a live conform run.
 			provider:  providerLlama,
 			model:     "ggml-org/gpt-oss-120b-GGUF:MXFP4",
 			vision:    routerVision,
@@ -66,7 +66,7 @@ func init() {
 		{
 			name:      harnessClaude,
 			command:   "claude",
-			pinned:    "2.1.287",
+			pinned:    "2.1.287", // Held at the version `clutch conform` measured; a move needs a live conform run.
 			provider:  claude.Provider,
 			model:     "haiku",
 			vision:    "haiku",
@@ -79,7 +79,7 @@ func init() {
 		{
 			name:      harnessOpenCode,
 			command:   "opencode",
-			pinned:    "1.18.34",
+			pinned:    "1.18.34", // Held at the version `clutch conform` measured; a move to 2.x needs a live conform run.
 			provider:  providerLlama,
 			model:     "ggml-org/gpt-oss-120b-GGUF:MXFP4",
 			vision:    routerVision,

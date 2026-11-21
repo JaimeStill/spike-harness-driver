@@ -829,16 +829,15 @@ take none. `targets` lists them in the order help and errors list them, as `targ
 them, and `lookupTarget` finds one by name; setup/router-models.md and setup/azure-foundry.md say
 why each model was chosen.
 
-`modelTimeout` bounds one direct model request, from sending it to reading its response. The
-router loads a model on its first request, which for the 27B vision model takes a minute or more
-before a reasoning model's answer starts. The bound is generous because it exists to catch an
-endpoint that has hung, not one that is slow. The llama.cpp client's base is the
-OpenAI-compatible API root beneath LLAMA_BASE_URL, where the router serves every route. Azure's v1
-/audio/transcriptions route answered 404 DeploymentNotFound for a deployment that existed (checked
-2026-09-30), while the older deployment route works, so transcription gets its own client on that
-route: `azureAudioBase` is the route's base URL for a deployment, the v1 API root ending in
-/openai/v1 with /v1 replaced by /deployments/<deployment>, and `azureAudioVersion` is the
-api-version it takes.
+`modelTimeout` bounds one direct model request, from sending it to reading its response. The router
+loads a model on its first request, which for the 27B vision model takes a minute or more before a
+reasoning model's answer starts. The bound is generous because it exists to catch an endpoint that
+has hung, not one that is slow. The llama.cpp client's base is the OpenAI-compatible API root
+beneath LLAMA_BASE_URL, where the router serves every route. Azure's v1 /audio/transcriptions route
+answered 404 DeploymentNotFound for a deployment that existed, while the older deployment route
+works, so transcription gets its own client on that route: `azureAudioBase` is the route's base URL
+for a deployment, the v1 API root ending in /openai/v1 with /v1 replaced by
+/deployments/<deployment>, and `azureAudioVersion` is the api-version it takes.
 
 **The Azure token.** The Infrastructure's `azureToken` is its single token source for the azure
 target, so every client shares one cached token. An `azRunner` runs the Azure CLI with arguments
