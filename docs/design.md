@@ -1,8 +1,14 @@
 # Design
 
-The reasoning behind the root module's packages, the MCP bridge, the harness adapters, and the
-clutch CLI: what each unexported part does and why it is built that way. Each package's own
-documentation, which `go doc` prints, gives its API and points to its section here.
+This page gives the reasoning behind the root module's packages, the MCP bridge, the harness
+adapters, and the clutch CLI: what each unexported part does and why it is built that way. Each
+package's own documentation, which `go doc` prints, gives its API and points to its section here.
+
+The sections run in dependency order. They start with the root module's packages: the `harness`
+core, its line protocol, its skills and command tools, its skill cache and record files, then the
+`model` client and the `workflow` layer. The `mcpbridge` module, the three adapters (`pi`,
+`claude`, and `opencode`), and the `clutch` CLI follow. Most sections end with a paragraph on the
+package's tests.
 
 ## The session
 
@@ -185,9 +191,9 @@ Package [`harness/cache`](../harness/cache/).
 
 Only the current user writes under the root, so an existing entry whose tree digest doesn't
 match its name is damage, such as a copy a crash cut short, and the entry is removed and written
-again. Losing the race to
-another writer of the same content leaves the directory that writer wrote. `hashFile` adds each
-file to a tree's digest length-prefixed, so no two trees hash alike by moving bytes between files.
+again. Losing the race to another writer of the same content leaves the directory that writer
+wrote. `hashFile` adds each file to a tree's digest length-prefixed, so no two trees hash alike by
+moving bytes between files.
 
 ## The record files
 
@@ -706,19 +712,18 @@ session/update notification's update: its Content is a message chunk's content b
 call's list of content, and ToolCallID, Title, Kind, Status, RawInput, and RawOutput are a tool
 call's. A `promptResult` is session/prompt's result, which arrives as the turn ends.
 
-**The tests.** The test binary is its own fake OpenCode, selected by `fakeEnv`, which speaks
-enough ACP to drive the connection: the handshake, sessions it persists under XDG_DATA_HOME,
-turns that end with session/prompt's answer, cancellation, permission requests, and the driver's
-tools, which it calls over HTTP with go-sdk's MCP client, adding the server's Authorization header
-to every request, as OpenCode calls them at session/new. `noRaceExitSleep` keeps a race-enabled
-fake from sleeping a second at exit. `launchEnv` names a file where the fake records its arguments
-and configuration, and `sessions` names the file where it keeps the IDs of the sessions it created; a
-loaded session's history replays before the answer, and belongs to no exchange. The fake's
-`listing` counts listings under way, which a turn waits for, as OpenCode applies a changed tool
-list before it runs the next prompt. `cancelled` is closed by session/cancel to cancel the turn
-under way, and is nil while none is. A turn is under way from the moment its session/prompt is
-read, so a cancel read after it cancels it, and a cancel read while the session is idle is
-ignored, as OpenCode ignores it.
+**The tests.** The test binary is its own fake OpenCode, selected by `fakeEnv`, which speaks enough
+ACP to drive the connection: the handshake, sessions it persists under XDG_DATA_HOME, turns that end
+with session/prompt's answer, cancellation, permission requests, and the driver's tools, which it
+calls over HTTP with go-sdk's MCP client, adding the server's Authorization header to every request,
+as OpenCode calls them at session/new. `noRaceExitSleep` keeps a race-enabled fake from sleeping a
+second at exit. `launchEnv` names a file where the fake records its arguments and configuration, and
+`sessions` names the file where it keeps the IDs of the sessions it created; a loaded session's
+history replays before the answer, and belongs to no exchange. The fake's `listing` counts listings
+under way, which a turn waits for, as OpenCode applies a changed tool list before it runs the next
+prompt. `cancelled` is closed by session/cancel to cancel the turn under way, and is nil while none
+is. A turn is under way from the moment its session/prompt is read, so a cancel read after it
+cancels it, and a cancel read while the session is idle is ignored, as OpenCode ignores it.
 
 A prompt's text decides what the fake's turn does: "tool:<name>:<args>" calls the driver's tool
 with the arguments, reporting the call as OpenCode does, pending with no arguments, in progress

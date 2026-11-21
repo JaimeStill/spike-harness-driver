@@ -1,7 +1,7 @@
 # Findings
 
-Evidence toward the spike's question, by part. The answer it adds up to is in
-[`context/README.md`](../context/README.md#the-answer). The coordinator's
+This page holds the evidence toward the spike's question, by part. The answer it adds up to is
+in [`context/README.md`](../context/README.md#the-answer). The coordinator's
 `plan` session reads it with the result. The package documentation in `harness`,
 `harness/stdio`, `harness/filestore`, `harness/catalog`, `harness/cache`, `model`, `mcpbridge`,
 `workflow`, `workflow/filestore`, `workflow/sse`, and the adapters `pi`, `claude`, and `opencode`

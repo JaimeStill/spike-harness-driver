@@ -19,13 +19,13 @@ The question has four parts:
 
 The answer settles go-ai's shape: a harness-session surface only, both a harness-session and a
 model-client surface, or a model-client surface only. It also settles whether a service's
-container image carries a harness. The goal it serves is `experiment.harness` in the coordinator's
-roadmap, `standards-lab/roadmap/index.toml`, and the strategy behind it is `context/ai-strategy.md` in
-[standards-lab/org](https://github.com/standards-lab/org).
+container image carries a harness. The goal it serves is `experiment.harness` in the
+coordinator's roadmap, `standards-lab/roadmap/index.toml`, and the strategy behind it is
+`context/ai-strategy.md` in [standards-lab/org](https://github.com/standards-lab/org).
 
 A working spike is evidence, not a decision. A `plan` session in standards-lab reads the result
-and decides what the workspace takes from it. Its steps, its CLI, and its prior art are in
-[`docs/path.md`](../docs/path.md).
+and decides what the workspace takes from it. The spike's steps, its CLI, and its prior art are
+in [`docs/path.md`](../docs/path.md).
 
 ## The answer
 
@@ -35,13 +35,16 @@ and decides what the workspace takes from it. Its steps, its CLI, and its prior 
   through its extension and Claude Code and OpenCode through MCP. Of the native capabilities,
   harnesses expose vision alone, and drop an image a model can't take quietly. Embeddings and
   audio need a direct model client, one OpenAI-compatible shape over the router and Azure, and
-  an agent reaches them through a tool ([Capabilities](../docs/findings.md#capabilities), [Payloads](../docs/findings.md#payloads)).
+  an agent reaches them through a tool ([Capabilities](../docs/findings.md#capabilities),
+  [Payloads](../docs/findings.md#payloads)).
 - **Sessions.** A session outlives its process on every harness and resumes by ID, keeping its
   history. Exchange IDs are the driver's own, kept in a store and bound to the harness's journal
-  where it keeps one, which catches Pi's cwd-scoped sessions ([Sessions](../docs/findings.md#sessions)).
+  where it keeps one, which catches Pi's cwd-scoped sessions
+  ([Sessions](../docs/findings.md#sessions)).
 - **Exchanges.** No harness tags its events with a request, so a session carries one exchange at
   a time, scoped from start to settle, with each harness's cancellation mapped to one outcome. A
-  structured response is a `respond` tool on every harness ([Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads)).
+  structured response is a `respond` tool on every harness
+  ([Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads)).
 - **Workflows.** A standard-library layer of about 1,800 lines over `harness.Driver` runs a DAG of
   exchanges over sessions on any mix of harnesses, with a concurrency limit, cancellation,
   progress and SSE from one log per run, and resume after an interrupt, a `kill -9`, or a
@@ -49,21 +52,25 @@ and decides what the workspace takes from it. Its steps, its CLI, and its prior 
 
 **What it settles for go-ai:** both surfaces, a harness-session surface and a model-client
 surface, with the workflow layer above `harness` and harness-agnostic. **A service image carries
-a harness:** one, pinned, Pi by default, in about 215 MB ([Deployment](../docs/findings.md#deployment), [Harness comparison](../docs/findings.md#harness-comparison)). What a
-service still owes is in [Open for a service](../docs/findings.md#open-for-a-service).
+a harness:** one, pinned, Pi by default, in about 215 MB
+([Deployment](../docs/findings.md#deployment),
+[Harness comparison](../docs/findings.md#harness-comparison)). What a service still owes is in
+[Open for a service](../docs/findings.md#open-for-a-service).
 
 ## The evidence
 
 1. **Tools and skills** run on all three harnesses: a Go tool reaches Pi through its extension and
    Claude Code and OpenCode through MCP. Proven by a demo: `clutch conform`, every capability on
-   Azure and Anthropic for all three harnesses. Finding: [Capabilities](../docs/findings.md#capabilities).
+   Azure and Anthropic for all three harnesses. Finding:
+   [Capabilities](../docs/findings.md#capabilities).
 2. **Native capabilities.** A harness passes only vision, and drops an image a model can't take
    quietly; embeddings and audio need the `model` client. Proven by a demo: `model` on the router
    and Azure, and a Go tool giving a Pi session a transcript. Finding:
    [Capabilities](../docs/findings.md#capabilities).
 3. **Sessions** outlive their process and resume by ID with their history;
    `ErrJournalMismatch` catches Pi's cwd-scoped sessions. Proven by a run: `clutch conform`'s
-   `resume`, and live follow-ups from a new process. Finding: [Sessions](../docs/findings.md#sessions).
+   `resume`, and live follow-ups from a new process. Finding:
+   [Sessions](../docs/findings.md#sessions).
 4. **Exchanges.** A session carries one exchange at a time under a driver-assigned ID, each
    harness's cancellation maps to one outcome, and a structured response is a `respond` tool.
    Proven by a run: `clutch conform`'s `exchange`, `cancel`, and `structured`. Finding:
@@ -89,14 +96,16 @@ service still owes is in [Open for a service](../docs/findings.md#open-for-a-ser
 - **Exchange scoping** (built): request-and-response block IDs bound to a session, in
   [`harness`](../harness/); reasoning in [The session](../docs/design.md#the-session).
 - **Payloads** (built): encoding a request, and interpreting the response, in
-  [`harness/stdio`](../harness/stdio/); reasoning in [The line protocol](../docs/design.md#the-line-protocol).
+  [`harness/stdio`](../harness/stdio/); reasoning in
+  [The line protocol](../docs/design.md#the-line-protocol).
 - **Tool calls and skills** (built): run through the harness, by
   [`mcpbridge`](../mcpbridge/), [`harness/catalog`](../harness/catalog/), and
   [`harness/cache`](../harness/cache/); reasoning in
   [Skills and command tools](../docs/design.md#skills-and-command-tools) and
   [The MCP bridge](../docs/design.md#the-mcp-bridge).
 - **Native capabilities** (built): vision, embeddings, and audio, and where each needs a direct
-  model client, [`model`](../model/); reasoning in [The model client](../docs/design.md#the-model-client).
+  model client, in [`model`](../model/); reasoning in
+  [The model client](../docs/design.md#the-model-client).
 - **Workflow coordination** (built): long-running work over sessions, in
   [`workflow`](../workflow/), [`workflow/filestore`](../workflow/filestore/), and
   [`workflow/sse`](../workflow/sse/); reasoning in
@@ -104,8 +113,9 @@ service still owes is in [Open for a service](../docs/findings.md#open-for-a-ser
 - **Adapters** (built): Pi (`--mode rpc` or `json`), Claude Code (`claude -p --output-format
   stream-json`, or the Agent SDK), and OpenCode (its server API, or `opencode acp` over stdio), in
   [`pi`](../pi/), [`claude`](../claude/), and [`opencode`](../opencode/); reasoning in
-  [The Pi adapter](../docs/design.md#the-pi-adapter), [The Claude Code adapter](../docs/design.md#the-claude-code-adapter),
-  and [The OpenCode adapter](../docs/design.md#the-opencode-adapter).
+  [The Pi adapter](../docs/design.md#the-pi-adapter),
+  [The Claude Code adapter](../docs/design.md#the-claude-code-adapter), and
+  [The OpenCode adapter](../docs/design.md#the-opencode-adapter).
 - **Model targets** (built): the Framework desktop's llama.cpp router over the tailnet, Anthropic,
   and Azure AI Foundry, set up by [`setup/`](../setup/) and picked by [`clutch`](../clutch/);
   reasoning in [The clutch CLI](../docs/design.md#the-clutch-cli).

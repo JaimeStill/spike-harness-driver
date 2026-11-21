@@ -1,6 +1,7 @@
 # Configuration
 
-The reasoning behind the spike's configuration files, whose headers point here.
+This page gives the reasoning behind the spike's configuration files. Each file's header points
+here.
 
 ## The tools and the check
 
@@ -10,7 +11,7 @@ passed, so keep them in step with the pins in
 [`clutch/internal/app/harnesses.go`](../clutch/internal/app/harnesses.go). Pi and OpenCode are
 held at the versions `clutch conform` measured, each with its reason beside the pin.
 
-Claude Code is absent because it is a native install, which the driver keeps from updating itself
+Claude Code is absent from `mise.toml` because it is a native install, which the driver keeps from updating itself
 (`DISABLE_AUTOUPDATER`), so the version on the PATH is the one the suite sees.
 
 node runs the Pi bridge's TypeScript tests in the check (`node --test` strips the types). go and
@@ -41,9 +42,9 @@ OpenCode's are.
 
 ## References
 
-[`references.toml`](../references.toml) lists the repositories this spike reads. Each key maps to
-the canonical remote for one repository. `references.local.toml` (not committed) maps the same key
-to its directory on this machine. The keys match the standards-lab references catalog.
+[`references.toml`](../references.toml) lists the repositories this spike reads. Each key maps
+to the canonical remote for one repository. `references.local.toml` (not committed) maps the same
+key to its directory on this machine. The keys match the standards-lab references catalog.
 
 These repositories are read-only for this spike. Read them, and never write to them. Code
 dependencies are published versions, never a `replace` directive.
@@ -61,9 +62,9 @@ dependencies are published versions, never a `replace` directive.
 
 [`.claude/marathon.toml`](../.claude/marathon.toml) sets the project kind: this repository holds
 Go spike source with a build-and-test loop, checked by `mise run check`, with its currency
-reported by `mise run currency`. Its remote section names
-the platform, the command that publishes a finished branch, and the command that merges it. The
-repository has no CI, so the merge waits on no pull-request checks.
+reported by `mise run currency`. Its remote section names the platform, the command that
+publishes a finished branch, and the command that merges it. The repository has no CI, so the
+merge waits on no pull-request checks.
 
 ## Untracked files
 

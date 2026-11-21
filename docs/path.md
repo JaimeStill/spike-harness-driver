@@ -1,6 +1,6 @@
-# Path
+# The spike's steps, code, and prior art
 
-The steps the spike took, the code they built, and the repositories it reads.
+This page lists the steps the spike took, the code they built, and the repositories it reads.
 
 The spike's steps, in dependency order, all exist: the session interface and the Pi adapter
 (step 1), session persistence and resume (step 2), payloads, tool calls, and skills (step 3),
@@ -26,5 +26,5 @@ Foundry, which `setup/` sets up. `deploy/` builds the container image.
 `references.toml` lists the repositories this spike reads. tau's `agent` package (Chat, Vision,
 and Embed) is prior art for native capabilities, not a baseline to adopt: it has no audio, among
 other gaps, so it informs the spike's own client rather than supplying it. tau's `orchestrate`
-package is the prior art for workflows. `claude-classify-docs`, in tau-platform, showed that a harness can
-run a real workflow with no Go infrastructure. herald is the workload that shaped tau.
+package is the prior art for workflows. `claude-classify-docs`, in tau-platform, showed that a
+harness can run a real workflow with no Go infrastructure. herald is the workload that shaped tau.
