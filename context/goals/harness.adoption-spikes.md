@@ -236,7 +236,13 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
 ## Pending edits
 
 - coordinator · standards-lab: `roadmap/harness.adoption-spikes.toml`: delete;
-  `roadmap/index.toml`: remove harness.adoption-spikes from `active`.
+  `roadmap/index.toml`: remove harness.adoption-spikes from `active`, stage nothing, and reorder
+  `planned` so it begins corpus.docs, v1.data.extensions, docproc-coverage,
+  capstone.data-intelligence, sites.status-reports, sites.training.foundation, the rest in their
+  current order (architect: finish the active goals first; the two sites goals run beside the
+  capstone).
+- coordinator · standards-lab: `docs/ai-strategy.md:537`: harness-driver's answer link points at
+  `context/README.md#the-answer`.
 - coordinator · standards-lab: `roadmap/harness.adoption.toml`, task `architecture`: `repos`
   stays `["architecture"]` for its core work; its summary gains two stages after the core work:
   - **Fable review**, the task's final stage before the sync: a Fable-model subagent reviews the
