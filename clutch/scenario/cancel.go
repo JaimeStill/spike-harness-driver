@@ -9,11 +9,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/clutch/domain/session"
 )
 
-// cancelPrompt asks for a long answer, so the exchange is still streaming when it is
-// cancelled.
 const cancelPrompt = "Write a 600-word essay about the history of the Unix operating system."
 
-// cancelScenario opens a session, cancels one exchange mid-stream, and closes the session.
 func cancelScenario(svc *session.Service, needs []Need) Scenario {
 	cancelAfter := 5
 	return Scenario{

@@ -54,8 +54,6 @@ func do(t *testing.T, method, url string) int {
 	return resp.StatusCode
 }
 
-// events reads an event stream until it closes, returning each event's kind, after calling
-// seen with each logged event.
 func events(t *testing.T, url string, header http.Header, seen func(workflow.Event)) []workflow.Event {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
@@ -108,7 +106,6 @@ func TestHandler(t *testing.T) {
 	if last := all[len(all)-1]; last.Kind != workflow.KindRunEnded || last.Status != workflow.StatusDone {
 		t.Fatalf("last event %+v", last)
 	}
-	// A reconnect picks up after the last event it saw.
 	tail := events(t, srv.URL+"/runs/"+id+"/events", http.Header{"Last-Event-Id": {fmt.Sprint(len(all) - 2)}}, nil)
 	if len(tail) != 2 || tail[0].Seq != len(all)-1 {
 		t.Errorf("replay after %d: %+v", len(all)-2, tail)
@@ -120,7 +117,6 @@ func TestHandler(t *testing.T) {
 		t.Errorf("GET an unknown run: %d", code)
 	}
 
-	// A live run cancels: its stream ends with the run cancelled.
 	_, id = post(t, srv.URL, workflowBody(t, longPrompt))
 	got := events(t, srv.URL+"/runs/"+id+"/events", nil, func(e workflow.Event) {
 		if e.Kind == workflow.KindStepStarted && e.Step == "second" {
@@ -145,8 +141,6 @@ func TestHandler(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil || len(listing.Runs) != 2 || listing.Errors != nil {
 		t.Errorf("GET /runs: %v, %+v", err, listing)
 	}
-	// A run ID that can't name a log is an unknown run, and an ended run's caught-up stream is
-	// 204, so an EventSource stops reconnecting.
 	if code := do(t, http.MethodGet, srv.URL+"/runs/..%2Fescape"); code != http.StatusNotFound {
 		t.Errorf("GET an invalid run ID: %d", code)
 	}
@@ -159,7 +153,6 @@ func TestHandler(t *testing.T) {
 	}
 }
 
-// syncBuffer is a Buffer the server's goroutine writes while the test reads.
 type syncBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -179,8 +172,6 @@ func (s *syncBuffer) String() string {
 
 var serving = regexp.MustCompile(`serving on (http://\S+)`)
 
-// startServe runs "serve" on a free port until the returned stop is called, and returns its
-// base URL and output.
 func startServe(t *testing.T, svc *wfdomain.Service) (string, *syncBuffer, func()) {
 	t.Helper()
 	out := &syncBuffer{}
@@ -229,8 +220,6 @@ func TestServeResumesAfterARestart(t *testing.T) {
 	}
 	stop()
 
-	// The next serve, whose harness answers, resumes the run, and a client picks its stream up
-	// where it left off.
 	base, out, stop := startServe(t, newService(state, false))
 	defer stop()
 	if !strings.Contains(out.String(), "resumed run "+id) {

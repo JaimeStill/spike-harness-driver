@@ -5,21 +5,34 @@ version `clutch conform` pins, with `tini` as PID 1. Build it from the repositor
 the Go build needs every module under `go.work`:
 
 ```sh
-docker build -f deploy/Containerfile -t clutch .
+docker build -f deploy/Containerfile -t clutch .                    # Pi's standalone release
+docker build -f deploy/Containerfile --target node -t clutch:node .  # Pi from npm, on Node
 ```
 
 The Containerfile has two build targets, which differ in how they install Pi:
 
-- **`standalone`**, the default, uses Pi's standalone release: one executable with its runtime
-  bundled, and its assets beside it. The download is checked against the SHA-256 from the
-  release's `SHA256SUMS`, so moving the pin means changing `PI_VERSION` and `PI_SHA256`
-  together. The base images are pinned by index digest as well as tag, in the
-  `*_IMAGE` arguments.
+- **`standalone`**, the default, installs Pi's standalone release on the shared `base` stage:
+  one executable with its runtime bundled, and its assets beside it. The download is checked against
+  the SHA-256 of `pi-linux-x64.tar.gz` from the release's `SHA256SUMS`, so moving the pin means
+  changing `PI_VERSION` and `PI_SHA256` together. The checksum pins the download, as `mise.toml`
+  pins the version on a workstation. The base images are pinned by index digest as well as tag,
+  in the `*_IMAGE` arguments, so a rebuild gets the same bytes; moving one means updating both.
 - **`node`** (`--target node`) installs Pi from npm on `node:22-slim`. It exists to compare
-  footprints.
+  footprints. Pi asks for Node 22.19 or newer.
+
+Both targets build `clutch` statically linked (`CGO_ENABLED=0`), so the runtime needs no Go and
+no libc of its own for it. Every runtime has `tini` as PID 1, CA certificates for the cloud
+endpoints, and an unprivileged user whose state lives on a volume. The state directory holds code
+the harness runs, so it belongs to that user alone (mode `0700`).
 
 Neither image carries Claude Code or OpenCode, because an image carries only the harness its
-workflows run on, and Pi is the default (`context/findings.md`, Harness comparison).
+workflows run on, and Pi is the default
+([`docs/findings.md`](../docs/findings.md#harness-comparison), Harness comparison).
+
+## The build context
+
+`.dockerignore` keeps what the image doesn't use out of the build context: the image builds
+`clutch` from the Go sources alone.
 
 ## Running it
 
@@ -39,7 +52,7 @@ curl -N localhost:8080/runs/<id>/events
 - **The model endpoint.** `LLAMA_BASE_URL` points at the router. A tailnet hostname resolves
   with `--network host` on a host that runs Tailscale. `AZURE_OPENAI_BASE_URL` points at Azure,
   but Azure through Pi runs `az` for its token, and the image has no `az`
-  (`context/findings.md`, Deployment).
+  ([`docs/findings.md`](../docs/findings.md#deployment), Deployment).
 - **Stopping.** `docker stop` sends SIGTERM, which `tini` passes to `clutch`. `clutch` stops its
   runs without ending them, closes the event streams, and exits, and the next start resumes the
   runs. `clutch` allows itself 30 seconds for that, and Docker's default grace is 10, so stop it

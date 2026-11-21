@@ -114,14 +114,10 @@ func (t *Tunnel) Close() error {
 	return err
 }
 
-// tunnelTransport is the go-sdk Transport of a tunnel, which hands the server conn.
 type tunnelTransport struct{ conn *tunnelConn }
 
 func (t tunnelTransport) Connect(context.Context) (mcp.Connection, error) { return t.conn, nil }
 
-// tunnelConn is the server's end of a tunnel. The server reads the messages Deliver pushes;
-// what it writes goes to the Deliver waiting on its id when it is a response, and to outbound
-// otherwise.
 type tunnelConn struct {
 	in       chan jsonrpc.Message
 	outbound func(json.RawMessage)
@@ -133,8 +129,6 @@ type tunnelConn struct {
 	waiting map[jsonrpc.ID]chan *jsonrpc.Response
 }
 
-// await registers a wait for the response to the request id. A request id the harness reuses
-// while its first request is still open is refused, since the response couldn't be told apart.
 func (c *tunnelConn) await(id jsonrpc.ID) (<-chan *jsonrpc.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -152,7 +146,6 @@ func (c *tunnelConn) forget(id jsonrpc.ID) {
 	delete(c.waiting, id)
 }
 
-// push hands m to the server's reader.
 func (c *tunnelConn) push(ctx context.Context, m jsonrpc.Message) error {
 	select {
 	case c.in <- m:
@@ -164,8 +157,6 @@ func (c *tunnelConn) push(ctx context.Context, m jsonrpc.Message) error {
 	}
 }
 
-// cancel tells the server, as the harness would, that the request id is cancelled, so its
-// handler's context ends. It doesn't wait for the server to take the notification.
 func (c *tunnelConn) cancel(id jsonrpc.ID, cause error) {
 	params := map[string]any{"requestId": id.Raw()}
 	if cause != nil {

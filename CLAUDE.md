@@ -2,9 +2,13 @@
 
 A spike that tests whether Go can drive an external agent harness as the infrastructure for
 agentic work. It is a `code` project run with the marathon workflow. Start from
-`context/README.md`.
+`context/README.md`. `STANDARDS.md` lists the judgement calls the check can't enforce.
 
 The spike serves the Standards Lab workspace's `standards-lab` coordinator
 (`github.com/standards-lab/org`) and never edits it. The repositories listed in
 `references.toml` are read-only: read them, and never write to them. Dependencies are published
 versions, never a `replace` directive.
+
+- **Check:** `mise run check` builds, vets, format-checks, and race-tests every `go.work` module,
+  tests the Pi bridge, and runs lint-context and lint-references.
+- **Currency:** `mise run currency` reports every pin behind its latest.

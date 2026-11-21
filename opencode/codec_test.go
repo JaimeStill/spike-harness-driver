@@ -14,9 +14,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// replay decodes a testdata transcript with one codec, as the Client's reader would, and
-// returns each turn's events. The transcript holds OpenCode's side only, so replay encodes a
-// session/prompt under each id that answers with a stop reason, before the turn it ends.
 func replay(t *testing.T, name string) [][]harness.Event {
 	t.Helper()
 	data, err := os.ReadFile("testdata/" + name)
@@ -57,7 +54,6 @@ func replay(t *testing.T, name string) [][]harness.Event {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The handshake ends with the model's selection, answered as id 3.
 		if handshake && fr.Response != nil && fr.Response.ID == "3" {
 			handshake = false
 			prompt()
@@ -72,7 +68,6 @@ func replay(t *testing.T, name string) [][]harness.Event {
 	return turns
 }
 
-// normalized drops EventHarness and merges each run of deltas of one kind.
 func normalized(events []harness.Event) []harness.EventKind {
 	var kinds []harness.EventKind
 	for _, ev := range events {
@@ -150,7 +145,6 @@ func TestACancelledTurn(t *testing.T) {
 	}
 }
 
-// decodeAll decodes lines with c and returns their events.
 func decodeAll(t *testing.T, c *codec, lines ...string) []harness.Event {
 	t.Helper()
 	var events []harness.Event
@@ -194,8 +188,6 @@ func TestAFailedPromptIsTheExchangesError(t *testing.T) {
 	}
 }
 
-// A respond call is the structured response only when it completed with the bridge's
-// acceptance; a failed call, or one whose output is anything else, is a rejection.
 func TestARespondCallsVerdict(t *testing.T) {
 	upd := func(u string) string {
 		return `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":` + u + `}}`
@@ -236,7 +228,6 @@ func TestARespondCallsVerdict(t *testing.T) {
 	}
 }
 
-// A tool that takes no arguments is still reported as called: its rawInput stays {}.
 func TestACallWithNoArguments(t *testing.T) {
 	c := newCodec()
 	if _, err := c.Encode("4", call{Method: "session/prompt"}); err != nil {

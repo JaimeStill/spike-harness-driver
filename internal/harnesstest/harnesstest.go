@@ -41,7 +41,7 @@ type Connection struct {
 	stream    string
 	events    chan harness.Event
 	cancel    chan struct{}
-	done      chan struct{} // closed by Close
+	closed    chan struct{}
 	runs      sync.WaitGroup
 	closeOnce sync.Once
 }
@@ -54,7 +54,7 @@ func NewConnection(stream string) *Connection {
 		stream: stream,
 		events: make(chan harness.Event, 64),
 		cancel: make(chan struct{}),
-		done:   make(chan struct{}),
+		closed: make(chan struct{}),
 	}
 }
 
@@ -68,12 +68,11 @@ func (c *Connection) Prompt(_ context.Context, req harness.Request) error {
 	return nil
 }
 
-// send queues ev, and reports false once Close has stopped the run.
 func (c *Connection) send(ev harness.Event) bool {
 	select {
 	case c.events <- ev:
 		return true
-	case <-c.done:
+	case <-c.closed:
 		return false
 	}
 }
@@ -102,7 +101,7 @@ func (c *Connection) run(streaming bool) {
 				c.send(harness.Event{Kind: harness.EventCancelled, StopReason: "aborted"}) &&
 				c.send(harness.Event{Kind: harness.EventEnded})
 			return
-		case <-c.done:
+		case <-c.closed:
 			return
 		case c.events <- harness.Event{Kind: harness.EventTextDelta, Text: "."}:
 		}
@@ -123,7 +122,7 @@ func (c *Connection) Err() error { return nil }
 
 func (c *Connection) Close() error {
 	c.closeOnce.Do(func() {
-		close(c.done)
+		close(c.closed)
 		c.runs.Wait()
 		close(c.events)
 	})

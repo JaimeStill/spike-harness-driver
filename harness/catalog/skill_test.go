@@ -34,7 +34,6 @@ func TestSkills(t *testing.T) {
 	if got, want := strings.Join(names, ","), "deploy,review"; got != want {
 		t.Fatalf("names = %s, want %s", got, want)
 	}
-	// Each skill's FS is rooted at its own directory.
 	data, err := fs.ReadFile(skills[1].FS, "checklist.md")
 	if err != nil || string(data) != "- tests\n" {
 		t.Fatalf("review/checklist.md = %q, %v", data, err)
@@ -111,8 +110,6 @@ func TestSkillsInvalid(t *testing.T) {
 	}
 }
 
-// SkillsDir and SkillDir keep each skill's absolute directory, which an adapter hands the
-// harness as it is; a skill loaded from an fs.FS has none.
 func TestSkillsDirKeepsTheDirectory(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"review", "deploy"} {
@@ -143,7 +140,6 @@ func TestSkillsDirKeepsTheDirectory(t *testing.T) {
 	}
 }
 
-// A block scalar under a key the loader doesn't read leaves the skill readable.
 func TestSkillIgnoresOtherBlockScalars(t *testing.T) {
 	fsys := fstest.MapFS{"SKILL.md": skillMD("name: a\ndescription: A.\nlicense: >\n  MIT, see\n  LICENSE.\n")}
 	s, err := catalog.Skill(fsys)

@@ -13,8 +13,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// replay decodes every line of a testdata transcript with one codec, as the Client's reader
-// would, and returns the events.
 func replay(t *testing.T, name string) []harness.Event {
 	t.Helper()
 	f, err := os.Open("testdata/" + name)
@@ -39,8 +37,6 @@ func replay(t *testing.T, name string) []harness.Event {
 	return events
 }
 
-// normalized drops EventHarness and merges each run of deltas of one kind, for comparing a
-// transcript's shape.
 func normalized(events []harness.Event) []harness.EventKind {
 	var kinds []harness.EventKind
 	for _, ev := range events {
@@ -171,7 +167,6 @@ func TestTurnErrors(t *testing.T) {
 	}
 }
 
-// A rejected notice explains only its own turn's failure: the next turn's init forgets it.
 func TestALimitNoticeLastsOneTurn(t *testing.T) {
 	c := newCodec()
 	var events []harness.Event
@@ -204,8 +199,6 @@ func TestARejectedRespondCall(t *testing.T) {
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":[{"type":"text","text":"missing properties: [\"city\"]"}]}]}}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__driver__respond_0f3a9c21","input":{"city":"Paris"}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Accepted."}]}}`,
-		// A result that isn't flagged an error but isn't the bridge's acceptance either is no
-		// structured response.
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"mcp__driver__respond_0f3a9c21","input":{"city":"Lyon"}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"something else"}]}}`,
 	}

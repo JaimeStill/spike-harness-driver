@@ -15,17 +15,13 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// skillFile is the file that makes a directory a skill.
 const skillFile = "SKILL.md"
 
-// skillName is the Agent Skills rule for a skill's name, which Pi follows: lowercase letters
-// and digits in hyphen-separated runs, with no leading, trailing, or doubled hyphen. The
-// length limit, 64, is checked apart.
 var skillName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// Skill loads the skill whose directory is the root of fsys. The frontmatter of its SKILL.md
-// must give a name and a description: Pi refuses a skill without a description, and a skill
-// the harness refuses would fail the session later rather than here.
+// Skill loads the skill whose directory, <dir>, is the root of fsys. The frontmatter of
+// <dir>/SKILL.md must give a name and a description: Pi refuses a skill without a description,
+// and a skill the harness refuses would fail the session later rather than here.
 func Skill(fsys fs.FS) (harness.Skill, error) {
 	name, err := readSkill(fsys)
 	if err != nil {
@@ -34,9 +30,9 @@ func Skill(fsys fs.FS) (harness.Skill, error) {
 	return harness.Skill{Name: name, FS: fsys}, nil
 }
 
-// Skills loads every skill directly under the root of fsys, sorted by name. A subdirectory
-// without a SKILL.md isn't a skill and is skipped. A skill's name must equal its directory's,
-// as the Agent Skills layout requires, so no two skills share a name.
+// Skills loads every skill directly under the root of fsys, sorted by name. A subdirectory,
+// <dir>, without <dir>/SKILL.md isn't a skill and is skipped. A skill's name must equal its
+// directory's, as the Agent Skills layout requires, so no two skills share a name.
 func Skills(fsys fs.FS) ([]harness.Skill, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -66,8 +62,6 @@ func Skills(fsys fs.FS) ([]harness.Skill, error) {
 		}
 		skills = append(skills, harness.Skill{Name: name, FS: sub})
 	}
-	// ReadDir returns the entries sorted by name, and each skill's name is its entry's, so the
-	// skills are sorted already.
 	return skills, nil
 }
 
@@ -103,7 +97,6 @@ func SkillsDir(dir string) ([]harness.Skill, error) {
 	return skills, nil
 }
 
-// readSkill reads the SKILL.md at the root of fsys and returns the skill's validated name.
 func readSkill(fsys fs.FS) (string, error) {
 	data, err := fs.ReadFile(fsys, skillFile)
 	if err != nil {
@@ -125,13 +118,6 @@ func readSkill(fsys fs.FS) (string, error) {
 	return name, nil
 }
 
-// frontmatter parses the YAML frontmatter at the start of a SKILL.md: the lines between a
-// first line of "---" and the next line of "---". It reads only the top-level "key: value"
-// lines a skill's name and description take, with the value bare or in single or double
-// quotes, and skips comments and indented lines. A full YAML parser would be the module's first
-// dependency, for two keys. A block scalar ("|" or ">") for name or description is refused
-// rather than misread, because its value is on the indented lines this parser skips; under any
-// other key it is ignored.
 func frontmatter(data []byte) (map[string]string, error) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	if !sc.Scan() || strings.TrimRight(sc.Text(), " \t\r") != "---" {
@@ -153,8 +139,6 @@ func frontmatter(data []byte) (map[string]string, error) {
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 		value, err := scalar(value)
 		if err != nil {
-			// Only name and description are read; any other key may take a form this parser
-			// doesn't, such as a block scalar, without making the skill unreadable.
 			if key == "name" || key == "description" {
 				return nil, fmt.Errorf("frontmatter key %q: %w", key, err)
 			}
@@ -168,8 +152,6 @@ func frontmatter(data []byte) (map[string]string, error) {
 	return nil, errors.New("frontmatter isn't closed by a --- line")
 }
 
-// scalar returns the value of a one-line YAML scalar: the text inside its quotes, or, bare,
-// the text before any comment. Escapes inside double quotes are left as written.
 func scalar(v string) (string, error) {
 	if v == "" {
 		return "", nil

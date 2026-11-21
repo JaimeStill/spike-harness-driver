@@ -18,8 +18,6 @@ import (
 
 const fakeProvider = "router"
 
-// fakeDriver returns a Driver whose OpenCode is this test binary in fake mode, keeping its
-// state and its launch record in dir.
 func fakeDriver(dir string) Driver {
 	return Driver{
 		Command:  os.Args[0],
@@ -27,8 +25,7 @@ func fakeDriver(dir string) Driver {
 		Providers: map[string]Provider{fakeProvider: {BaseURL: "http://router.invalid/v1",
 			Headers: map[string]string{"Authorization": "Bearer t"},
 			Models:  map[string]Model{"vision": {Image: true, Context: 8192}}}},
-		// A race-enabled binary sleeps a second at exit unless told not to.
-		Env: []string{fakeEnv + "=1", "GORACE=atexit_sleep_ms=0", launchEnv + "=" + filepath.Join(dir, "launch")},
+		Env: []string{fakeEnv + "=1", noRaceExitSleep, launchEnv + "=" + filepath.Join(dir, "launch")},
 	}
 }
 
@@ -99,8 +96,6 @@ func TestAStructuredResponsePerSchema(t *testing.T) {
 	if _, res, err := exchange(t, s, harness.Request{Text: `structured:{"city":"Paris"}`, Schema: city}); err != nil || string(res.Structured) != `{"city":"Paris"}` {
 		t.Fatalf("first = %s, %v", res.Structured, err)
 	}
-	// The fake answers with the respond tool it listed last, so this passes only if the
-	// prompt waited for the listing after the schema changed.
 	if _, res, err := exchange(t, s, harness.Request{Text: `structured:{"count":3}`, Schema: count}); err != nil || string(res.Structured) != `{"count":3}` {
 		t.Fatalf("second = %s, %v", res.Structured, err)
 	}
@@ -132,11 +127,6 @@ func TestCancel(t *testing.T) {
 	}
 }
 
-// The driver allows whatever OpenCode asks about, whatever the request's title: the tool
-// allowlist in OpenCode's configuration keeps the tools the session doesn't enable from being
-// asked about.
-// A cancel the session sends as soon as Prompt returns reaches OpenCode after the prompt, so
-// it aborts the turn: an exchange whose context has already ended is aborted at once.
 func TestCancelAtOnce(t *testing.T) {
 	s := open(t, fakeDriver(t.TempDir()), harness.Options{})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -191,7 +181,6 @@ func TestResume(t *testing.T) {
 	if s.ID() != id {
 		t.Fatalf("resumed %s, want %s", s.ID(), id)
 	}
-	// The replayed history belongs to no exchange.
 	events, res, err := exchange(t, s, harness.Request{Text: "hi"})
 	if err != nil || res.Text != "hello" {
 		t.Fatalf("result = %+v, %v", res, err)
@@ -202,7 +191,6 @@ func TestResume(t *testing.T) {
 		}
 	}
 
-	// OpenCode can't create a session under a chosen ID, so an ID it doesn't hold fails.
 	if _, err := d.Open(t.Context(), harness.Options{Provider: fakeProvider, SessionID: "ses_unknown"}); err == nil {
 		t.Fatal("Open on an unknown session succeeded")
 	}
@@ -281,7 +269,6 @@ func TestOpenRefusesAnUnknownProvider(t *testing.T) {
 	}
 }
 
-// An endpoint serving reasoning models takes @ai-sdk/openai, with a token as its API key.
 func TestAProvidersPackageAndKey(t *testing.T) {
 	d := fakeDriver(t.TempDir())
 	d.Providers["azure"] = Provider{NPM: "@ai-sdk/openai", BaseURL: "https://example.invalid/openai/v1", APIKey: "token"}

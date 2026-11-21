@@ -49,7 +49,6 @@ func TestRank(t *testing.T) {
 }
 
 func TestTheHoneyPassageComesFirst(t *testing.T) {
-	// The embed scenario checks that passages[0] ranks first, so it must be the honey one.
 	if passages[0].label != "honey" || len(passages) != 3 {
 		t.Errorf("passages = %+v", passages)
 	}

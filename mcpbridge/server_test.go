@@ -12,16 +12,13 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// echoSchema requires a string text, so a call without one fails validation.
 var echoSchema = json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)
 
-// answerSchema is a response schema; answerSchema2 is another.
 var (
 	answerSchema  = json.RawMessage(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`)
 	answerSchema2 = json.RawMessage(`{"type":"object","properties":{"verdict":{"type":"string"}},"required":["verdict"]}`)
 )
 
-// testTools are an echo tool, a tool whose handler fails, and a tool with no schema.
 func testTools() []harness.Tool {
 	return []harness.Tool{
 		{
@@ -46,7 +43,6 @@ func testTools() []harness.Tool {
 	}
 }
 
-// recorder keeps what a server reports through its Options callbacks.
 type recorder struct {
 	mu         sync.Mutex
 	structured []json.RawMessage
@@ -138,7 +134,6 @@ func TestSetSchema(t *testing.T) {
 		t.Fatalf("RespondName = %q, want %s and 8 hex digits", first, mcpbridge.RespondPrefix)
 	}
 
-	// The same schema, differently spaced, keeps the name.
 	spaced := json.RawMessage(strings.ReplaceAll(string(answerSchema), ",", ", "))
 	if err := s.SetSchema(spaced); err != nil {
 		t.Fatal(err)

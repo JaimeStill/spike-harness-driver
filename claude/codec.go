@@ -14,27 +14,18 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// serverName is the name of the driver's MCP server. Claude Code names the server's tools
-// mcp__<server>__<tool>.
 const serverName = "driver"
 
-// toolPrefix starts the name Claude Code gives each of the driver's tools.
 const toolPrefix = "mcp__" + serverName + "__"
 
-// codec translates Claude Code's stream-json protocol. Unlike Pi's codec, it keeps state across
-// lines, which is safe because the Client has one reader goroutine. It keeps the arguments of each
-// respond call, which become the structured response once Claude Code reports the call's result,
-// and the turn's last rate-limit notice, which explains a turn the limit refused.
 type codec struct {
-	// responds maps each respond call's tool_use ID to its arguments. calls maps the ID of every
-	// other call to its tool's name, which Claude Code's tool results don't carry.
-	responds map[string]json.RawMessage
-	calls    map[string]string
-	limit    *harness.LimitStatus
+	respondArgs map[string]json.RawMessage
+	toolNames   map[string]string
+	limit       *harness.LimitStatus
 }
 
 func newCodec() *codec {
-	return &codec{responds: map[string]json.RawMessage{}, calls: map[string]string{}}
+	return &codec{respondArgs: map[string]json.RawMessage{}, toolNames: map[string]string{}}
 }
 
 // Encode renders a control request, which carries id as its request_id, or a user message, which
@@ -106,15 +97,6 @@ func (c *codec) Decode(raw []byte) (stdio.Frame, error) {
 	return stdio.Frame{Events: events}, nil
 }
 
-// normalize maps one stream-json line to normalized events. Every line maps to at least one,
-// so nothing Claude Code reports is lost: lines with no normalized meaning become EventHarness.
-//
-// A turn starts at the system init message, which Claude Code sends as each turn begins, and
-// ends at its result, which maps to EventMessageEnd and EventEnded. The init forgets the last
-// turn's rate-limit notice, so a notice from an earlier turn doesn't explain this turn's failure. Claude Code accepts a user
-// message during a turn and runs it as a later turn, but harness.Session never sends one.
-// Text and thinking arrive as stream deltas; the assistant messages that follow repeat them
-// whole, so only their tool calls are read.
 func (c *codec) normalize(l line, raw []byte) ([]harness.Event, error) {
 	ev := harness.Event{Kind: harness.EventHarness, Raw: raw}
 	switch {
@@ -129,7 +111,6 @@ func (c *codec) normalize(l line, raw []byte) ([]harness.Event, error) {
 		if s.Event.Type != "content_block_delta" {
 			break
 		}
-		// A model whose thinking Claude Code doesn't display streams empty thinking deltas.
 		switch d := s.Event.Delta; {
 		case d.Type == "text_delta" && d.Text != "":
 			ev.Kind, ev.Text = harness.EventTextDelta, d.Text
@@ -157,9 +138,6 @@ func (c *codec) normalize(l line, raw []byte) ([]harness.Event, error) {
 	return []harness.Event{ev}, nil
 }
 
-// toolCalls maps an assistant message's tool_use blocks to EventToolCall. A respond call is
-// kept for its result instead: it is how the driver gets a structured response, not a tool of
-// the session's.
 func (c *codec) toolCalls(raw []byte) ([]harness.Event, error) {
 	blocks, err := blocksOf(raw)
 	if err != nil {
@@ -172,10 +150,10 @@ func (c *codec) toolCalls(raw []byte) ([]harness.Event, error) {
 		}
 		name := toolName(b.Name)
 		if mcpbridge.IsRespond(name) && strings.HasPrefix(b.Name, toolPrefix) {
-			c.responds[b.ID] = b.Input
+			c.respondArgs[b.ID] = b.Input
 			continue
 		}
-		c.calls[b.ID] = name
+		c.toolNames[b.ID] = name
 		events = append(events, harness.Event{
 			Kind: harness.EventToolCall, Raw: raw,
 			Tool: &harness.ToolEvent{CallID: b.ID, Name: name, Args: b.Input},
@@ -187,11 +165,6 @@ func (c *codec) toolCalls(raw []byte) ([]harness.Event, error) {
 	return events, nil
 }
 
-// toolResults maps a user message's tool_result blocks to EventToolResult. A respond call's result
-// becomes the structured response when mcpbridge accepted its arguments, which it validated against
-// the exchange's schema, and an EventStructuredRejected with the rejection the model saw otherwise.
-// A result is the bridge's acceptance when it isn't an error and its text is mcpbridge.Accepted,
-// so the bridge's verdict decides, not Claude Code's error flag alone.
 func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 	blocks, err := blocksOf(raw)
 	if err != nil {
@@ -202,8 +175,8 @@ func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 		if b.Type != "tool_result" {
 			continue
 		}
-		if args, ok := c.responds[b.ToolUseID]; ok {
-			delete(c.responds, b.ToolUseID)
+		if args, ok := c.respondArgs[b.ToolUseID]; ok {
+			delete(c.respondArgs, b.ToolUseID)
 			if text := resultText(b.Content); b.IsError || text != mcpbridge.Accepted {
 				events = append(events, harness.Event{Kind: harness.EventStructuredRejected, Raw: raw,
 					Err: errors.New("claude: respond: " + text)})
@@ -212,8 +185,8 @@ func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 			}
 			continue
 		}
-		name := c.calls[b.ToolUseID]
-		delete(c.calls, b.ToolUseID)
+		name := c.toolNames[b.ToolUseID]
+		delete(c.toolNames, b.ToolUseID)
 		events = append(events, harness.Event{
 			Kind: harness.EventToolResult, Raw: raw,
 			Tool: &harness.ToolEvent{CallID: b.ToolUseID, Name: name, Result: b.Content, IsError: b.IsError},
@@ -225,11 +198,6 @@ func (c *codec) toolResults(raw []byte) ([]harness.Event, error) {
 	return events, nil
 }
 
-// end maps a turn's result to EventMessageEnd, with the turn's text and its usage summed over
-// its model requests, and EventEnded. Claude Code reports an interrupted turn as an error
-// whose terminal reason starts with "aborted", which maps to the stop reason "aborted" and
-// EventCancelled; any other error is EventError, and a *harness.LimitError when the
-// subscription's usage limit refused the turn.
 func (c *codec) end(r result, raw []byte) []harness.Event {
 	stop := ""
 	if r.StopReason != nil {
@@ -253,18 +221,13 @@ func (c *codec) end(r result, raw []byte) []harness.Event {
 	case r.IsError:
 		events = append(events, harness.Event{Kind: harness.EventError, Err: c.turnError(r)})
 	}
-	clear(c.responds)
-	clear(c.calls)
+	clear(c.respondArgs)
+	clear(c.toolNames)
 	return append(events, harness.Event{Kind: harness.EventEnded})
 }
 
-// limitReset finds the reset time in Claude Code's usage-limit message, which ends with
-// "|<unix seconds>".
 var limitReset = regexp.MustCompile(`(?i)limit.*\|(\d{9,})`)
 
-// turnError is a failed turn's error. A turn the subscription's limit refused, by a rejected
-// rate-limit notice, an HTTP 429, or a usage-limit message, is a *harness.LimitError, reset
-// when the notice or the message says.
 func (c *codec) turnError(r result) error {
 	msg := strings.Join(r.Errors, "; ")
 	if msg == "" {
@@ -291,7 +254,6 @@ func (c *codec) turnError(r result) error {
 	return &harness.LimitError{ResetsAt: resets, Message: msg}
 }
 
-// limitStatus is a rate_limit_event's notice. The utilization is the limiting window's.
 func limitStatus(r rateLimit) *harness.LimitStatus {
 	s := &harness.LimitStatus{Status: r.Info.Status, Kind: r.Info.RateLimitType}
 	if r.Info.ResetsAt > 0 {
@@ -303,8 +265,6 @@ func limitStatus(r rateLimit) *harness.LimitStatus {
 	return s
 }
 
-// blocksOf decodes a message's content blocks. A user message's content may be a plain string,
-// which holds no blocks.
 func blocksOf(raw []byte) ([]contentBlock, error) {
 	var m message
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -317,13 +277,10 @@ func blocksOf(raw []byte) ([]contentBlock, error) {
 	return blocks, nil
 }
 
-// toolName is the name a tool event carries: a driver tool's own name, without the prefix
-// Claude Code gives the driver's server, and a harness tool's name as it is.
 func toolName(name string) string {
 	return strings.TrimPrefix(name, toolPrefix)
 }
 
-// resultText is a tool result's text, from a string or the text blocks of a list.
 func resultText(content json.RawMessage) string {
 	var s string
 	if json.Unmarshal(content, &s) == nil {

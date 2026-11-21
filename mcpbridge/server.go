@@ -25,8 +25,7 @@ import (
 // "respond" for itself.
 const RespondPrefix = "respond_"
 
-// reserved begins every name the bridge keeps for itself, so no session tool may begin with it.
-const reserved = "respond"
+const reservedPrefix = "respond"
 
 // IsRespond reports whether name is a respond tool's, current or not, so an adapter can tell
 // the model's structured response from its other tool calls.
@@ -42,9 +41,6 @@ const Accepted = "Accepted."
 // DefaultName is the MCP server's name when Options.Name is empty.
 const DefaultName = "driver"
 
-// respondName is the respond tool's name for schema: RespondPrefix and the first 8 hex digits
-// of the SHA-256 of the compacted schema, so a schema that differs only in white space keeps
-// the name. schema is valid JSON.
 func respondName(schema json.RawMessage) string {
 	var b bytes.Buffer
 	if err := json.Compact(&b, schema); err != nil {
@@ -55,15 +51,10 @@ func respondName(schema json.RawMessage) string {
 	return RespondPrefix + hex.EncodeToString(sum[:4])
 }
 
-// respondDescription tells the model how to use respond. It asks for exactly one call because
-// a response the bridge accepts ends the request's work, and it says what to do on rejection
-// because the model sees a rejected call only as a failed tool call.
 const respondDescription = "Give your final answer by calling this tool exactly once, with the answer as its " +
 	"arguments. The arguments must match this tool's input schema. If the call is rejected, " +
 	"correct the arguments as the error says and call it again."
 
-// emptySchema is the arguments schema of a tool that declares none. MCP requires every tool
-// to have an object input schema.
 var emptySchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
 // Options configures a Server.
@@ -92,24 +83,16 @@ type Server struct {
 	opts  Options
 	tools []tool
 
-	mu sync.Mutex
-	// schema is respond's input schema, resolved is its compiled form, and respond is its name; all
-	// are zero while no structured response is expected.
+	mu       sync.Mutex
 	schema   json.RawMessage
 	resolved *jsonschema.Resolved
 	respond  string
-	// servers are the go-sdk servers of the open tunnels and endpoints.
-	servers map[*mcp.Server]struct{}
+	servers  map[*mcp.Server]struct{}
 
-	// gen counts the changes to respond. listedGen is the highest gen a tools/list answered,
-	// as each stood when its request arrived, so a listing already under way when respond
-	// changed doesn't count as the new one. started counts the listings that have arrived,
-	// answered or not, and listed is closed and replaced at each answer, for WaitListed.
 	gen, listedGen, started int
 	listed                  chan struct{}
 }
 
-// tool is a session tool with its schema compiled for validating its arguments.
 type tool struct {
 	harness.Tool
 	resolved *jsonschema.Resolved
@@ -128,8 +111,8 @@ func New(tools []harness.Tool, opts Options) (*Server, error) {
 		if err := t.Validate(); err != nil {
 			return nil, fmt.Errorf("mcpbridge: %w", err)
 		}
-		if strings.HasPrefix(t.Name, reserved) {
-			return nil, fmt.Errorf("mcpbridge: tool %q: names beginning %q are the bridge's own", t.Name, reserved)
+		if strings.HasPrefix(t.Name, reservedPrefix) {
+			return nil, fmt.Errorf("mcpbridge: tool %q: names beginning %q are the bridge's own", t.Name, reservedPrefix)
 		}
 		if seen[t.Name] {
 			return nil, fmt.Errorf("mcpbridge: two tools are named %q", t.Name)
@@ -179,7 +162,7 @@ func (s *Server) SetSchema(schema json.RawMessage) error {
 		if old != "" {
 			srv.RemoveTools(old)
 		}
-		s.installRespond(srv)
+		s.installRespondLocked(srv)
 	}
 	return nil
 }
@@ -221,12 +204,8 @@ func (s *Server) RespondName() string {
 	return s.respond
 }
 
-// newServer returns a go-sdk server offering the session's tools and, when a schema is set,
-// respond, and registers it for SetSchema. remove unregisters it.
 func (s *Server) newServer() (srv *mcp.Server, remove func()) {
 	srv = mcp.NewServer(&mcp.Implementation{Name: s.name, Version: "1"}, &mcp.ServerOptions{
-		// Advertise the tools capability with listChanged even with no tools yet, since
-		// respond may arrive later.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
 	})
 	srv.AddReceivingMiddleware(s.routeRespond)
@@ -235,7 +214,7 @@ func (s *Server) newServer() (srv *mcp.Server, remove func()) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.installRespond(srv)
+	s.installRespondLocked(srv)
 	s.servers[srv] = struct{}{}
 	return srv, func() {
 		s.mu.Lock()
@@ -244,21 +223,13 @@ func (s *Server) newServer() (srv *mcp.Server, remove func()) {
 	}
 }
 
-// installRespond adds srv's respond tool for the current schema, if one is set. The caller
-// holds s.mu.
-func (s *Server) installRespond(srv *mcp.Server) {
+func (s *Server) installRespondLocked(srv *mcp.Server) {
 	if s.respond == "" {
 		return
 	}
 	srv.AddTool(&mcp.Tool{Name: s.respond, Description: respondDescription, InputSchema: s.schema}, s.handleRespond)
 }
 
-// routeRespond sends every call to a respond tool's name to handleRespond, whether or not the
-// server still lists that name, and counts the tools/list requests started and answered, for
-// WaitListed. A call
-// to a name the schema replaced or removed would otherwise fail as a protocol error for an unknown
-// tool, which a harness may not show the model; as a failed call, it tells the model what to do
-// instead.
 func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		if call, ok := req.(*mcp.CallToolRequest); ok && call.Params != nil && IsRespond(call.Params.Name) {
@@ -283,9 +254,6 @@ func (s *Server) routeRespond(next mcp.MethodHandler) mcp.MethodHandler {
 	}
 }
 
-// handleTool runs t for each call. A failure, whether of validation or of the handler, is a
-// tool result with isError set rather than a protocol error, so the model sees it and the
-// exchange carries on.
 func (s *Server) handleTool(t tool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := arguments(req)
@@ -303,9 +271,6 @@ func (s *Server) handleTool(t tool) mcp.ToolHandler {
 	}
 }
 
-// handleRespond takes a structured response. It accepts a call only to the current respond
-// tool, and validates it against the schema set when the call arrives: the schema may have
-// changed since the model listed its tools.
 func (s *Server) handleRespond(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.mu.Lock()
 	resolved, current := s.resolved, s.respond
@@ -335,7 +300,6 @@ func (s *Server) handleRespond(_ context.Context, req *mcp.CallToolRequest) (*mc
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: Accepted}}}, nil
 }
 
-// arguments returns a call's arguments, an empty object for a call that sent none or null.
 func arguments(req *mcp.CallToolRequest) json.RawMessage {
 	if req.Params == nil {
 		return json.RawMessage(`{}`)
@@ -346,7 +310,6 @@ func arguments(req *mcp.CallToolRequest) json.RawMessage {
 	return req.Params.Arguments
 }
 
-// compile checks that schema is an object schema and compiles it for validation.
 func compile(schema json.RawMessage) (*jsonschema.Resolved, error) {
 	if err := harness.ValidateSchema(schema); err != nil {
 		return nil, err
@@ -362,7 +325,6 @@ func compile(schema json.RawMessage) (*jsonschema.Resolved, error) {
 	return resolved, nil
 }
 
-// validate checks args against resolved.
 func validate(resolved *jsonschema.Resolved, args json.RawMessage) error {
 	var v any
 	if err := json.Unmarshal(args, &v); err != nil {
@@ -371,7 +333,6 @@ func validate(resolved *jsonschema.Resolved, args json.RawMessage) error {
 	return resolved.Validate(v)
 }
 
-// failure is a tool result reporting err to the model.
 func failure(err error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}
 }

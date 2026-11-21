@@ -42,4 +42,6 @@
 // 32 random bytes, hex-encoded, as "Authorization: Bearer <token>". Every other request is
 // refused with 401 Unauthorized before it reaches the MCP server. The comparison runs in
 // constant time, so the response's timing gives no clue to the token.
+//
+// See docs/design.md#the-mcp-bridge
 package mcpbridge

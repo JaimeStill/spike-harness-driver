@@ -1,18 +1,11 @@
-# Marathon session plan files.
+# Untracked: marathon's working files, the per-machine references map, build output, and secrets.
+# See docs/configuration.md#untracked-files
 .claude/plans/
-
-# The branch review's report, read by the architect and deleted at closeout.
 .claude/report.md
-
-# Per-machine local directory map for references.toml.
 references.local.toml
-
-# Build and coverage artifacts.
 bin/
 *.test
 coverage.out
-
-# Connection details and secrets for model targets (setup/azure-foundry.md).
 .env
 .env.*
 secrets.json

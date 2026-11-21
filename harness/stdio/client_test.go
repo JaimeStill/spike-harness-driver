@@ -19,10 +19,9 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/stdio"
 )
 
-// peerEnv turns the test binary into a line-protocol peer, and selects its behavior: "echo"
-// answers commands, "stubborn" also ignores the end of its input, "orphaner" leaves a child
-// holding its stdout when its input ends, and "sleep" is that child.
 const peerEnv = "STDIO_PEER"
+
+const noRaceExitSleep = "GORACE=atexit_sleep_ms=0"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(peerEnv) == "sleep" {
@@ -35,7 +34,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testCmd is the peer's command; testCodec encodes it and decodes the peer's lines.
 type testCmd struct {
 	ID   string `json:"id"`
 	Op   string `json:"op"`
@@ -43,8 +41,7 @@ type testCmd struct {
 }
 
 type testLine struct {
-	ID string `json:"id"`
-	// Request, when set, makes the line a request of the driver, with Data as its body.
+	ID      string  `json:"id"`
 	Request string  `json:"request,omitempty"`
 	OK      bool    `json:"ok"`
 	Error   string  `json:"error"`
@@ -82,13 +79,10 @@ func (testCodec) Reply(req stdio.Request, answer any) ([]byte, error) {
 	return json.Marshal(testCmd{ID: req.ID, Op: "reply", Data: answer.(string)})
 }
 
-// peer answers each command on its own goroutine, after a delay that reverses their order, so
-// responses arrive out of order.
 func peer(mode string) int {
 	var mu sync.Mutex
 	emit := func(v any) {
 		b, _ := json.Marshal(v)
-		// encoding/json escapes U+2028; a harness written in another language may not.
 		b = bytes.ReplaceAll(b, []byte(`\u2028`), []byte("\u2028"))
 		mu.Lock()
 		defer mu.Unlock()
@@ -96,10 +90,7 @@ func peer(mode string) int {
 	}
 	event := func(s string) { emit(testLine{Event: &s}) }
 
-	// asked maps each request the peer made of the driver to the command that made it, which
-	// the driver's answer then answers.
 	asked := map[string]string{}
-	// held is the id of the command "hold" made, which "release" answers.
 	held := ""
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
@@ -123,8 +114,6 @@ func peer(mode string) int {
 		case "reply":
 			emit(testLine{ID: asked[c.ID], OK: true, Data: c.Data})
 		case "hold":
-			// The event reports the command's arrival, in order with the peer's other input;
-			// the response waits for "release".
 			held = c.ID
 			event("held")
 		case "release":
@@ -133,7 +122,6 @@ func peer(mode string) int {
 			event(c.Data)
 			emit(testLine{ID: c.ID, OK: true})
 		case "note":
-			// A notification gets no response; the event echoes the id it arrived with.
 			event(c.Data + "|" + c.ID)
 		case "big":
 			event(strings.Repeat("x", 100_000))
@@ -158,12 +146,8 @@ func peer(mode string) int {
 	return 0
 }
 
-// orphanPIDEnv names the file where orphan records its child's PID, for the test to check.
 const orphanPIDEnv = "STDIO_ORPHAN_PID"
 
-// orphan starts a child that inherits the peer's stdout and outlives the peer, as a tool
-// process a harness started might. A detached child leaves the peer's process group, as a
-// daemonizing process would.
 func orphan(detached bool) {
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), peerEnv+"=sleep")
@@ -181,13 +165,11 @@ func start(t *testing.T, mode string, waitDelay time.Duration, env ...string) *s
 	return startAnswering(t, mode, waitDelay, nil, env...)
 }
 
-// startAnswering starts the peer with handle answering its requests.
 func startAnswering(t *testing.T, mode string, waitDelay time.Duration, handle stdio.Handler, env ...string) *stdio.Client {
 	t.Helper()
 	p, err := stdio.Start(stdio.Spec{
-		Name: os.Args[0],
-		// A race-enabled binary sleeps a second at exit unless told not to.
-		Env:       append([]string{peerEnv + "=" + mode, "GORACE=atexit_sleep_ms=0"}, env...),
+		Name:      os.Args[0],
+		Env:       append([]string{peerEnv + "=" + mode, noRaceExitSleep}, env...),
 		WaitDelay: waitDelay,
 	})
 	if err != nil {
@@ -238,8 +220,6 @@ func TestCallReportsHarnessFailure(t *testing.T) {
 	}
 }
 
-// Send writes the command before it returns, so a notification written next reaches the
-// harness after it, and the response arrives on the channel once the harness answers.
 func TestSendWritesBeforeItReturns(t *testing.T) {
 	c := start(t, "echo", 0)
 	defer func() { _ = c.Close() }()
@@ -276,7 +256,6 @@ func TestSendWritesBeforeItReturns(t *testing.T) {
 	}
 }
 
-// A command the harness exits before answering gets the exit error on its channel.
 func TestSendFailsWhenTheHarnessExits(t *testing.T) {
 	c := start(t, "echo", 0)
 	defer func() { _ = c.Close() }()
@@ -326,7 +305,6 @@ func TestNotifyWaitsForNoResponse(t *testing.T) {
 	if !ok || ev.Text != "hello|" {
 		t.Fatalf("event = %+v, want the note with an empty id", ev)
 	}
-	// The client still correlates calls after a notification.
 	if _, err := c.Call(t.Context(), testCmd{Op: "echo", Data: "1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -339,8 +317,6 @@ func TestLines(t *testing.T) {
 		want string
 	}{
 		{name: "longer than a scanner token", cmd: testCmd{Op: "big"}, want: strings.Repeat("x", 100_000)},
-		// The peer writes U+2028 raw; a splitter that treats it as a line break, as
-		// Node's readline does, would cut this line in two.
 		{name: "holds U+2028", cmd: testCmd{Op: "event", Data: "a b"}, want: "a b"},
 	}
 	for _, tt := range tests {
@@ -364,7 +340,6 @@ func TestPeerExit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "fatal: peer gone") {
 		t.Fatalf("pending Call = %v, want the exit error with stderr", err)
 	}
-	// The exit is Err's to report, not an event's.
 	if ev, ok := nextEvent(t, c); ok {
 		t.Fatalf("Events delivered %+v instead of closing after the exit", ev)
 	}
@@ -377,15 +352,12 @@ func TestPeerExit(t *testing.T) {
 	if err := c.Close(); err == nil {
 		t.Fatal("Close after a failed exit returned nil")
 	}
-	// A Close after the harness exited on its own doesn't recast the exit as a clean close.
 	if err := c.Err(); err == nil || !strings.Contains(err.Error(), "fatal: peer gone") {
 		t.Fatalf("Err after Close = %v, want the exit error", err)
 	}
 }
 
 func TestRequestsAreAnswered(t *testing.T) {
-	// Each answer waits for every request to be asked before it returns, so the test
-	// deadlocks unless the client answers requests concurrently.
 	const n = 10
 	var asked sync.WaitGroup
 	asked.Add(n)
@@ -430,8 +402,6 @@ func TestARequestWithNoHandlerIsAnError(t *testing.T) {
 	}
 }
 
-// An answer in progress when the harness goes away has its context ended, and the Client
-// shuts down once it returns.
 func TestCloseEndsAnAnswerInProgress(t *testing.T) {
 	answering := make(chan struct{})
 	ended := make(chan struct{})
@@ -479,7 +449,6 @@ func TestClose(t *testing.T) {
 			if ev, ok := nextEvent(t, c); ok {
 				t.Fatalf("Close reported %+v", ev)
 			}
-			// Close ended the harness, however it went, so Err has no exit to report.
 			if err := c.Err(); err != nil {
 				t.Fatalf("Err after Close = %v", err)
 			}
@@ -487,8 +456,6 @@ func TestClose(t *testing.T) {
 	}
 }
 
-// TestCloseDiscardsUnreadEvents covers a Client whose events no one reads, as after a failed
-// handshake: Close ends its event queue, so nothing is left blocked holding them.
 func TestCloseDiscardsUnreadEvents(t *testing.T) {
 	c := start(t, "echo", 0)
 	if _, err := c.Call(t.Context(), testCmd{Op: "event", Data: "unread"}); err != nil {
@@ -502,8 +469,6 @@ func TestCloseDiscardsUnreadEvents(t *testing.T) {
 	}
 }
 
-// A handler that ignores its context can't hold the Client open: Close abandons it after the
-// wait delay.
 func TestCloseAbandonsAHandlerThatIgnoresItsContext(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)

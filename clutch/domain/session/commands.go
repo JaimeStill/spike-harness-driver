@@ -27,7 +27,6 @@ func Commands(svc *Service, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// sendCommand builds "session send", which opens a session, runs one exchange, and closes it.
 func sendCommand(svc *Service, out *output.Output) *cobra.Command {
 	var (
 		id          string
@@ -60,10 +59,6 @@ func sendCommand(svc *Service, out *output.Output) *cobra.Command {
 	return cmd
 }
 
-// parseSchema reads --schema's value: inline JSON when it starts with "{", otherwise the path
-// of a JSON file. The schema must be an object schema, the only kind a structured response
-// takes, which the session would also refuse; checking here fails before a harness starts.
-// An empty value asks for none.
 func parseSchema(value string) (json.RawMessage, error) {
 	if value == "" {
 		return nil, nil
@@ -107,7 +102,6 @@ func send(ctx context.Context, svc *Service, out *output.Output, id string, e Ex
 	return nil
 }
 
-// exchangesCommand builds "session exchanges", which lists a session's recorded exchanges.
 func exchangesCommand(svc *Service, out *output.Output) *cobra.Command {
 	var verify bool
 	cmd := &cobra.Command{

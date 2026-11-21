@@ -18,4 +18,6 @@
 //
 // It is the spike's Store. A service would keep the same log in its database, behind the same
 // interface.
+//
+// See docs/design.md#the-run-logs
 package filestore

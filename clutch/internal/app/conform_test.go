@@ -69,7 +69,6 @@ func TestEachCellBuildsItsOwnInfrastructure(t *testing.T) {
 	if azure.VisionModel != azureModel || !azure.DefaultTakesImages {
 		t.Errorf("azure: vision %q, default takes images %v", azure.VisionModel, azure.DefaultTakesImages)
 	}
-	// The base's --skills and --tools are left out of what every session offers.
 	if got := llama.Service.Skills(); len(got) != 0 {
 		t.Errorf("skills = %v", got)
 	}

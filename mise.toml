@@ -1,34 +1,22 @@
-# These are the harness versions clutch's conformance suite (`clutch conform`) pins. The suite skips
-# a harness at any other version unless --any-version is passed, so keep them in step with the pins
-# in clutch/internal/app/harnesses.go.
-#
-# Claude Code is absent because it is a native install, which the driver keeps from updating itself
-# (DISABLE_AUTOUPDATER), so the version on the PATH is the one the suite sees.
-[tools]
-pi = "0.99.2"
-opencode = "1.18.34"
-# node runs the Pi bridge's TypeScript tests in the check (node --test strips the types).
-node = "26.11.1"
+# The harnesses clutch's conformance suite pins, the tools the check and currency run, and their
+# tasks.
+# See docs/configuration.md#the-tools-and-the-check
+[settings]
+task.run_auto_install = false
 
-# The check builds, vets, format-checks, and race-tests every module in go.work, then runs the Pi
-# bridge's TypeScript tests. It is hermetic: no test reaches a router, a harness, or the network,
-# and it writes nothing.
+[tools]
+"github:standards-lab/claude-plugins" = { version = "0.22.0", version_prefix = "marathon/v" }
+go = "1.27.4"
+jq = "1.8.2"
+pi = "0.99.2" # held at the version `clutch conform` measured; a move to 1.x needs a live conform run
+opencode = "1.18.34" # held at the version `clutch conform` measured; a move to 2.x needs a live conform run
+node = "26.13.1"
+
 [tasks.check]
-description = "Build, vet, format-check, and race-test every go.work module, and test the Pi bridge; writes nothing"
-run = '''
-set -eu
-cd "$MISE_PROJECT_ROOT"
-for mod in $(go work edit -json | jq -r '.Use[].DiskPath'); do
-  echo "check: $mod"
-  (
-    cd "$mod"
-    go build ./...
-    go vet ./...
-    unformatted=$(gofmt -l .)
-    if [ -n "$unformatted" ]; then echo "gofmt: unformatted files:"; echo "$unformatted"; exit 1; fi
-    go test -race ./...
-  )
-done
-echo "check: pi/extension"
-node --test pi/extension/*.test.ts
-'''
+description = "Build, vet, format-check, and race-test every go.work module, test the Pi bridge, and run lint-context and lint-references; writes nothing"
+run = "scripts/check.sh"
+
+[tasks.currency]
+description = "Report every pin behind its latest, exiting nonzero if any"
+run = "scripts/currency.sh"
+quiet = true

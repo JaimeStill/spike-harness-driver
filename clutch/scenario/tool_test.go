@@ -37,7 +37,6 @@ func TestLookupCodeIsDeterministic(t *testing.T) {
 }
 
 func TestFingerprintMatchesTheExampleTool(t *testing.T) {
-	// The value clutch/examples/tools/fingerprint/run.py prints for {"text":"clutch"}.
 	if got := fingerprint("clutch"); got != "c278be9e2247" {
 		t.Errorf("fingerprint(clutch) = %q", got)
 	}

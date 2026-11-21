@@ -8,7 +8,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// read collects a queue's events until Events closes.
 func read(t *testing.T, q *harness.EventQueue) []harness.Event {
 	t.Helper()
 	var events []harness.Event
@@ -32,7 +31,7 @@ func TestEventQueueKeepsOrderWithoutAReader(t *testing.T) {
 		q.Push(harness.Event{Seq: i})
 	}
 	q.Close()
-	q.Push(harness.Event{Seq: -1}) // dropped: the queue is closed
+	q.Push(harness.Event{Seq: -1})
 	events := read(t, q)
 	if len(events) != 1000 {
 		t.Fatalf("got %d events, want 1000", len(events))
@@ -49,8 +48,6 @@ func TestEventQueueEndsWithItsContext(t *testing.T) {
 	q := harness.NewEventQueue(ctx)
 	q.Push(harness.Event{}, harness.Event{})
 	cancel()
-	// Nothing read the events; ending the queue's context closes Events anyway, and may
-	// discard them.
 	if n := len(read(t, q)); n > 2 {
 		t.Fatalf("got %d events after release", n)
 	}

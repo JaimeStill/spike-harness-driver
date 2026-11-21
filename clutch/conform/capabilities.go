@@ -24,16 +24,12 @@ type Capability struct {
 	run  check
 }
 
-// check runs a capability. A nil error is a pass, with a one-line reason; a notApplicable
-// error is n/a; any other error is a failure.
 type check func(ctx context.Context, e *env) (reason string, err error)
 
-// notApplicable is the error a check returns when the capability doesn't apply to the cell.
 type notApplicable string
 
 func (n notApplicable) Error() string { return string(n) }
 
-// execute runs the capability and sorts its error into a status.
 func (c Capability) execute(ctx context.Context, e *env) (Status, string) {
 	reason, err := c.run(ctx, e)
 	var na notApplicable
@@ -60,25 +56,18 @@ var Capabilities = []Capability{
 	{Name: "audio-tool", run: checkAudioTool},
 }
 
-// env is what a check runs against: its cell, and where its events go.
 type env struct {
 	cell       Cell
 	capability string
 	events     func(Cell, string, harness.Event)
-	// latency is the cell's, which the exchange capability fills.
-	latency *Latency
-	// opened is how long the last open took.
-	opened time.Duration
+	latency    *Latency
+	opened     time.Duration
 }
 
-// Prompts. Each prompt that wants a structured answer asks for it outright, because a model asked
-// to reply in both text and a structured response is told two things. The checks compare the values
-// asked for exactly, so no check reads the model's wording.
 const (
 	exchangePrompt = "Reply with one short sentence: what is Go?"
 	cancelPrompt   = "Write a 600-word essay about the history of the Unix operating system."
-	// cancelAfter is how many text deltas the cancel capability lets through.
-	cancelAfter = 5
+	cancelAfter    = 5
 
 	rememberPrompt = "Remember this code word: %s. Reply with the single word OK."
 	recallPrompt   = "What is the code word I told you earlier? Provide it as a structured response."
@@ -87,21 +76,16 @@ const (
 	capitalPrompt  = "What is the capital of France? Provide the city and its country as a structured response."
 	colorsPrompt   = "List the three primary colors of pigment (red, yellow, blue) as a structured response, with how many there are."
 	shapesPrompt   = "Look at the image. List every shape in it and its color as a structured response."
-	// droppedPrompt is the scenario's plain prompt: the capability documents what the harness
-	// does with the image, and asks for nothing it could check.
-	droppedPrompt = "Name each shape in this image and its color."
-	audioPrompt   = "Use the transcribe_recording tool to transcribe the voice recording, then provide the access code it gives as a structured response."
+	droppedPrompt  = "Name each shape in this image and its color."
+	audioPrompt    = "Use the transcribe_recording tool to transcribe the voice recording, then provide the access code it gives as a structured response."
 
-	// shapesType is media.Shapes's media type.
 	shapesType = "image/png"
-	// phraseCode is the access code the speaker in media.Phrase says.
 	phraseCode = "7429"
 
 	lookupTool     = "lookup_code"
 	transcribeTool = "transcribe_recording"
 )
 
-// The schemas of the structured responses the capabilities ask for.
 var (
 	wordSchema = json.RawMessage(`{"type":"object","properties":{` +
 		`"word":{"type":"string","description":"The code word."}},"required":["word"]}`)
@@ -123,8 +107,6 @@ var (
 	nameSchema   = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"The person's name."}},"required":["name"]}`)
 )
 
-// open opens the session id names with setup, or a new one for an empty id, and runs fn on it,
-// closing it after. A failure to close is an error when fn found none.
 func (e *env) open(ctx context.Context, id string, setup session.Setup, fn func(*harness.Session) error) (err error) {
 	start := time.Now()
 	sess, err := e.cell.Service.OpenWith(ctx, id, setup)
@@ -140,8 +122,6 @@ func (e *env) open(ctx context.Context, id string, setup session.Setup, fn func(
 	return fn(sess)
 }
 
-// send runs ex on sess to its end and returns how it ended and its events. The error is
-// non-nil only when the harness didn't accept the prompt.
 func (e *env) send(ctx context.Context, sess *harness.Session, ex session.Exchange) (session.Outcome, []harness.Event, error) {
 	var events []harness.Event
 	o, err := e.cell.Service.Run(ctx, sess, ex, session.Observer{Event: func(ev harness.Event) {
@@ -153,8 +133,6 @@ func (e *env) send(ctx context.Context, sess *harness.Session, ex session.Exchan
 	return o, events, err
 }
 
-// ask is send for an exchange that must end on its own: it fails on an error, a cancellation,
-// and a stop reason of error.
 func (e *env) ask(ctx context.Context, sess *harness.Session, ex session.Exchange) (session.Outcome, []harness.Event, error) {
 	o, events, err := e.send(ctx, sess, ex)
 	if err != nil {
@@ -163,7 +141,6 @@ func (e *env) ask(ctx context.Context, sess *harness.Session, ex session.Exchang
 	return o, events, ended(o)
 }
 
-// ended fails unless o ended normally.
 func ended(o session.Outcome) error {
 	switch {
 	case o.Err != nil:
@@ -174,7 +151,6 @@ func ended(o session.Outcome) error {
 	return nil
 }
 
-// askFor asks prompt with schema, and decodes the structured response into v.
 func (e *env) askFor(ctx context.Context, sess *harness.Session, prompt string, schema json.RawMessage, v any) ([]harness.Event, error) {
 	o, events, err := e.ask(ctx, sess, session.Exchange{Prompt: prompt, Schema: schema})
 	if err != nil {
@@ -183,12 +159,8 @@ func (e *env) askFor(ctx context.Context, sess *harness.Session, prompt string, 
 	return events, decode(o.Result.Structured, v)
 }
 
-// noTools opens a session with none of the harness's own tools, which leaves a structured
-// response, and the Go tool a capability offers, the only things the model can use.
 var noTools = session.Setup{HarnessTools: []string{}}
 
-// checkExchange runs a plain exchange, and measures the cell's latency on it: the session's
-// open, and the time from sending to the first text and to the end.
 func checkExchange(ctx context.Context, e *env) (string, error) {
 	var reason string
 	err := e.open(ctx, "", session.Setup{}, func(sess *harness.Session) error {
@@ -244,11 +216,8 @@ func checkCancel(ctx context.Context, e *env) (string, error) {
 	return reason, err
 }
 
-// codeWords are the common words a code word is made of, so a model copies them as written.
 var codeWords = []string{"amber", "falcon", "harbor", "meadow", "copper", "lantern", "willow", "summit", "ember", "cobalt"}
 
-// newCodeWord returns a code word no earlier run used, for the resume capability: two words and
-// a number, which a model can't guess and can only know from the first exchange.
 func newCodeWord() string {
 	pick := func() string { return codeWords[rand.IntN(len(codeWords))] }
 	return fmt.Sprintf("%s-%s-%03d", pick(), pick(), rand.IntN(1000))
@@ -265,8 +234,6 @@ func checkResume(ctx context.Context, e *env) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("the first exchange: %w", err)
 	}
-	// The session is closed, so the harness process has ended; the service builds a new driver
-	// for each open, and the second session is a new process resuming the first's history.
 	var got struct {
 		Word string `json:"word"`
 	}
@@ -286,15 +253,10 @@ func checkResume(ctx context.Context, e *env) (string, error) {
 	return fmt.Sprintf("session %s resumed in a new process, and recalled %q", shortID(id), word), nil
 }
 
-// newCode returns a code no earlier run used, for the tool capability.
 func newCode() string { return fmt.Sprintf("ZX-%06X", rand.IntN(1<<24)) }
 
-// calls counts the calls a Go tool's handler received, which is the proof the model called it
-// and the driver ran it here, whatever the model then said.
 type calls struct{ n atomic.Int32 }
 
-// goTool returns a Go tool whose handler counts its calls in c and answers with what result
-// returns for the call's arguments.
 func (c *calls) goTool(name, description string, schema json.RawMessage, result func(ctx context.Context, args json.RawMessage) (string, error)) harness.Tool {
 	return harness.Tool{
 		Name:        name,
@@ -396,7 +358,6 @@ func checkStructured(ctx context.Context, e *env) (string, error) {
 	return reason, err
 }
 
-// shapeColor is one entry of the vision capability's structured response.
 type shapeColor struct {
 	Shape string `json:"shape"`
 	Color string `json:"color"`
@@ -429,7 +390,6 @@ func checkVision(ctx context.Context, e *env) (string, error) {
 	return reason, err
 }
 
-// replyCut is how much of a reply a reason keeps.
 const replyCut = 60
 
 func checkDroppedImage(ctx context.Context, e *env) (string, error) {
@@ -449,7 +409,6 @@ func checkDroppedImage(ctx context.Context, e *env) (string, error) {
 		if err != nil {
 			return err
 		}
-		// The harness's text for a dropped image is behavior to record, not wording to judge.
 		reason = fmt.Sprintf("the exchange ended without error; %s replied %q", p.Name, truncate(o.Result.Text, replyCut))
 		return nil
 	})

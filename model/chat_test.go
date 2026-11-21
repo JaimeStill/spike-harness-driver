@@ -108,7 +108,6 @@ func TestChatNoChoices(t *testing.T) {
 	}
 }
 
-// embedded satisfies Part by embedding Text, but is none of the parts the package knows.
 type embedded struct{ model.Text }
 
 func TestChatValidation(t *testing.T) {

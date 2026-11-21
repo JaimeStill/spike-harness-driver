@@ -1,10 +1,10 @@
-# Project kind: this repository holds Go spike source with a build-and-test loop.
+# marathon's settings for this spike, whose goals live in standards-lab/roadmap/index.toml.
+# See docs/configuration.md#marathon
 [project]
 kind = "code"
 check = "mise run check"
+currency = "mise run currency"
 
-# Remote platform, the command that publishes a finished branch, and the command that merges it.
-# The repository has no CI, so the merge waits on no pull-request checks.
 [remote]
 platform = "github"
 publish = "gh pr create"

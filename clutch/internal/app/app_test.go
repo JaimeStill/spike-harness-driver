@@ -91,7 +91,6 @@ func TestSourcesThatDontLoadFailBeforeTheCommandRuns(t *testing.T) {
 		{[]string{"--skills", empty}, "no skills"},
 		{[]string{"--skills", badSkill}, "frontmatter has no name"},
 		{[]string{"--tools", "../../examples/tools", "--tools", "../../examples/tools"}, `tool "fingerprint" is also in`},
-		// The skills root isn't a tools root: a mistyped flag fails rather than loading nothing.
 		{[]string{"--tools", "../../examples/skills"}, "no command tools"},
 	}
 	for _, tt := range tests {

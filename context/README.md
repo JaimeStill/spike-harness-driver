@@ -1,6 +1,6 @@
 # spike-harness-driver
 
-## Question
+## The question
 
 Can Go drive an external agent harness (Pi, Claude Code, or OpenCode, against local and cloud
 models) as the infrastructure for agentic work? And what does that infrastructure need to be?
@@ -19,54 +19,106 @@ The question has four parts:
 
 The answer settles go-ai's shape: a harness-session surface only, both a harness-session and a
 model-client surface, or a model-client surface only. It also settles whether a service's
-container image carries a harness. The goal it serves is `v1.ai` in the standards-lab roadmap,
-and the strategy behind it is `context/ai-strategy.md` in
-[standards-lab/org](https://github.com/standards-lab/org).
+container image carries a harness. The goal it serves is `experiment.harness` in the
+coordinator's roadmap, `standards-lab/roadmap/index.toml`, and the strategy behind it is
+`context/ai-strategy.md` in [standards-lab/org](https://github.com/standards-lab/org).
 
 A working spike is evidence, not a decision. A `plan` session in standards-lab reads the result
-and decides what the workspace takes from it.
+and decides what the workspace takes from it. The spike's steps, its CLI, and its prior art are
+in [`docs/path.md`](../docs/path.md).
+
+## The answer
+
+**Go can drive an external agent harness as the infrastructure for agentic work.** By part:
+
+- **Capabilities.** Tools and skills run through every harness; a tool defined in Go reaches Pi
+  through its extension and Claude Code and OpenCode through MCP. Of the native capabilities,
+  harnesses expose vision alone, and drop an image a model can't take quietly. Embeddings and
+  audio need a direct model client, one OpenAI-compatible shape over the router and Azure, and
+  an agent reaches them through a tool ([Capabilities](../docs/findings.md#capabilities),
+  [Payloads](../docs/findings.md#payloads)).
+- **Sessions.** A session outlives its process on every harness and resumes by ID, keeping its
+  history. Exchange IDs are the driver's own, kept in a store and bound to the harness's journal
+  where it keeps one, which catches Pi's cwd-scoped sessions
+  ([Sessions](../docs/findings.md#sessions)).
+- **Exchanges.** No harness tags its events with a request, so a session carries one exchange at
+  a time, scoped from start to settle, with each harness's cancellation mapped to one outcome. A
+  structured response is a `respond` tool on every harness
+  ([Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads)).
+- **Workflows.** A standard-library layer of about 1,800 lines over `harness.Driver` runs a DAG of
+  exchanges over sessions on any mix of harnesses, with a concurrency limit, cancellation,
+  progress and SSE from one log per run, and resume after an interrupt, a `kill -9`, or a
+  container restart ([Workflows](../docs/findings.md#workflows)).
+
+**What it settles for go-ai:** both surfaces, a harness-session surface and a model-client
+surface, with the workflow layer above `harness` and harness-agnostic. **A service image carries
+a harness:** one, pinned, Pi by default, in about 215 MB
+([Deployment](../docs/findings.md#deployment),
+[Harness comparison](../docs/findings.md#harness-comparison)). What a service still owes is in
+[Open for a service](../docs/findings.md#open-for-a-service).
+
+## The evidence
+
+1. **Tools and skills** run on all three harnesses: a Go tool reaches Pi through its extension and
+   Claude Code and OpenCode through MCP. Proven by a demo: `clutch conform`, every capability on
+   Azure and Anthropic for all three harnesses. Finding:
+   [Capabilities](../docs/findings.md#capabilities).
+2. **Native capabilities.** A harness passes only vision, and drops an image a model can't take
+   quietly; embeddings and audio need the `model` client. Proven by a demo: `model` on the router
+   and Azure, and a Go tool giving a Pi session a transcript. Finding:
+   [Capabilities](../docs/findings.md#capabilities).
+3. **Sessions** outlive their process and resume by ID with their history;
+   `ErrJournalMismatch` catches Pi's cwd-scoped sessions. Proven by a run: `clutch conform`'s
+   `resume`, and live follow-ups from a new process. Finding:
+   [Sessions](../docs/findings.md#sessions).
+4. **Exchanges.** A session carries one exchange at a time under a driver-assigned ID, each
+   harness's cancellation maps to one outcome, and a structured response is a `respond` tool.
+   Proven by a run: `clutch conform`'s `exchange`, `cancel`, and `structured`. Finding:
+   [Exchanges](../docs/findings.md#exchanges), [Payloads](../docs/findings.md#payloads).
+5. **Workflows.** A standard-library layer of about 1,800 lines runs a DAG of exchanges with a
+   concurrency limit, cancellation, SSE with replay, and resume after SIGINT, `kill -9`, and
+   `docker stop`. Proven by a demo: `clutch workflow` and `clutch serve`, in the
+   architect-validated checkpoints 1–3. Finding: [Workflows](../docs/findings.md#workflows).
+6. **The service image** is 215 MB, idles at about 10 MiB, and adds about 95 MiB per Pi session.
+   Proven by a demo: `deploy/`, checkpoint 3. Finding: [Deployment](../docs/findings.md#deployment),
+   [Harness comparison](../docs/findings.md#harness-comparison).
+7. **Managed identity and IL6.** The Azure managed-identity path and IL6 hold. Checked on paper
+   only; nothing ran against them. Finding:
+   [Managed identity and IL6, on paper](../docs/findings.md#managed-identity-and-il6-on-paper).
 
 ## Capability map
 
-- **Session interface**: open, send, stream, cancel, and close
-- **Session persistence**: keeping a session beyond one call, and resuming it
-- **Exchange scoping**: request-and-response block IDs bound to a session
-- **Payloads**: encoding a request, and interpreting the response
-- **Tool calls and skills** run through the harness
-- **Native capabilities**: vision, embeddings, and audio, and where each needs a direct model
-  client
-- **Workflow coordination**: long-running work over sessions
-- **Adapters**: Pi (`--mode rpc` or `json`), Claude Code (`claude -p --output-format
-  stream-json`, or the Agent SDK), and OpenCode (its server API, or `opencode acp` over stdio)
-- **Model targets**: the Framework desktop's llama.cpp router over the tailnet, Anthropic, and
-  Azure AI Foundry
-- **Deployment**: the container image's footprint, and the managed-identity and IL6 path,
-  checked on paper
-
-## Path
-
-The spike's steps, in dependency order, all exist: the session interface and the Pi adapter
-(step 1), session persistence and resume (step 2), payloads, tool calls, and skills (step 3),
-native capabilities through a direct model client, `model` (step 4), the Claude Code and
-OpenCode adapters with a conformance suite (step 5), and a long-running workflow over sessions
-with a container image (step 6). `context/findings.md` records what they showed, compares the
-three harnesses, and states the answer. The code is six modules under `go.work`: the root
-module (the `harness/...` core, `model`, and the `workflow/...` layer), `mcpbridge`, the
-adapters `pi`, `claude`, and `opencode`, and `clutch`.
-
-`clutch` (`go run ./clutch/cmd/clutch`) drives them. `--harness pi|claude|opencode` picks the
-harness, and `--provider` its models (`llama.cpp` for the router, `azure` for Azure AI Foundry,
-`anthropic` for Claude Code). Its `scenario` commands each show one capability, its `session`
-commands run one exchange at a time, and `conform` runs every capability over every harness
-and provider as a matrix, against pinned harness versions. Its `workflow` commands run a
-workflow file to its end and resume one left unfinished, and `serve` runs workflows over HTTP
-with their events as SSE. `--target` points the direct client at the router or Azure AI
-Foundry, which `setup/` sets up. `deploy/` builds the container image.
-
-## Prior art
-
-`references.toml` lists the repositories this spike reads. tau's `agent` package (Chat, Vision,
-and Embed) is prior art for native capabilities, not a baseline to adopt: it has no audio, among
-other gaps, so it informs the spike's own client rather than supplying it. tau's `orchestrate`
-package is the prior art for workflows. `claude-classify-docs`, in tau-platform, showed that a harness can
-run a real workflow with no Go infrastructure. herald is the workload that shaped tau.
+- **Session interface** (built): open, send, stream, cancel, and close, in
+  [`harness`](../harness/); reasoning in [The session](../docs/design.md#the-session).
+- **Session persistence** (built): keeping a session beyond one call, and resuming it, in
+  [`harness/filestore`](../harness/filestore/); reasoning in
+  [The record files](../docs/design.md#the-record-files).
+- **Exchange scoping** (built): request-and-response block IDs bound to a session, in
+  [`harness`](../harness/); reasoning in [The session](../docs/design.md#the-session).
+- **Payloads** (built): encoding a request, and interpreting the response, in
+  [`harness/stdio`](../harness/stdio/); reasoning in
+  [The line protocol](../docs/design.md#the-line-protocol).
+- **Tool calls and skills** (built): run through the harness, by
+  [`mcpbridge`](../mcpbridge/), [`harness/catalog`](../harness/catalog/), and
+  [`harness/cache`](../harness/cache/); reasoning in
+  [Skills and command tools](../docs/design.md#skills-and-command-tools) and
+  [The MCP bridge](../docs/design.md#the-mcp-bridge).
+- **Native capabilities** (built): vision, embeddings, and audio, and where each needs a direct
+  model client, in [`model`](../model/); reasoning in
+  [The model client](../docs/design.md#the-model-client).
+- **Workflow coordination** (built): long-running work over sessions, in
+  [`workflow`](../workflow/), [`workflow/filestore`](../workflow/filestore/), and
+  [`workflow/sse`](../workflow/sse/); reasoning in
+  [The workflow runner](../docs/design.md#the-workflow-runner).
+- **Adapters** (built): Pi (`--mode rpc` or `json`), Claude Code (`claude -p --output-format
+  stream-json`, or the Agent SDK), and OpenCode (its server API, or `opencode acp` over stdio), in
+  [`pi`](../pi/), [`claude`](../claude/), and [`opencode`](../opencode/); reasoning in
+  [The Pi adapter](../docs/design.md#the-pi-adapter),
+  [The Claude Code adapter](../docs/design.md#the-claude-code-adapter), and
+  [The OpenCode adapter](../docs/design.md#the-opencode-adapter).
+- **Model targets** (built): the Framework desktop's llama.cpp router over the tailnet, Anthropic,
+  and Azure AI Foundry, set up by [`setup/`](../setup/) and picked by [`clutch`](../clutch/);
+  reasoning in [The clutch CLI](../docs/design.md#the-clutch-cli).
+- **Deployment** (built): the container image's footprint, in [`deploy/`](../deploy/README.md),
+  and the managed-identity and IL6 path, checked
+  [on paper](../docs/findings.md#managed-identity-and-il6-on-paper).

@@ -47,8 +47,6 @@ type Model struct {
 	Context, Output int
 }
 
-// isolationEnv keeps the user's Claude Code files and outside skills out of the session, and
-// keeps OpenCode from fetching its model catalog or updating itself under the driver.
 var isolationEnv = []string{
 	"OPENCODE_DISABLE_CLAUDE_CODE=1", "OPENCODE_DISABLE_EXTERNAL_SKILLS=1",
 	"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1",
@@ -163,8 +161,6 @@ func (d Driver) Open(ctx context.Context, opts harness.Options) (*harness.Sessio
 	return s, nil
 }
 
-// handshake initializes ACP, creates or loads the session with the driver's MCP server, and
-// selects the model, returning the session's ID.
 func handshake(ctx context.Context, c *connection, opts harness.Options, dir string) (string, error) {
 	if _, err := c.client.Call(ctx, call{Method: "initialize", Params: map[string]any{
 		"protocolVersion":    1,
@@ -202,9 +198,6 @@ func handshake(ctx context.Context, c *connection, opts harness.Options, dir str
 	return id, nil
 }
 
-// config renders OpenCode's configuration for a session: the session's provider alone, with
-// its model listed; the session's skills as skill paths; and, when opts.HarnessTools is set,
-// a tool allowlist of those tools and the driver's.
 func (d Driver) config(opts harness.Options, cacheDir string) ([]byte, error) {
 	p := d.Providers[opts.Provider]
 	models := map[string]any{}

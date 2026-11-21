@@ -16,11 +16,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow"
 )
 
-// maxEvent bounds one event's line. A run_started event holds the whole workflow, and a
-// step_ended event a whole result.
 const maxEvent = 16 << 20
 
-// ext is the suffix of a run's file.
 const ext = ".jsonl"
 
 // Store keeps each run's events in <dir>/<runID>.jsonl.
@@ -163,12 +160,9 @@ func (s *Store) Runs(_ context.Context) ([]string, error) {
 		}
 		ids = append(ids, strings.TrimSuffix(ent.Name(), ext))
 	}
-	return ids, nil // ReadDir sorts by name, and every name shares the suffix
+	return ids, nil
 }
 
-// tail returns the Seq of the last event in f, zero for an empty file, after repairing a last
-// line a crash left without its newline. Events reads such a line as it is when it decodes, so
-// tail keeps it and adds the newline; one that doesn't decode is torn, and tail cuts it.
 func tail(f *os.File) (int, error) {
 	info, err := f.Stat()
 	if err != nil {
@@ -216,8 +210,6 @@ func tail(f *os.File) (int, error) {
 	return e.Seq, nil
 }
 
-// lastLine returns the line of f that ends at end, without its newline, and where it starts. It
-// reads backwards in chunks, so a long log isn't read whole.
 func lastLine(f *os.File, end int64) (int64, []byte, error) {
 	buf := make([]byte, 4096)
 	start := int64(0)
@@ -240,8 +232,6 @@ func lastLine(f *os.File, end int64) (int64, []byte, error) {
 	return start, line, nil
 }
 
-// path is the file that keeps a run's events. A run ID must name a file in the store's
-// directory and nothing beyond it.
 func (s *Store) path(runID string) (string, error) {
 	name := runID + ext
 	if runID == "" || strings.ContainsAny(runID, `/\`) || !filepath.IsLocal(name) {

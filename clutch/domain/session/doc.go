@@ -7,4 +7,6 @@
 // composition root supplies, and OpenWith adds a caller's own to one session. Commands mounts
 // the direct commands under "session": send, which opens or resumes a session and runs one
 // exchange, and exchanges, which lists a session's recorded exchanges.
+//
+// See docs/design.md#the-session-domain
 package session

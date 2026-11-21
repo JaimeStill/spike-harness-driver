@@ -11,8 +11,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// Cancel ends the run's tool calls, and only those: the session's other MCP traffic, such as
-// the handshake and a tool listing, still goes through once the run has ended.
 func TestCancelEndsOnlyToolCalls(t *testing.T) {
 	block := harness.Tool{Name: "block", Description: "blocks until cancelled",
 		Handler: func(ctx context.Context, _ json.RawMessage) (string, error) {
@@ -28,7 +26,6 @@ func TestCancelEndsOnlyToolCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.tunnel.Close() })
-	// What Cancel does to the run before it interrupts Claude Code.
 	c.mu.Lock()
 	c.endRun()
 	c.mu.Unlock()
@@ -50,7 +47,6 @@ func TestCancelEndsOnlyToolCalls(t *testing.T) {
 		t.Fatalf("tools/list after the run ended = %s, want the tools", list)
 	}
 
-	// A tool call the ended run binds returns at once, rather than blocking until ctx ends.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	start := time.Now()

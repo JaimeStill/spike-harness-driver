@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// pidFile points the test tools at a file where they record the PID of the child they
-// start, and returns a function that reports whether that child is still running.
 func pidFile(t *testing.T) (alive func() bool) {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "pid")
@@ -29,8 +27,6 @@ func pidFile(t *testing.T) (alive func() bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Signal 0 checks for the process without touching it. A killed child that hasn't
-		// been reaped yet is a zombie, which still answers, so give the reaper a moment.
 		for range 50 {
 			if syscall.Kill(pid, 0) != nil {
 				return false
@@ -41,8 +37,6 @@ func pidFile(t *testing.T) (alive func() bool) {
 	}
 }
 
-// Cancelling a call kills the command's whole group, the script's child with it, well within
-// the wait delay a leftover child would otherwise run into.
 func TestCommandToolCancel(t *testing.T) {
 	tool := commandTools(t)["slow"]
 	alive := pidFile(t)
@@ -61,8 +55,6 @@ func TestCommandToolCancel(t *testing.T) {
 	}
 }
 
-// A command that exits leaving a child holding its output answers at once, and the child is
-// killed with the command's group.
 func TestCommandToolLeavesNothingBehind(t *testing.T) {
 	tool := commandTools(t)["leaves"]
 	alive := pidFile(t)

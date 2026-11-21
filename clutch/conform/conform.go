@@ -132,7 +132,6 @@ func Run(ctx context.Context, cells []Cell, opts Options) []Report {
 	return reports
 }
 
-// runCell checks a cell's needs and version, then runs its capabilities.
 func runCell(ctx context.Context, c Cell, opts Options) Report {
 	rep := Report{Harness: c.Harness, Provider: c.Provider, Version: "-"}
 	for _, n := range c.Needs {
@@ -171,8 +170,6 @@ func runCell(ctx context.Context, c Cell, opts Options) Report {
 	return rep
 }
 
-// runCapability runs one capability under its own timeout. One that runs out of time fails,
-// and the run goes on.
 func runCapability(ctx context.Context, c Cell, capability Capability, opts Options, lat *Latency) Result {
 	if opts.Progress != nil {
 		opts.Progress(c, capability.Name)
@@ -205,7 +202,6 @@ func MatchesPin(line, pinned string) bool {
 	})
 }
 
-// displayVersion is the word of line the matrix shows: its first, without a leading "v".
 func displayVersion(line string) string {
 	f := strings.Fields(line)
 	if len(f) == 0 {

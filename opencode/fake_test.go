@@ -17,13 +17,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// fakeEnv switches the test binary into a fake OpenCode, which speaks enough ACP to drive the
-// connection: the handshake, sessions it persists under XDG_DATA_HOME, turns that end with
-// session/prompt's answer, cancellation, permission requests, and the driver's tools, which it
-// calls over HTTP with go-sdk's MCP client as OpenCode calls them.
 const fakeEnv = "OPENCODE_FAKE"
 
-// launchEnv names a file where the fake records its arguments and configuration.
+const noRaceExitSleep = "GORACE=atexit_sleep_ms=0"
+
 const launchEnv = "OPENCODE_FAKE_LAUNCH"
 
 func TestMain(m *testing.M) {
@@ -34,25 +31,17 @@ func TestMain(m *testing.M) {
 }
 
 type fake struct {
-	out sync.Mutex
-	mu  sync.Mutex
-	// mcp is the session's client of the driver's tool server, and tools its last listing.
-	mcp   *mcp.ClientSession
-	tools []string
-	// listing counts listings under way, which a turn waits for, as OpenCode applies a
-	// changed tool list before it runs the next prompt.
-	listing sync.WaitGroup
-	// cancelled is closed by session/cancel to cancel the turn under way, and is nil while
-	// none is. A turn is under way from the moment its session/prompt is read, so a cancel
-	// read after it cancels it, and a cancel read while the session is idle is ignored, as
-	// OpenCode ignores it.
+	out       sync.Mutex
+	mu        sync.Mutex
+	mcp       *mcp.ClientSession
+	tools     []string
+	listing   sync.WaitGroup
 	cancelled chan struct{}
 	next      int
 	waiting   map[string]chan json.RawMessage
 	prompts   sync.WaitGroup
 }
 
-// rpcIn is a message the fake reads.
 type rpcIn struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -132,7 +121,6 @@ func (f *fake) update(u map[string]any) {
 	f.emit(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "s", "update": u}})
 }
 
-// sessions is the file where the fake keeps the IDs of the sessions it created.
 func sessions() string { return filepath.Join(os.Getenv("XDG_DATA_HOME"), "sessions") }
 
 func (f *fake) handle(m rpcIn) {
@@ -155,7 +143,6 @@ func (f *fake) handle(m rpcIn) {
 			return
 		}
 		if m.Method == "session/load" {
-			// The history replays before the answer.
 			f.update(map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": "earlier"}})
 			f.update(map[string]any{"sessionUpdate": "agent_message_chunk", "messageId": "m0", "content": map[string]any{"type": "text", "text": "reply"}})
 			f.result(m.ID, map[string]any{})
@@ -172,7 +159,6 @@ func (f *fake) handle(m rpcIn) {
 	}
 }
 
-// bearer adds the server's Authorization header to every request.
 type bearer struct {
 	value string
 	next  http.RoundTripper
@@ -184,7 +170,6 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return b.next.RoundTrip(r)
 }
 
-// connect connects to the driver's MCP server over HTTP, as OpenCode does at session/new.
 func (f *fake) connect(servers []mcpServer) error {
 	if len(servers) != 1 || servers[0].Type != "http" || len(servers[0].Headers) != 1 {
 		return fmt.Errorf("want one http MCP server with one header, got %+v", servers)
@@ -222,7 +207,6 @@ func (f *fake) list() {
 	}
 }
 
-// ask sends the driver a request and waits for its result.
 func (f *fake) ask(method string, params any) json.RawMessage {
 	f.mu.Lock()
 	f.next++
@@ -234,17 +218,6 @@ func (f *fake) ask(method string, params any) json.RawMessage {
 	return <-ch
 }
 
-// prompt runs one turn. The prompt's text decides what it does:
-//
-//   - "tool:<name>:<args>" calls the driver's tool with the arguments;
-//   - "structured:<args>" calls the respond tool the fake last listed with the arguments;
-//   - "permit:<title>" asks the driver whether a call titled so may run, and answers with the
-//     option;
-//   - "image" answers with the media types of the prompt's images;
-//   - "stream" streams text until cancelled;
-//   - anything else answers "hello".
-//
-// cancelled closes when session/cancel cancels the turn.
 func (f *fake) prompt(m rpcIn, cancelled chan struct{}) {
 	defer func() {
 		f.mu.Lock()
@@ -323,8 +296,6 @@ func (f *fake) prompt(m rpcIn, cancelled chan struct{}) {
 	}
 }
 
-// call calls a driver tool, reporting the call as OpenCode does: pending with no arguments,
-// in progress with them, then completed or failed. It returns the result's text.
 func (f *fake) call(name string, args json.RawMessage) string {
 	id := fmt.Sprintf("call-%d", time.Now().UnixNano())
 	title := toolPrefix + name

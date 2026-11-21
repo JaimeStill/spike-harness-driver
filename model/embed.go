@@ -56,8 +56,6 @@ func (c *Client) Embed(ctx context.Context, req EmbedRequest) (EmbedResponse, er
 		return EmbedResponse{}, fmt.Errorf("model: embed: %d embeddings for %d inputs",
 			len(reply.Data), len(req.Input))
 	}
-	// The data carries its input's index, and an endpoint that batches may return it out of
-	// order.
 	vectors := make([][]float32, len(req.Input))
 	for _, d := range reply.Data {
 		switch {

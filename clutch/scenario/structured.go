@@ -12,16 +12,11 @@ import (
 )
 
 const (
-	capitalPrompt = "What is the capital of France?"
-	colorsPrompt  = "List the three primary colors of pigment (red, yellow, blue)."
-	// greetingPrompt asks for the greeting as a structured response outright. A prompt that
-	// asked for plain text instead contradicted the instruction the harness adds for a schema,
-	// and gpt-oss on llama.cpp then failed about half its runs with a malformed tool call.
+	capitalPrompt  = "What is the capital of France?"
+	colorsPrompt   = "List the three primary colors of pigment (red, yellow, blue)."
 	greetingPrompt = "Provide the following greeting directly as a structured response: say hello."
 )
 
-// capitalSchema, colorsSchema, and greetingSchema are the structured scenario's response
-// schemas, a different shape for each exchange on the one session.
 var (
 	capitalSchema = json.RawMessage(`{"type":"object","properties":{` +
 		`"city":{"type":"string","description":"The capital city."},` +
@@ -36,8 +31,6 @@ var (
 		`"required":["greeting"]}`)
 )
 
-// capital, colors, and greeting are the Go types the structured scenario decodes each
-// response into.
 type (
 	capital struct {
 		City    string `json:"city"`
@@ -52,10 +45,6 @@ type (
 	}
 )
 
-// structuredScenario asks for structured responses on one session with no harness tools: each
-// exchange carries its own schema, so the respond tool the harness offers takes a new shape
-// each time. The last exchange also checks the contract whichever way the model goes: a
-// structured response that decodes, or ErrNoStructuredResponse.
 func structuredScenario(svc *session.Service, needs []Need) Scenario {
 	return Scenario{
 		Name:    "structured",
@@ -63,8 +52,6 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 		Needs:   needs,
 		Steps: func() ([]Step, func() error) {
 			r := &run{svc: svc}
-			// ask runs prompt on the run's session with schema, notes any validation retries,
-			// and fails unless the exchange ended with a response that decodes into v.
 			ask := func(ctx context.Context, rep *Reporter, prompt string, schema json.RawMessage, v any) error {
 				o, err := r.exchange(ctx, rep, session.Exchange{Prompt: prompt, Schema: schema})
 				if err != nil {
@@ -116,8 +103,6 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 				{
 					Intent: "Ask for a greeting as {greeting}, a third shape, and check the contract whichever way the model goes",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						// ended fails on any outcome error, and ErrNoStructuredResponse is one this
-						// step accepts, so the step reads the outcome itself.
 						o, err := r.exchange(ctx, rep, session.Exchange{Prompt: greetingPrompt, Schema: greetingSchema})
 						if err != nil {
 							return err
@@ -147,7 +132,6 @@ func structuredScenario(svc *session.Service, needs []Need) Scenario {
 	}
 }
 
-// decode decodes a structured response into v, failing when there is none.
 func decode(structured json.RawMessage, v any) error {
 	if len(structured) == 0 {
 		return errors.New("the exchange ended without a structured response")
@@ -158,8 +142,6 @@ func decode(structured json.RawMessage, v any) error {
 	return nil
 }
 
-// noteRetries notes how many structured responses the run's last exchange offered that failed
-// validation against the schema, each of which the harness returned to the model to try again.
 func (r *run) noteRetries(rep *Reporter) {
 	n := 0
 	for _, ev := range r.events {

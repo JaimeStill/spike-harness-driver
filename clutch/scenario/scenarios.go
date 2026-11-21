@@ -28,27 +28,20 @@ func Scenarios(svc *session.Service, models func() (Models, error), profile func
 	}
 }
 
-// run is the state one scenario run shares between its steps.
 type run struct {
-	svc  *session.Service
-	sess *harness.Session
-	// events are the events of the run's last exchange.
+	svc    *session.Service
+	sess   *harness.Session
 	events []harness.Event
 }
 
-// open opens a new session for the run and notes its ID.
 func (r *run) open(ctx context.Context, rep *Reporter) error {
 	return r.resume(ctx, rep, "")
 }
 
-// resume opens the session id names for the run, a new one when id is empty, and notes its
-// ID.
 func (r *run) resume(ctx context.Context, rep *Reporter, id string) error {
 	return r.openWith(ctx, rep, id, session.Setup{})
 }
 
-// openWith opens the session id names for the run as resume does, offering setup's tools and
-// skills.
 func (r *run) openWith(ctx context.Context, rep *Reporter, id string, setup session.Setup) error {
 	sess, err := r.svc.OpenWith(ctx, id, setup)
 	if err != nil {
@@ -59,7 +52,6 @@ func (r *run) openWith(ctx context.Context, rep *Reporter, id string, setup sess
 	return nil
 }
 
-// exchange runs e on the run's session, narrating its events and result, and keeps its events.
 func (r *run) exchange(ctx context.Context, rep *Reporter, e session.Exchange) (session.Outcome, error) {
 	if r.sess == nil {
 		return session.Outcome{}, errors.New("no open session")
@@ -78,8 +70,6 @@ func (r *run) exchange(ctx context.Context, rep *Reporter, e session.Exchange) (
 	return o, nil
 }
 
-// ended fails when the exchange wasn't accepted, or ended in an error rather than a stop or a
-// cancellation.
 func ended(o session.Outcome, err error) error {
 	if err != nil {
 		return err
@@ -90,8 +80,6 @@ func ended(o session.Outcome, err error) error {
 	return nil
 }
 
-// toolRan fails unless the run's last exchange both called the tool name names and received
-// its result.
 func (r *run) toolRan(name string) error {
 	var called, returned bool
 	for _, ev := range r.events {
@@ -110,7 +98,6 @@ func (r *run) toolRan(name string) error {
 	return nil
 }
 
-// close closes the run's session, if one is open.
 func (r *run) close() error {
 	if r.sess == nil {
 		return nil

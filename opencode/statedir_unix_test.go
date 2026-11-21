@@ -10,8 +10,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// OpenCode reads configuration from its state directory that can name commands to run, so a
-// directory others can write to is refused before OpenCode starts.
 func TestAStateDirectoryOthersCanWriteIsRefused(t *testing.T) {
 	d := fakeDriver(t.TempDir())
 	if err := os.Mkdir(d.StateDir, 0o700); err != nil {
@@ -26,7 +24,6 @@ func TestAStateDirectoryOthersCanWriteIsRefused(t *testing.T) {
 	}
 }
 
-// A state directory that doesn't exist yet is created private to the user.
 func TestAStateDirectoryIsCreatedPrivate(t *testing.T) {
 	d := fakeDriver(t.TempDir())
 	open(t, d, harness.Options{})

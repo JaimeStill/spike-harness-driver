@@ -9,10 +9,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// A harness's first listing may still be in flight when respond changes, as OpenCode's is at
-// session/new. That listing started before the change and may answer with the old tools, so
-// WaitListed waits for one that started after it. The test drives routeRespond directly, so it
-// can hold a listing in flight.
 func TestWaitListedWaitsOutAListingFromBeforeTheChange(t *testing.T) {
 	s, err := New(nil, Options{})
 	if err != nil {
@@ -45,7 +41,6 @@ func TestWaitListedWaitsOutAListingFromBeforeTheChange(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	// The listing from before the change answers; it doesn't count.
 	close(release)
 	<-first
 	select {
@@ -54,7 +49,6 @@ func TestWaitListedWaitsOutAListingFromBeforeTheChange(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	// A listing that starts after the change ends the wait.
 	if _, err := current(t.Context(), "tools/list", &mcp.ListToolsRequest{}); err != nil {
 		t.Fatal(err)
 	}

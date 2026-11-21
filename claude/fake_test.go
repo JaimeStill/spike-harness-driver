@@ -13,14 +13,10 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// fakeEnv switches the test binary into a fake Claude Code, which speaks enough stream-json
-// to drive the connection: the control protocol in both directions, the driver's tool server
-// through mcp_message requests as Claude Code makes them, and turns that end with a result.
 const fakeEnv = "CLAUDE_FAKE"
 
-// launchEnv and promptsEnv name files where the fake records its arguments and the user
-// messages it receives, one JSON line each, for a test to check. configEnv names a file where
-// it records the configuration directory it was given, $CLAUDE_CONFIG_DIR.
+const noRaceExitSleep = "GORACE=atexit_sleep_ms=0"
+
 const (
 	launchEnv  = "CLAUDE_FAKE_LAUNCH"
 	promptsEnv = "CLAUDE_FAKE_PROMPTS"
@@ -34,30 +30,23 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// fake is the fake Claude Code's state.
 type fake struct {
-	out  sync.Mutex
-	mu   sync.Mutex
-	next int
-	// waiting maps the request ID of each control request the fake made to its reply.
-	waiting map[string]chan json.RawMessage
-	// tools is the driver's tool list as the fake last listed it.
-	tools     []string
-	connected bool
-	// listing counts the listings under way, which a turn waits for, as Claude Code applies a
-	// changed tool list before it starts the next turn.
+	out         sync.Mutex
+	mu          sync.Mutex
+	next        int
+	waiting     map[string]chan json.RawMessage
+	tools       []string
+	connected   bool
 	listing     sync.WaitGroup
 	mcpID       int
 	interrupted chan struct{}
-	turns       chan []json.RawMessage // each user message's content blocks
-	// failed is whether the last turn failed, which makes the fake exit with status 1 at the
-	// end of its input, as Claude Code does.
-	failed bool
-	done   chan struct{}
+	userBlocks  chan []json.RawMessage
+	failed      bool
+	done        chan struct{}
 }
 
 func fakeClaude() int {
-	f := &fake{waiting: map[string]chan json.RawMessage{}, turns: make(chan []json.RawMessage, 8), done: make(chan struct{})}
+	f := &fake{waiting: map[string]chan json.RawMessage{}, userBlocks: make(chan []json.RawMessage, 8), done: make(chan struct{})}
 	record(launchEnv, os.Args[1:])
 	record(configEnv, os.Getenv("CLAUDE_CONFIG_DIR"))
 	go f.runTurns()
@@ -91,10 +80,10 @@ func fakeClaude() int {
 			}
 			_ = json.Unmarshal(l.Message, &m)
 			record(promptsEnv, m.Content)
-			f.turns <- m.Content
+			f.userBlocks <- m.Content
 		}
 	}
-	close(f.turns)
+	close(f.userBlocks)
 	<-f.done
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -104,7 +93,6 @@ func fakeClaude() int {
 	return 0
 }
 
-// record appends v as a JSON line to the file env names, when it names one.
 func record(env string, v any) {
 	path := os.Getenv(env)
 	if path == "" {
@@ -131,7 +119,6 @@ func (f *fake) reply(id string, response any) {
 	f.emit(controlResponse{Type: "control_response", Response: controlReply{Subtype: "success", RequestID: id, Response: b}})
 }
 
-// control answers the driver's control requests.
 func (f *fake) control(id string, r controlRequest) {
 	switch r.Subtype {
 	case "initialize":
@@ -145,7 +132,6 @@ func (f *fake) control(id string, r controlRequest) {
 		}
 		f.mu.Unlock()
 	case "mcp_message":
-		// The driver's server announcing a change: Claude Code lists the tools again.
 		f.reply(id, nil)
 		var m struct {
 			Method string `json:"method"`
@@ -159,7 +145,6 @@ func (f *fake) control(id string, r controlRequest) {
 	}
 }
 
-// ask sends the driver a control request and waits for the reply's response.
 func (f *fake) ask(r controlRequest) json.RawMessage {
 	f.mu.Lock()
 	f.next++
@@ -172,7 +157,6 @@ func (f *fake) ask(r controlRequest) json.RawMessage {
 	return <-ch
 }
 
-// mcp sends one JSON-RPC message to the driver's server and returns its response.
 func (f *fake) mcp(msg string) json.RawMessage {
 	var out struct {
 		MCPResponse json.RawMessage `json:"mcp_response"`
@@ -181,7 +165,6 @@ func (f *fake) mcp(msg string) json.RawMessage {
 	return out.MCPResponse
 }
 
-// nextMCPID numbers the fake's MCP requests, as Claude Code's are, from 1.
 func (f *fake) nextMCPID() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -189,7 +172,6 @@ func (f *fake) nextMCPID() string {
 	return fmt.Sprint(f.mcpID)
 }
 
-// connect makes the MCP handshake, as Claude Code does when the first message arrives.
 func (f *fake) connect() {
 	f.mcp(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"fake","version":"0"}}}`)
 	f.mcp(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
@@ -216,7 +198,6 @@ func (f *fake) list() {
 	}
 }
 
-// call calls a driver tool and reports the result's text and whether it failed.
 func (f *fake) call(name string, args json.RawMessage) (string, bool) {
 	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(f.nextMCPID()), "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
 	var r struct {
@@ -235,16 +216,9 @@ func (f *fake) call(name string, args json.RawMessage) (string, bool) {
 	return text, r.Result.IsError
 }
 
-// runTurns runs each user message as a turn. The text decides what the turn does:
-//
-//   - "tool:<name>:<args>" calls the driver's tool with the arguments;
-//   - "structured:<args>" calls the respond tool the fake last listed with the arguments;
-//   - "permit:<tool>" asks the driver whether the tool may run, and answers with the decision;
-//   - "stream" streams text until interrupted;
-//   - anything else answers "hello".
 func (f *fake) runTurns() {
 	defer close(f.done)
-	for content := range f.turns {
+	for content := range f.userBlocks {
 		f.listing.Wait()
 		f.mu.Lock()
 		connected := f.connected
@@ -260,7 +234,7 @@ func (f *fake) runTurns() {
 				text = blk.Text
 			}
 		}
-		text, _, _ = strings.Cut(text, "\n\n") // the respond instruction
+		text, _, _ = strings.Cut(text, "\n\n")
 		f.emit(map[string]any{"type": "system", "subtype": "init", "session_id": "s"})
 		switch {
 		case strings.HasPrefix(text, "tool:"):
@@ -311,7 +285,6 @@ func (f *fake) delta(text string) {
 		"type": "content_block_delta", "delta": map[string]any{"type": "text_delta", "text": text}}})
 }
 
-// toolTurn calls a tool, reporting the call and its result as Claude Code does, and ends.
 func (f *fake) toolTurn(wire, name string, args json.RawMessage) {
 	f.emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{
 		map[string]any{"type": "tool_use", "id": "t1", "name": wire, "input": args}}}})
@@ -321,7 +294,6 @@ func (f *fake) toolTurn(wire, name string, args json.RawMessage) {
 	f.end(text, "")
 }
 
-// end ends the turn with a result: an interrupted one when terminal is "aborted_*".
 func (f *fake) end(text, terminal string) {
 	r := map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": text,
 		"stop_reason": "end_turn", "terminal_reason": "completed",
@@ -335,7 +307,6 @@ func (f *fake) end(text, terminal string) {
 	f.emit(r)
 }
 
-// newBridgeForTest returns a tool server like the driver's, for reading mcpbridge's names.
 func newBridgeForTest() (*mcpbridge.Server, error) {
 	return mcpbridge.New(nil, mcpbridge.Options{Name: serverName})
 }

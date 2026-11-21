@@ -20,10 +20,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow/filestore"
 )
 
-// resumeHint is the line an interrupted run ends with.
 var resumeHint = regexp.MustCompile(`resume with: clutch workflow resume (\S+)`)
 
-// longPrompt streams until it is cancelled, while streaming is on.
 const longPrompt = "long"
 
 const pair = `{
@@ -36,9 +34,6 @@ const pair = `{
 	]
 }`
 
-// newService returns a Service whose sessions run on the scripted harness, with the run log and
-// exchange records in state. With stream set, a prompt holding longPrompt streams until it is
-// cancelled.
 func newService(state string, stream bool) *wfdomain.Service {
 	d := harnesstest.Driver{}
 	if stream {
@@ -99,7 +94,6 @@ func TestInterruptThenResume(t *testing.T) {
 	state := t.TempDir()
 	path := writeWorkflow(t, longPrompt)
 
-	// The second step streams until the interrupt, which stops the run without ending it.
 	ctx, cancel := context.WithCancel(t.Context())
 	svc := newService(state, true)
 	go func() {
@@ -133,8 +127,6 @@ func TestInterruptThenResume(t *testing.T) {
 		t.Fatalf("after the interrupt: %+v", s)
 	}
 
-	// A new process, whose harness answers, takes the run up: the first step keeps its result,
-	// and only the second runs.
 	out, err = execute(t, t.Context(), newService(state, false), "resume", id)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)

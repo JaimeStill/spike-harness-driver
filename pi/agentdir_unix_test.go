@@ -11,8 +11,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// Pi runs commands its agent directory's files name, so a directory others can write to is
-// refused before Pi starts.
 func TestAnAgentDirectoryOthersCanWriteIsRefused(t *testing.T) {
 	d := fakeDriver("ok")
 	d.AgentDir = filepath.Join(t.TempDir(), "agent")

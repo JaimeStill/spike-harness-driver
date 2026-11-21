@@ -14,26 +14,18 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/catalog"
 )
 
-// skills holds the skills the skill scenario embeds, one directory each.
-//
 //go:embed skills
 var skills embed.FS
 
 const (
-	// motto is the fact the embedded clutch-motto skill gives, which the model can't know
-	// without it.
 	motto = "Hold the line, shift the load."
 
 	mottoPrompt = "What is the clutch motto? Reply with the motto only."
 
-	// weatherSkill is the example skill in clutch/examples/skills, which the skill scenario asks
-	// about when --skills loaded it.
 	weatherSkill  = "clutch-weather"
 	weatherPrompt = "What is the weather at the clutch test site?"
 )
 
-// mottoSkill loads the embedded clutch-motto skill through catalog, the loader an external
-// skill goes through, so an embedded skill is held to the same rules.
 func mottoSkill() (harness.Skill, error) {
 	sub, err := fs.Sub(skills, "skills/clutch-motto")
 	if err != nil {
@@ -49,10 +41,6 @@ func MottoSkill() (skill harness.Skill, phrase string, err error) {
 	return skill, motto, err
 }
 
-// skillScenario shows the two ways a skill reaches the model: invoked by name in the prompt,
-// with no tools at all, and found by the model itself, which loads the skill with the harness's
-// skill tool, as the profile names it. When --skills loaded the example clutch-weather skill,
-// the model finds that one too.
 func skillScenario(svc *session.Service, profile func() Profile, needs []Need) Scenario {
 	return Scenario{
 		Name:    "skill",
@@ -60,8 +48,6 @@ func skillScenario(svc *session.Service, profile func() Profile, needs []Need) S
 		Needs:   needs,
 		Steps: func() ([]Step, func() error) {
 			r := &run{svc: svc}
-			// ask runs prompt in a new session opened with setup, closing the run's previous
-			// session first.
 			ask := func(ctx context.Context, rep *Reporter, setup session.Setup, prompt string) (session.Outcome, error) {
 				if err := r.close(); err != nil {
 					return session.Outcome{}, err
@@ -135,8 +121,6 @@ func skillScenario(svc *session.Service, profile func() Profile, needs []Need) S
 	}
 }
 
-// replyHasPhrase fails unless the reply holds phrase, ignoring case and punctuation, so a model
-// that drops the full stop or the quotes still passes. The failure names phrase by what.
 func replyHasPhrase(reply, phrase, what string) error {
 	if !strings.Contains(Normalize(reply), Normalize(phrase)) {
 		return fmt.Errorf("the reply lacks %s %q: %q", what, phrase, reply)

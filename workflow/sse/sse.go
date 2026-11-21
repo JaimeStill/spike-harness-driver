@@ -36,10 +36,6 @@ func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, run
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// An ended run with nothing after the cursor answers 204: an EventSource reconnects after
-	// any stream that closes, and a status other than 200 is what tells it to stop. A run that
-	// hasn't ended still streams, even when no runner is running it, so a client keeps
-	// reconnecting until a restarted runner resumes it.
 	s, err := runner.State(r.Context(), runID)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -66,7 +62,6 @@ func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, run
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
-	// Tells nginx-style proxies to pass events through as they come rather than buffer them.
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
@@ -78,8 +73,6 @@ func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, run
 	if keepalive <= 0 {
 		keepalive = DefaultKeepalive
 	}
-	// The ticker runs whether or not events flow. A comment among busy events costs little, and
-	// no quiet stretch of the stream outlasts one period.
 	tick := time.NewTicker(keepalive)
 	defer tick.Stop()
 
@@ -105,7 +98,6 @@ func Stream(w http.ResponseWriter, r *http.Request, runner *workflow.Runner, run
 	}
 }
 
-// cursor reads the request's position in the log: zero when it names none.
 func cursor(r *http.Request) (int, error) {
 	v := r.Header.Get("Last-Event-ID")
 	if v == "" {
@@ -121,9 +113,6 @@ func cursor(r *http.Request) (int, error) {
 	return n, nil
 }
 
-// write frames one event. A logged event is named by its kind and carries its Seq as the id; a
-// live exchange event carries none, so the client's last id always names a logged event. The
-// JSON is on one line, so the data needs no splitting.
 func write(w http.ResponseWriter, e workflow.Event) error {
 	data, err := json.Marshal(e)
 	if err != nil {

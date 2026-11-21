@@ -18,7 +18,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow/sse"
 )
 
-// store is an in-memory workflow.Store.
 type store struct {
 	mu   sync.Mutex
 	logs map[string][]workflow.Event
@@ -94,10 +93,8 @@ func finished(t *testing.T) (*workflow.Runner, string) {
 	return r, id
 }
 
-// frame is one parsed message of a stream.
 type frame struct{ id, event, data string }
 
-// parse reads a whole stream back into its frames, dropping comments.
 func parse(t *testing.T, body string) []frame {
 	t.Helper()
 	var frames []frame
@@ -185,10 +182,9 @@ func TestStreamCursor(t *testing.T) {
 		target string
 		header map[string]string
 	}{
-		"header": {"/events", map[string]string{"Last-Event-ID": "2"}},
-		"query":  {"/events?after=2", nil},
-		// The header wins over the query.
-		"both": {"/events?after=999", map[string]string{"Last-Event-ID": "2"}},
+		"header":            {"/events", map[string]string{"Last-Event-ID": "2"}},
+		"query":             {"/events?after=2", nil},
+		"header over query": {"/events?after=999", map[string]string{"Last-Event-ID": "2"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := get(t, r, id, c.target, c.header)
@@ -209,11 +205,10 @@ func TestStreamErrors(t *testing.T) {
 		header      map[string]string
 		code        int
 	}{
-		"unknown run":     {"nope", "/events", nil, http.StatusNotFound},
-		"bad header":      {id, "/events", map[string]string{"Last-Event-ID": "x"}, http.StatusBadRequest},
-		"bad query":       {id, "/events?after=abc", nil, http.StatusBadRequest},
-		"negative cursor": {id, "/events?after=-1", nil, http.StatusBadRequest},
-		// An ended run with nothing after the cursor tells an EventSource to stop reconnecting.
+		"unknown run":         {"nope", "/events", nil, http.StatusNotFound},
+		"bad header":          {id, "/events", map[string]string{"Last-Event-ID": "x"}, http.StatusBadRequest},
+		"bad query":           {id, "/events?after=abc", nil, http.StatusBadRequest},
+		"negative cursor":     {id, "/events?after=-1", nil, http.StatusBadRequest},
 		"ended and caught up": {id, "/events?after=999", nil, http.StatusNoContent},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -251,8 +246,6 @@ func TestStreamLiveAndKeepalive(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// The step streams until cancelled, so the run stays in flight: read until the stream has
-	// shown a live exchange event and a keepalive.
 	var prev string
 	var live, keepalive bool
 	sc := bufio.NewScanner(resp.Body)
@@ -261,7 +254,6 @@ func TestStreamLiveAndKeepalive(t *testing.T) {
 		switch line {
 		case "event: exchange":
 			live = true
-			// A live event has no id line.
 			if strings.HasPrefix(prev, "id: ") {
 				t.Error("exchange event carries an id")
 			}

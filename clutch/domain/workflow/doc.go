@@ -11,4 +11,6 @@
 // Handler serves the same runs over HTTP, with each run's events as Server-Sent Events.
 // ServeCommand mounts "serve", which hosts the Handler and, at start, resumes the runs a
 // previous process left unfinished.
+//
+// See docs/design.md#the-workflow-domain
 package workflow

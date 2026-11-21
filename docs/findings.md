@@ -1,6 +1,7 @@
 # Findings
 
-Evidence toward the spike's question, by part, and the answer it adds up to. The coordinator's
+This page holds the evidence toward the spike's question, by part. The answer it adds up to is
+in [`context/README.md`](../context/README.md#the-answer). The coordinator's
 `plan` session reads it with the result. The package documentation in `harness`,
 `harness/stdio`, `harness/filestore`, `harness/catalog`, `harness/cache`, `model`, `mcpbridge`,
 `workflow`, `workflow/filestore`, `workflow/sse`, and the adapters `pi`, `claude`, and `opencode`
@@ -537,28 +538,3 @@ What the spike leaves to the service that adopts it:
   redacts from what it logs.
 - **Windows.** The process-group hooks do nothing there. A job object that kills its processes
   when it closes (`golang.org/x/sys/windows`) is the fix, if Windows ever matters.
-
-## The answer
-
-**Go can drive an external agent harness as the infrastructure for agentic work.** By part:
-
-- **Capabilities.** Tools and skills run through every harness; a tool defined in Go reaches Pi
-  through its extension and Claude Code and OpenCode through MCP. Of the native capabilities,
-  harnesses expose vision alone, and drop an image a model can't take quietly. Embeddings and
-  audio need a direct model client, one OpenAI-compatible shape over the router and Azure, and
-  an agent reaches them through a tool (Capabilities, Payloads).
-- **Sessions.** A session outlives its process on every harness and resumes by ID, keeping its
-  history. Exchange IDs are the driver's own, kept in a store and bound to the harness's journal
-  where it keeps one, which catches Pi's cwd-scoped sessions (Sessions).
-- **Exchanges.** No harness tags its events with a request, so a session carries one exchange at
-  a time, scoped from start to settle, with each harness's cancellation mapped to one outcome. A
-  structured response is a `respond` tool on every harness (Exchanges, Payloads).
-- **Workflows.** A standard-library layer of about 1,800 lines over `harness.Driver` runs a DAG of
-  exchanges over sessions on any mix of harnesses, with a concurrency limit, cancellation,
-  progress and SSE from one log per run, and resume after an interrupt, a `kill -9`, or a
-  container restart (Workflows).
-
-**What it settles for go-ai:** both surfaces, a harness-session surface and a model-client
-surface, with the workflow layer above `harness` and harness-agnostic. **A service image carries
-a harness:** one, pinned, Pi by default, in about 215 MB (Deployment, Harness comparison). What a
-service still owes is in Open for a service.

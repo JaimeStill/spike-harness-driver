@@ -8,6 +8,8 @@
 // that splits its routes across base URLs, or needs a different query for one route, takes a
 // Client per base URL. The caller supplies the http.Client, and with it every timeout and
 // retry, because the package sets no policy of its own.
+//
+// See docs/design.md#the-model-client
 package model
 
 import (
@@ -79,8 +81,6 @@ func New(cfg Config) (*Client, error) {
 	case u.Fragment != "":
 		return nil, fmt.Errorf("model: base URL %q has a fragment", cfg.BaseURL)
 	}
-	// The query is encoded once, from a copy, so a caller changing its url.Values after New
-	// can't change the requests.
 	return &Client{
 		base:  *u,
 		query: url.Values(maps.Clone(cfg.Query)).Encode(),
@@ -89,7 +89,6 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
-// endpoint is the URL of route, appended to the base path with exactly one slash between them.
 func (c *Client) endpoint(route string) string {
 	u := c.base
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/" + route
@@ -98,7 +97,6 @@ func (c *Client) endpoint(route string) string {
 	return u.String()
 }
 
-// postJSON sends in as the JSON body of a POST to route and decodes the response into out.
 func (c *Client) postJSON(ctx context.Context, op, route string, in, out any) error {
 	body, err := json.Marshal(in)
 	if err != nil {
@@ -107,9 +105,6 @@ func (c *Client) postJSON(ctx context.Context, op, route string, in, out any) er
 	return c.post(ctx, op, route, "application/json", bytes.NewReader(body), out)
 }
 
-// post sends body as a POST to route and decodes the JSON response into out. A non-2xx
-// response is an *APIError. post closes body when it is an io.Closer and no request takes it,
-// so a writer feeding it through a pipe is released.
 func (c *Client) post(
 	ctx context.Context, op, route, contentType string, body io.Reader, out any,
 ) error {
@@ -160,7 +155,6 @@ type Usage struct {
 	OutputTokens int
 }
 
-// wireUsage is the usage object the endpoints return.
 type wireUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`

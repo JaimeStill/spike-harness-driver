@@ -12,16 +12,12 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// harnessDetail is how much of a harness event's raw record, a tool's arguments or result, or a
-// structured response an event line keeps.
 const harnessDetail = 80
 
 // Output writes results to one stream and errors to another.
 type Output struct {
 	out, err io.Writer
-	// all reports whether events with no normalized meaning are printed. It is read at each
-	// event, so it can follow a flag parsed after the Output is built.
-	all func() bool
+	all      func() bool
 }
 
 // New returns an Output over stdout and stderr. A nil all prints only normalized events.
@@ -102,9 +98,6 @@ func EventLine(ev harness.Event) string {
 	return fmt.Sprintf("%s %s %4d %-14s %q", Short(ev.SessionID), Short(ev.ExchangeID.String()), ev.Seq, ev.Kind, detail)
 }
 
-// limitDetail is a limit event's detail: the status, then the window and how much of it is used
-// and when it resets, each only when the harness said. The reset shows as a time of day in the
-// local zone, which is as much as a window of hours calls for.
 func limitDetail(l *harness.LimitStatus) string {
 	parts := []string{"status=" + l.Status}
 	if l.Kind != "" {
@@ -119,8 +112,6 @@ func limitDetail(l *harness.LimitStatus) string {
 	return strings.Join(parts, " ")
 }
 
-// toolDetail is a tool event's detail: the name, then the arguments of a call or the result of
-// a result, each compacted and cut.
 func toolDetail(kind harness.EventKind, t *harness.ToolEvent) string {
 	payload, sep := t.Args, " "
 	if kind == harness.EventToolResult {
@@ -135,7 +126,6 @@ func toolDetail(kind harness.EventKind, t *harness.ToolEvent) string {
 	return t.Name + sep + cut(compact(payload), harnessDetail)
 }
 
-// compact returns raw JSON without insignificant space, or as it is if it doesn't parse.
 func compact(raw json.RawMessage) string {
 	var b bytes.Buffer
 	if err := json.Compact(&b, raw); err != nil {
@@ -144,7 +134,6 @@ func compact(raw json.RawMessage) string {
 	return b.String()
 }
 
-// cut keeps at most n bytes of s, ending on a whole character, and marks what it dropped.
 func cut(s string, n int) string {
 	if len(s) <= n {
 		return s

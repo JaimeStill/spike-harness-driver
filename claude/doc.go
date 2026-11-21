@@ -44,4 +44,6 @@
 //
 // Claude Code reports where the subscription stands with rate_limit_event, which
 // becomes harness.EventLimit, and a turn the limit refused becomes a *harness.LimitError.
+//
+// See docs/design.md#the-claude-code-adapter
 package claude

@@ -5,8 +5,9 @@ files are known to hold.
 
 ## shapes.png
 
-A red circle, a blue square, and a green triangle on white, 480 pixels square. `shapes.go`
-draws it with the standard library, so the file can be regenerated exactly:
+The image shows a red circle, a blue square, and a green triangle on white, 480 pixels square.
+The triangle points up, and its base is as wide as it is tall. `shapes.go` draws the image with
+the standard library, so the file can be regenerated exactly:
 
 ```bash
 go run ./clutch/examples/media/shapes.go

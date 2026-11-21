@@ -8,10 +8,8 @@ import (
 	"time"
 )
 
-// cancelTimeout bounds the Connection.Cancel call a cancellation makes.
 const cancelTimeout = 30 * time.Second
 
-// recordTimeout bounds binding an ended exchange to the journal, and storing its record.
 const recordTimeout = 30 * time.Second
 
 // Session is one conversation with a harness that spans several exchanges. It carries one
@@ -30,27 +28,22 @@ type Session struct {
 	id         string
 	connection Connection
 	store      Store
-	journal    Journal // nil when the Connection keeps none, or there is no Store
+	journal    Journal
 	ctx        context.Context
 	close      context.CancelCauseFunc
 
-	mu   sync.Mutex
-	open *Exchange
-	// runEnded is set once the open exchange's EventEnded arrives, while it is recorded: its
-	// run is over, so it can no longer be cancelled.
-	runEnded bool
-	// cursor is the last journal entry bound to an exchange. resync means a binding failed,
-	// so the cursor is stale until the next Send takes the journal's head.
-	cursor  string
-	resync  bool
-	exited  bool
-	exitErr error
-	// cancelling is closed when the cancellation in flight finishes; nil when none is.
+	mu         sync.Mutex
+	open       *Exchange
+	runEnded   bool
+	cursor     string
+	resync     bool
+	exited     bool
+	exitErr    error
 	cancelling chan struct{}
 
-	done      chan struct{} // closed when the Connection's events have closed
-	closeOnce sync.Once
-	closeErr  error
+	eventsClosed chan struct{}
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 // NewSession starts a session over c, recording its exchanges in store, which may be nil. id
@@ -61,7 +54,7 @@ type Session struct {
 // and checks that the last entry the store has recorded for id is still in the journal. If it
 // isn't, NewSession fails with ErrJournalMismatch. NewSession doesn't close c when it fails.
 func NewSession(ctx context.Context, id string, c Connection, store Store) (*Session, error) {
-	s := &Session{id: id, connection: c, store: store, done: make(chan struct{})}
+	s := &Session{id: id, connection: c, store: store, eventsClosed: make(chan struct{})}
 	if j, ok := c.(Journal); ok && store != nil {
 		s.journal = j
 		head, err := j.Head(ctx)
@@ -78,8 +71,6 @@ func NewSession(ctx context.Context, id string, c Connection, store Store) (*Ses
 	return s, nil
 }
 
-// verify checks that the journal still holds the last entry the store recorded for the
-// session.
 func (s *Session) verify(ctx context.Context) error {
 	recs, err := s.store.Records(ctx, s.id)
 	if err != nil {
@@ -154,7 +145,7 @@ func (s *Session) Send(ctx context.Context, req Request) (*Exchange, error) {
 		return nil, ErrBusy
 	}
 	x := newExchange(s.id, s.ctx, req)
-	x.cancel = func() { s.cancel(x) }
+	x.cancelHook = func() { s.cancel(x) }
 	s.open = x
 	resync := s.resync
 	s.mu.Unlock()
@@ -193,13 +184,11 @@ func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
 		s.close(ErrClosed)
 		s.closeErr = s.connection.Close()
-		<-s.done
+		<-s.eventsClosed
 	})
 	return s.closeErr
 }
 
-// resyncCursor takes the cursor from the journal's head when a binding failed. The open
-// exchange hasn't prompted yet, so the head is where its entries begin.
 func (s *Session) resyncCursor(resync bool) error {
 	if !resync {
 		return nil
@@ -216,10 +205,6 @@ func (s *Session) resyncCursor(resync bool) error {
 	return nil
 }
 
-// cancel is every exchange's cancellation hook. It cancels only while x's run is under way:
-// once x's EventEnded has arrived, a cancellation would reach an idle harness, or the next
-// exchange's run. A harness may take several round trips to cancel, and x may end during
-// them, so the cancellation holds off the next Send until it finishes.
 func (s *Session) cancel(x *Exchange) {
 	s.mu.Lock()
 	if s.open != x || s.runEnded {
@@ -229,8 +214,6 @@ func (s *Session) cancel(x *Exchange) {
 	done := make(chan struct{})
 	s.cancelling = done
 	s.mu.Unlock()
-	// The exchange owes no structured response once it is cancelled, whether or not the
-	// harness reports the cancellation in an event of its own.
 	x.markCancelled()
 	go func() {
 		defer func() {
@@ -241,21 +224,12 @@ func (s *Session) cancel(x *Exchange) {
 		}()
 		ctx, cancel := context.WithTimeout(s.ctx, cancelTimeout)
 		defer cancel()
-		// A cancellation that Close cut short is no error of the exchange's.
 		if err := s.connection.Cancel(ctx); err != nil && s.ctx.Err() == nil {
 			x.push(Event{Kind: EventError, Err: err})
 		}
 	}()
 }
 
-// route hands each of the Connection's events to the open exchange, and ends that exchange
-// when the Connection's events close. An event outside any exchange, such as a harness's queue
-// notice after a cancelled run ends, is dropped.
-//
-// An exchange is recorded when its EventEnded arrives, while it is still the open exchange,
-// so no Send can start another run that would append to its entries. An exchange whose schema
-// went unanswered gets ErrNoStructuredResponse first, so the record carries it. A failure to
-// record becomes the exchange's error.
 func (s *Session) route() {
 	for ev := range s.connection.Events() {
 		s.mu.Lock()
@@ -294,19 +268,14 @@ func (s *Session) route() {
 	s.open = nil
 	s.mu.Unlock()
 	if x != nil {
-		// The harness is gone, so the exchange is recorded without entries.
 		if err := s.put(x.record(nil, exitErr)); err != nil {
 			x.push(Event{Kind: EventError, Err: err})
 		}
 		x.fail(exitErr)
 	}
-	close(s.done)
+	close(s.eventsClosed)
 }
 
-// record binds x to the journal entries appended since the cursor, advances the cursor, and
-// stores x's record. When binding fails, as when Close or the harness's exit cuts the journal
-// call short, x is still recorded, without entries and with the binding error, and the next
-// Send takes the cursor from the journal's head. Without a Store, record does nothing.
 func (s *Session) record(x *Exchange) error {
 	if s.store == nil {
 		return nil
@@ -318,7 +287,6 @@ func (s *Session) record(x *Exchange) error {
 	return bindErr
 }
 
-// bind returns the journal entries appended since the cursor, and advances the cursor.
 func (s *Session) bind(x *Exchange) ([]string, error) {
 	if s.journal == nil {
 		return nil, nil
@@ -342,8 +310,6 @@ func (s *Session) bind(x *Exchange) ([]string, error) {
 	return ids, nil
 }
 
-// put stores rec. The record outlives Close, which can end an exchange as it is recorded, so
-// its context is bounded by recordTimeout alone.
 func (s *Session) put(rec Record) error {
 	if s.store == nil {
 		return nil

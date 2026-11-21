@@ -13,6 +13,8 @@
 // each Record names the harness entries its exchange appended, which binds the driver's ID
 // to the harness's durable record and lets a resumed session check that the harness still
 // holds what was recorded.
+//
+// See docs/design.md#the-session
 package harness
 
 import (
@@ -128,7 +130,6 @@ type Tool struct {
 	Handler ToolHandler
 }
 
-// toolName is the rule the model providers share for a tool's name.
 var toolName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // Validate checks that t can be offered to a model: a name of 1 to 64 letters, digits,
@@ -171,11 +172,11 @@ func ValidateSchema(schema json.RawMessage) error {
 	return nil
 }
 
-// Skill is a skill: a directory holding a SKILL.md, whose frontmatter names and describes it,
-// and any files the skill refers to. FS is rooted at that directory, so a skill may live on
-// disk (os.DirFS) or be embedded in a Go library (fs.Sub of an embed.FS).
+// Skill is a skill: a directory, <dir>, holding <dir>/SKILL.md, whose frontmatter names and
+// describes it, and any files the skill refers to. FS is rooted at that directory, so a skill
+// may live on disk (os.DirFS) or be embedded in a Go library (fs.Sub of an embed.FS).
 type Skill struct {
-	// Name is the skill's name, as its SKILL.md frontmatter gives it.
+	// Name is the skill's name, as the frontmatter of <dir>/SKILL.md gives it.
 	Name string
 	FS   fs.FS
 	// Dir, when set, is the directory on disk FS reads. An adapter whose harness reads skills
@@ -222,9 +223,6 @@ type Image struct {
 // ErrInvalidImage is returned, wrapped, for a request image with no media type or no data.
 var ErrInvalidImage = errors.New("harness: invalid image")
 
-// validateImages checks that each image has a media type and data. It does not check whether the
-// model takes images, which only the harness knows: Pi, for one, replaces an image with a note
-// for a model without image input.
 func validateImages(images []Image) error {
 	for i, img := range images {
 		if img.MediaType == "" || len(img.Data) == 0 {
@@ -259,7 +257,6 @@ type Usage struct {
 	CacheWrite int `json:"cacheWrite,omitempty"`
 }
 
-// add adds o's counts to u.
 func (u *Usage) add(o Usage) {
 	u.Input += o.Input
 	u.Output += o.Output

@@ -10,4 +10,6 @@
 //
 // The package uses only net/http and a workflow.Runner, so any server can mount Stream on any
 // route.
+//
+// See docs/design.md#the-event-stream
 package sse

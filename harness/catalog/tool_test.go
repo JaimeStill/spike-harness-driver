@@ -12,7 +12,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness/catalog"
 )
 
-// commandTools skips a test on Windows, where the test tools' shell scripts don't run.
 func commandTools(t *testing.T) map[string]harness.Tool {
 	t.Helper()
 	if runtime.GOOS == "windows" {

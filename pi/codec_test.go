@@ -206,8 +206,6 @@ func TestDecodeRejectsMalformedLine(t *testing.T) {
 	}
 }
 
-// TestNormalizeTranscripts replays transcripts captured from a real pi --mode rpc run against
-// a llama.cpp router.
 func TestNormalizeTranscripts(t *testing.T) {
 	tests := []struct {
 		file      string

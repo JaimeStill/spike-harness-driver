@@ -1,4 +1,5 @@
 # The image builds clutch from the Go sources alone.
+# See deploy/README.md#the-build-context
 .git
 .claude
 .env*

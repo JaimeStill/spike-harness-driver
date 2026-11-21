@@ -10,8 +10,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow"
 )
 
-// shutdownTimeout bounds stopping a run on an interrupt: cancelling its exchanges and closing
-// its sessions.
 const shutdownTimeout = 30 * time.Second
 
 // Service runs workflows on the harnesses their sessions name.
@@ -43,7 +41,6 @@ func Load(path string) (workflow.Workflow, error) {
 // Runner down, which stops the run without ending it, and keeps following until the Runner
 // stops running the run. The state it returns is then unfinished, and the error is ctx's.
 func Follow(ctx context.Context, r *workflow.Runner, id string, after int, fn func(workflow.Event)) (workflow.State, error) {
-	// The subscription outlives ctx, so the events of a shutdown still arrive.
 	events, err := r.Subscribe(context.WithoutCancel(ctx), id, after)
 	if err != nil {
 		return workflow.State{}, err

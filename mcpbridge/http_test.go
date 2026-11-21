@@ -11,7 +11,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// bearer adds an Authorization header to every request it carries.
 type bearer struct {
 	token string
 	next  http.RoundTripper
@@ -74,8 +73,6 @@ func TestListenRequiresToken(t *testing.T) {
 	}
 }
 
-// TestListenClient runs go-sdk's streamable client against the endpoint, and checks that the
-// client learns of a tool list change on its standalone stream.
 func TestListenClient(t *testing.T) {
 	s, e := listen(t)
 	changed := make(chan struct{}, 8)

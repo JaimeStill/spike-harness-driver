@@ -15,7 +15,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// maxRecord bounds one record's line. A record holds a whole request and result.
 const maxRecord = 16 << 20
 
 // Store keeps each session's records in <dir>/<sessionID>.jsonl.
@@ -90,8 +89,6 @@ func (s *Store) Records(_ context.Context, sessionID string) ([]harness.Record, 
 	return recs, nil
 }
 
-// path is the file that keeps a session's records. A session ID must name a file in the
-// store's directory and nothing beyond it.
 func (s *Store) path(sessionID string) (string, error) {
 	name := sessionID + ".jsonl"
 	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) || !filepath.IsLocal(name) {

@@ -49,13 +49,11 @@ func circle(x, y, cx, cy, r int) bool {
 	return dx*dx+dy*dy <= r*r
 }
 
-// triangle reports whether (x, y) is inside the upward triangle with its apex at (ax, ay)
-// and height h, whose base is as wide as it is tall.
-func triangle(x, y, ax, ay, h int) bool {
-	dy := y - ay
-	if dy < 0 || dy > h {
+func triangle(x, y, apexX, apexY, height int) bool {
+	dy := y - apexY
+	if dy < 0 || dy > height {
 		return false
 	}
 	half := dy / 2
-	return x >= ax-half && x <= ax+half
+	return x >= apexX-half && x <= apexX+half
 }

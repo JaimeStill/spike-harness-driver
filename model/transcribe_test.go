@@ -13,7 +13,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/model"
 )
 
-// form is a multipart request's fields and its one file.
 type form struct {
 	fields   map[string]string
 	filename string

@@ -14,4 +14,6 @@
 // there. A cell whose preconditions fail, or whose harness isn't the pinned version, is
 // skipped with the reason rather than failed, and a capability that fails never stops the
 // others.
+//
+// See docs/design.md#the-conformance-suite
 package conform
