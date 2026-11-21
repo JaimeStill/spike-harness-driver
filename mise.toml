@@ -5,10 +5,10 @@
 # Claude Code is absent because it is a native install, which the driver keeps from updating itself
 # (DISABLE_AUTOUPDATER), so the version on the PATH is the one the suite sees.
 [tools]
-pi = "0.99.2"
-opencode = "1.18.34"
+pi = "0.99.2" # held at the version `clutch conform` measured; a move to 1.x needs a live conform run
+opencode = "1.18.34" # held at the version `clutch conform` measured; a move to 2.x needs a live conform run
 # node runs the Pi bridge's TypeScript tests in the check (node --test strips the types).
-node = "26.11.1"
+node = "26.13.1"
 
 # The check builds, vets, format-checks, and race-tests every module in go.work, then runs the Pi
 # bridge's TypeScript tests. It is hermetic: no test reaches a router, a harness, or the network,
