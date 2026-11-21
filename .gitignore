@@ -19,3 +19,4 @@ secrets.json
 secrets.*.json
 config.*.json
 *.pem
+.claude/briefs/
