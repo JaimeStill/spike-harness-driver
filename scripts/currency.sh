@@ -2,7 +2,8 @@
 # Prints `<file>: <tool> <pin> -> <latest>` for each pin behind its latest, and exits 1 if any;
 # prints nothing when all are current. Compares mise.toml's tools, a newer marathon tag included,
 # with their latest. A pin held on purpose, as Pi's and OpenCode's are at the versions clutch's
-# conformance suite measured, is reported like any other, and its comment says why it is held.
+# conformance suite measured, carries a comment beside it saying why; a trailing held pin is
+# reported like any other, marked `(held)`.
 # Compares each go.work module's direct requirements in its go.mod with their latest on the module
 # proxy, in workspace mode, skipping the workspace's own modules. Reads the network.
 # See docs/configuration.md#currency
@@ -16,9 +17,28 @@ report() {
 }
 
 report_mise_tools() {
-  trailing=$(MISE_LOG_LEVEL=error mise outdated --bump --local --json |
+  local outdated path tool pin latest line
+  outdated=$(MISE_LOG_LEVEL=error mise outdated --bump --local --json |
     jq -r 'to_entries[] | (.value.bump // .value.latest) as $to | select($to != .value.requested) |
-      "\(.value.source.path | split("/") | last): \(.key) \(.value.requested) -> \($to)"' | sort -u) || return
+      [.value.source.path, .key, .value.requested, $to] | @tsv' | sort -u) || return
+  while IFS=$'\t' read -r path tool pin latest; do
+    [[ -n $path ]] || continue
+    line="${path##*/}: $tool $pin -> $latest"
+    held "$path" "$tool" && line+=" (held)"
+    report "$line"
+  done <<<"$outdated"
+}
+
+held() {
+  awk -v tool="$2" '
+    /^[[:space:]]*\[/ { tools = ($0 ~ /^[[:space:]]*\[tools\][[:space:]]*(#.*)?$/); next }
+    tools {
+      key = $0
+      sub(/[[:space:]]*=.*/, "", key)
+      gsub(/^[[:space:]"]+|"$/, "", key)
+      if (key == tool && $0 ~ /#/) found = 1
+    }
+    END { exit !found }' "$1"
 }
 
 report_go_requirements() {

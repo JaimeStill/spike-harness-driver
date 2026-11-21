@@ -29,8 +29,9 @@ hermetic: no test reaches a router, a harness, or the network, and it writes not
 
 `mise run currency` ([`scripts/currency.sh`](../scripts/currency.sh)) reports every pin behind
 its latest and exits nonzero if any trail: each mise tool, a newer marathon tag included, and each
-`go.work` module's direct requirements. Pi and OpenCode are reported while they are held; the
-comment beside each pin says why.
+`go.work` module's direct requirements. A pin with a comment beside it in `mise.toml` is held,
+and the comment says why; a held pin that trails is still reported, marked `(held)`, as Pi's and
+OpenCode's are.
 
 - The requirements are read in workspace mode, as the modules build: with `GOWORK=off`, opencode
   fails on a go.sum entry that only mcpbridge's go.sum holds.
