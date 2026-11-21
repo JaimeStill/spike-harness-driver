@@ -1,6 +1,7 @@
 # The spike's code, CLI, and prior art
 
-This page lists the steps the spike took, the code they built, and the repositories it reads.
+This page lists the code the spike built in its steps, the `clutch` CLI that drives it, and the
+prior-art repositories the spike reads.
 
 The spike's steps, in dependency order, all exist: the session interface and the Pi adapter;
 session persistence and resume; payloads, tool calls, and skills; native capabilities through a
