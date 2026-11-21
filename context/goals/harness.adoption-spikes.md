@@ -1,13 +1,13 @@
 # goal · harness.adoption-spikes
 
 - **State:** brief ready
-- **Task:** model-engines, hosting-upgrades, harness-driver
-- **Branch:** model-engines, hosting-upgrades, harness-driver
+- **Task:** hosting-upgrades, harness-driver
+- **Branch:** hosting-upgrades, harness-driver
 
 ## Tasks
 
 1. [x] model-gateway
-2. [ ] model-engines
+2. [x] model-engines
 3. [ ] hosting-upgrades
 4. [ ] harness-driver
 
@@ -201,7 +201,7 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
 
 ## Progress
 
-- model-engines: slices 5/5 committed · standards ✓ · spec ✓ · editor ✓
+- model-engines: shipped
 - hosting-upgrades: slices 5/5 committed · standards ✓ · spec ✓ · editor ✓
 - harness-driver: slices 7/7 committed · standards ✓ · spec ✓ (1 gap closed) · editor ✓
 - Architect: the three tasks build concurrently, each repository's slices in order; the record
