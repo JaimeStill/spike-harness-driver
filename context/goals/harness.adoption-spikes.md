@@ -201,9 +201,9 @@ Two-way: no release; the spike repository only; the sync's coordinator edits fol
 
 ## Progress
 
-- model-engines: slices 2/5 committed
-- hosting-upgrades: slices 2/5 committed
-- harness-driver: slices 3/7 committed
+- model-engines: slices 5/5 committed
+- hosting-upgrades: slices 5/5 committed
+- harness-driver: slices 6/7 committed
 - Architect: the three tasks build concurrently, each repository's slices in order; the record
   stays on the root's `model-engines` branch (worktree) until each ships.
 
