@@ -42,8 +42,6 @@ func (c *Client) Transcribe(ctx context.Context, req TranscribeRequest) (Transcr
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() { _ = pw.CloseWithError(writeForm(mw, req)) }()
-	// Closing the read side, whatever became of the request, fails the writer's next write,
-	// so it can't wait forever on a body no one reads.
 	defer func() { _ = pr.Close() }()
 
 	var reply struct {
@@ -56,7 +54,6 @@ func (c *Client) Transcribe(ctx context.Context, req TranscribeRequest) (Transcr
 	return Transcript{Text: reply.Text}, nil
 }
 
-// writeForm writes req as the multipart form a transcription takes.
 func writeForm(mw *multipart.Writer, req TranscribeRequest) error {
 	fields := [][2]string{
 		{"model", req.Model},

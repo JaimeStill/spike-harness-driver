@@ -11,4 +11,6 @@
 //
 // The package names no adapter. The program that hosts a Runner opens each session through an
 // Opener, which chooses the harness, provider, and model a SessionSpec names.
+//
+// See docs/design.md#the-workflow-runner
 package workflow

@@ -15,27 +15,21 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow"
 )
 
-// script is how the fake harness answers one prompt.
 type script struct {
 	reply      string
 	structured json.RawMessage
-	// gate, when set, holds the run until it closes or the run is cancelled.
-	gate chan struct{}
-	// slowCancel, when set, holds a cancellation's end until it closes, as a harness's cancel
-	// round trips do.
+	gate       chan struct{}
 	slowCancel chan struct{}
 	err        error
 }
 
-// fakeHarness opens sessions over scripted connections, keeps their exchange records, and
-// counts the prompts in flight.
 type fakeHarness struct {
 	script func(req harness.Request) script
 	store  *recordStore
 
 	mu       sync.Mutex
 	next     int
-	opened   []string // "<session>=<recorded harness ID>", per Open
+	opened   []string
 	prompts  []string
 	inflight int
 	peak     int
@@ -174,7 +168,6 @@ func (c *fakeConn) Close() error {
 	return nil
 }
 
-// recordStore is a harness.Store in memory.
 type recordStore struct {
 	mu   sync.Mutex
 	recs map[string][]harness.Record
@@ -193,7 +186,6 @@ func (s *recordStore) Records(_ context.Context, id string) ([]harness.Record, e
 	return slices.Clone(s.recs[id]), nil
 }
 
-// logStore is a workflow.Store in memory. fail, when set, refuses the events it matches.
 type logStore struct {
 	mu   sync.Mutex
 	logs map[string][]workflow.Event
@@ -264,7 +256,6 @@ func wait(t *testing.T, r *workflow.Runner, id string) workflow.State {
 	return s
 }
 
-// until subscribes to the run and returns once an event matches.
 func until(t *testing.T, r *workflow.Runner, id string, match func(workflow.Event) bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -301,7 +292,6 @@ func TestRunFanOutFanIn(t *testing.T) {
 	if h.count("A says high; B says B is fine.") != 1 || h.count("high again: B is fine on the plan") != 1 {
 		t.Errorf("prompts = %q", h.prompts)
 	}
-	// One open per session, the lead session's two steps sharing one, and each closed again.
 	if len(h.opened) != 3 || h.closed != 3 {
 		t.Errorf("opened %v, closed %d", h.opened, h.closed)
 	}
@@ -310,7 +300,6 @@ func TestRunFanOutFanIn(t *testing.T) {
 	}
 }
 
-// parallel is four independent steps on four sessions.
 const parallel = `{
 	"name": "parallel",
 	"sessions": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}],
@@ -330,7 +319,6 @@ func TestRunLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Give the scheduler time to overrun the limit, if it would.
 	deadline := time.Now().Add(5 * time.Second)
 	for h.count("") < 2 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -339,7 +327,6 @@ func TestRunLimit(t *testing.T) {
 	if n := h.count(""); n != 2 {
 		t.Fatalf("%d prompts in flight under a limit of 2", n)
 	}
-	// The slots go to the steps in declaration order.
 	if h.count("a") != 1 || h.count("b") != 1 || len(h.opened) != 2 {
 		t.Errorf("prompts %q, opened %v", h.prompts, h.opened)
 	}
@@ -398,9 +385,6 @@ func TestRunFailure(t *testing.T) {
 }
 
 func TestResume(t *testing.T) {
-	// The first runner's log refuses ra's end: the run stops as a crash would, after ra's
-	// exchange ended and the harness recorded it, but before the log said so. rb is still in
-	// flight.
 	gate := make(chan struct{})
 	h := newFakeHarness(func(req harness.Request) script {
 		if req.Text == "Review it too." {
@@ -535,7 +519,6 @@ func TestSubscribe(t *testing.T) {
 	if live == 0 || logged == 0 {
 		t.Fatalf("%d live and %d logged events", live, logged)
 	}
-	// After the run, a subscription replays the log after its cursor and closes.
 	replay, err := r.Subscribe(ctx, id, last-1)
 	if err != nil {
 		t.Fatal(err)
@@ -552,7 +535,6 @@ func TestSubscribe(t *testing.T) {
 	}
 }
 
-// chain is two steps, b after a, on two sessions.
 func chain() workflow.Workflow {
 	return workflow.Workflow{
 		Name:     "chain",
@@ -564,7 +546,6 @@ func chain() workflow.Workflow {
 	}
 }
 
-// seed writes a log of events for run id into store, numbering them from 1.
 func seed(store *logStore, id string, events ...workflow.Event) {
 	for i, e := range events {
 		e.RunID, e.Seq = id, i+1
@@ -618,7 +599,6 @@ func TestShutdownDuringTheFailureDrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	until(t, r, id, func(e workflow.Event) bool { return e.Kind == workflow.KindStepEnded && e.Step == "ra" })
-	// rb's cancellation is still in flight when the runner shuts down.
 	stopped := make(chan error, 1)
 	go func() { stopped <- r.Shutdown(context.Background()) }()
 	time.Sleep(20 * time.Millisecond)

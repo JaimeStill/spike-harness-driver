@@ -10,8 +10,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/workflow"
 )
 
-// review is a fan-out and fan-in: two reviewers, then a synthesis over both, then a follow-up
-// on the synthesis session.
 const review = `{
 	"name": "review",
 	"input": "the plan",

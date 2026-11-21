@@ -18,23 +18,16 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// toolFile is the manifest that makes a directory a command tool.
 const toolFile = "tool.json"
 
 const (
-	// maxOutput bounds a call's stdout, the text the model receives.
-	maxOutput = 1 << 20
-	// stderrTail is how much of a failed call's stderr its error carries.
+	maxOutput  = 1 << 20
 	stderrTail = 4 << 10
-	// waitDelay is how long a cancelled or exited command's pipes are waited on before they
-	// are closed, for a process that keeps them open.
-	waitDelay = 2 * time.Second
+	waitDelay  = 2 * time.Second
 )
 
-// errOutputTooLarge fails a call whose command writes more than maxOutput to stdout.
 var errOutputTooLarge = errors.New("output exceeds 1 MiB")
 
-// manifest is a command tool's tool.json.
 type manifest struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -120,8 +113,6 @@ func CommandTool(dir string) (harness.Tool, error) {
 	return t, nil
 }
 
-// validate checks the manifest's own fields. The tool it describes is checked as any
-// harness.Tool is, by Validate.
 func (m *manifest) validate() error {
 	switch {
 	case strings.TrimSpace(m.Description) == "":
@@ -137,7 +128,6 @@ func (m *manifest) validate() error {
 	return nil
 }
 
-// command runs one command tool's calls.
 type command struct {
 	name string
 	dir  string
@@ -145,11 +135,6 @@ type command struct {
 	args []string
 }
 
-// run runs one call. The command gets its stdout and stderr as *os.File pipes, so Wait returns
-// as soon as it exits rather than when every process holding the pipes lets go. The command
-// runs in a process group of its own on Unix, and the group is killed once the command exits,
-// or when ctx ends, so no process a script started outlives the call: the driver owns what a
-// tool leaves behind, as it owns what a harness does.
 func (c *command) run(ctx context.Context, args json.RawMessage) (string, error) {
 	cmd := exec.CommandContext(ctx, c.path, c.args...)
 	cmd.Dir = c.dir
@@ -168,8 +153,6 @@ func (c *command) run(ctx context.Context, args json.RawMessage) (string, error)
 	}
 	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
 	err = cmd.Start()
-	// The command holds its own copies of the write ends; closing these lets the readers
-	// reach EOF once every process holding them is gone.
 	_, _ = stdoutW.Close(), stderrW.Close()
 	if err != nil {
 		_, _ = stdoutR.Close(), stderrR.Close()
@@ -184,7 +167,6 @@ func (c *command) run(ctx context.Context, args json.RawMessage) (string, error)
 
 	err = cmd.Wait()
 	killGroup(cmd)
-	// A process that left the group can still hold the pipes; stop reading after the delay.
 	grace := time.AfterFunc(waitDelay, func() { _, _ = stdoutR.Close(), stderrR.Close() })
 	reading.Wait()
 	grace.Stop()
@@ -204,16 +186,11 @@ func (c *command) run(ctx context.Context, args json.RawMessage) (string, error)
 	return stdout.String(), nil
 }
 
-// drain copies r to w until r ends, and closes r. When w refuses a write, as limited does past
-// its bound, closing r makes the command's next write fail on the closed pipe, so a runaway
-// command stops rather than blocking on a full one.
 func drain(r *os.File, w io.Writer) {
 	_, _ = io.Copy(w, r)
 	_ = r.Close()
 }
 
-// limited keeps what is written to it up to max bytes, and fails the write that would pass
-// max, which ends drain's copy.
 type limited struct {
 	buf  bytes.Buffer
 	max  int
@@ -230,8 +207,6 @@ func (l *limited) Write(p []byte) (int, error) {
 
 func (l *limited) String() string { return l.buf.String() }
 
-// tail keeps the last max bytes written to it: the end of a failed command's stderr, where
-// its reason usually is.
 type tail struct {
 	buf []byte
 	max int

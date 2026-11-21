@@ -3,6 +3,8 @@
 // harness and moves lines; a Client adds a Codec, correlates commands with responses, answers
 // the harness's own requests through a Handler, and streams the harness's normalized events.
 // An adapter builds its harness.Connection on a Client.
+//
+// See docs/design.md#the-line-protocol
 package stdio
 
 import (
@@ -35,7 +37,6 @@ type Spec struct {
 	WaitDelay time.Duration
 }
 
-// stderrTail is how much of the harness's stderr a Process keeps for its exit error.
 const stderrTail = 64 << 10
 
 // Process is a running harness. Its lifetime is a context the process owns: Close cancels it,
@@ -51,14 +52,12 @@ type Process struct {
 
 	writeMu    sync.Mutex
 	lines      chan []byte
-	stdoutDone chan struct{} // closed once the stdout reader has stopped reading
-	stderrDone chan struct{} // closed once the stderr reader has stopped reading
-	waited     chan struct{} // closed once cmd.Wait has returned and exitErr is set
-	done       chan struct{} // closed once the process has exited and Lines has closed
+	stdoutDone chan struct{}
+	stderrDone chan struct{}
+	waited     chan struct{}
+	done       chan struct{}
 	exitErr    error
-	// cause is why the process was asked to stop, as it stood when the process exited, so a
-	// Close that comes after the harness exited on its own doesn't recast the exit as asked for.
-	cause error
+	cause      error
 }
 
 // Start starts the process. It takes no context: like a network connection, the process lives
@@ -89,16 +88,10 @@ func Start(spec Spec) (*Process, error) {
 		cancel(err)
 		return nil, fmt.Errorf("%s: stdin: %w", spec.Name, err)
 	}
-	// A line-protocol harness shuts down at the end of its input, so cancelling closes stdin
-	// rather than killing. ErrProcessDone has Wait report the exit status as it is, so a clean
-	// exit after Close is no error.
 	cmd.Cancel = func() error {
 		_ = stdin.Close()
 		return os.ErrProcessDone
 	}
-	// Stdout and stderr are *os.File pipes, which exec hands to the harness as they are. Any
-	// other writer would be copied through goroutines that Wait waits for, so a process the
-	// harness left holding a pipe would hold up Wait, and with it the cleanup of that process.
 	stdout, stdoutW, err := os.Pipe()
 	if err != nil {
 		cancel(err)
@@ -114,8 +107,6 @@ func Start(spec Spec) (*Process, error) {
 	ownGroup(cmd)
 	p.cmd, p.stdin = cmd, stdin
 	err = cmd.Start()
-	// The harness holds its own copies of the write ends. Closing these lets the readers reach
-	// EOF once every process that holds them is gone.
 	_, _ = stdoutW.Close(), stderrW.Close()
 	if err != nil {
 		_, _ = stdout.Close(), stderr.Close()
@@ -166,9 +157,6 @@ func (p *Process) Close() error {
 	return p.exitErr
 }
 
-// wait is the only caller of cmd.Wait, which returns as soon as the harness exits. It then
-// kills the processes the harness left in its group, and closes the pipes after WaitDelay if a
-// process outside the group still holds them, so the readers always end.
 func (p *Process) wait(stdout, stderr *os.File) {
 	err := p.cmd.Wait()
 	p.cause = context.Cause(p.ctx)
@@ -194,15 +182,11 @@ func (p *Process) readStderr(stderr *os.File) {
 func (p *Process) read(stdout *os.File) {
 	br := bufio.NewReader(stdout)
 	for {
-		// Split on LF only: a JSON string may hold U+2028, and a line may exceed any fixed
-		// token size.
 		line, err := br.ReadBytes('\n')
 		if line = bytes.TrimRight(line, "\r\n"); len(line) > 0 {
 			p.lines <- line
 		}
 		if err != nil {
-			// os.ErrClosed means wait closed the pipe after the harness exited: an end of
-			// output, not a failure.
 			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
 				p.cancel(fmt.Errorf("%s: read: %w", p.name, err))
 			}
@@ -216,7 +200,6 @@ func (p *Process) read(stdout *os.File) {
 	close(p.done)
 }
 
-// tail keeps the last max bytes written to it.
 type tail struct {
 	mu  sync.Mutex
 	buf []byte

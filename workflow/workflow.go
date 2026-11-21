@@ -225,7 +225,6 @@ func parse(st Step) (*template.Template, error) {
 	return template.New(st.ID).Option("missingkey=error").Parse(st.Prompt)
 }
 
-// cycle returns the steps of a cycle in the DAG, or nil when there is none.
 func (w Workflow) cycle() []string {
 	const (
 		unseen = iota

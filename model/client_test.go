@@ -15,7 +15,6 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/model"
 )
 
-// request is what the fake endpoint received.
 type request struct {
 	Method string
 	Path   string
@@ -24,7 +23,6 @@ type request struct {
 	Body   []byte
 }
 
-// fake is an endpoint that records each request and answers with a fixed status and body.
 type fake struct {
 	srv *httptest.Server
 
@@ -50,7 +48,6 @@ func newFake(t *testing.T, status int, reply string) *fake {
 	return f
 }
 
-// client returns a Client for the fake, its Config first passed through edit.
 func (f *fake) client(t *testing.T, edit ...func(*model.Config)) *model.Client {
 	t.Helper()
 	cfg := model.Config{BaseURL: f.srv.URL + "/v1", HTTP: f.srv.Client()}
@@ -70,7 +67,6 @@ func (f *fake) count() int {
 	return len(f.reqs)
 }
 
-// last is the one request the fake received.
 func (f *fake) last(t *testing.T) request {
 	t.Helper()
 	f.mu.Lock()
@@ -81,7 +77,6 @@ func (f *fake) last(t *testing.T) request {
 	return f.reqs[0]
 }
 
-// jsonBody decodes a request's JSON body into a generic map.
 func jsonBody(t *testing.T, r request) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -130,7 +125,6 @@ func TestRouteAndQuery(t *testing.T) {
 				cfg.BaseURL = f.srv.URL + base
 				cfg.Query = q
 			})
-			// A change to the caller's values after New doesn't reach the requests.
 			q.Set("api-version", "changed")
 			if _, err := c.Chat(t.Context(), hello); err != nil {
 				t.Fatal(err)
@@ -245,7 +239,6 @@ func TestContextCancellation(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The server notices the client hanging up only once the body has been read.
 		_, _ = io.Copy(io.Discard, r.Body)
 		close(started)
 		select {
@@ -254,7 +247,6 @@ func TestContextCancellation(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	// Cleanups run last first, so the handler is released before Close waits on it.
 	t.Cleanup(func() { close(release) })
 	c, err := model.New(model.Config{BaseURL: srv.URL + "/v1", HTTP: srv.Client()})
 	if err != nil {

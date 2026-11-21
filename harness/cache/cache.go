@@ -6,6 +6,8 @@
 // resumed in a new process still finds the files its history names: changed content gets a new
 // directory, and no session's files change under it. The harness runs or follows what the cache
 // holds, so the root must belong to the current user and be writable by no one else.
+//
+// See docs/design.md#the-skill-cache
 package cache
 
 import (
@@ -48,8 +50,6 @@ func Dir(root, name, digest string, write func(dir string) error) (string, error
 		if got, err := TreeDigest(os.DirFS(dir)); err == nil && got == digest {
 			return dir, nil
 		}
-		// Only this user writes under root, so a mismatch is damage, such as a copy a crash
-		// cut short: write the directory again.
 		if err := os.RemoveAll(dir); err != nil {
 			return "", err
 		}
@@ -66,7 +66,6 @@ func Dir(root, name, digest string, write func(dir string) error) (string, error
 	if err := write(staged); err != nil {
 		return "", err
 	}
-	// Losing the race to another writer of the same content leaves the directory it wrote.
 	if err := os.Rename(staged, dir); err != nil {
 		if _, statErr := os.Stat(dir); statErr != nil {
 			return "", err
@@ -103,8 +102,6 @@ func FileDigest(p string, data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// hashFile adds one file to a tree's digest, length-prefixed, so no two trees hash alike by
-// moving bytes between files.
 func hashFile(h hash.Hash, p string, data []byte) {
 	_, _ = fmt.Fprintf(h, "%s\x00%d\x00", p, len(data))
 	_, _ = h.Write(data)

@@ -13,23 +13,17 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// fakeConnection is a Connection the test scripts: it records prompts and cancellations, and the
-// test emits the harness's events by hand.
 type fakeConnection struct {
-	events    chan harness.Event
-	promptErr error
-	// promptGate, when set, holds Prompt's answer until it closes or Prompt's context ends.
+	events     chan harness.Event
+	promptErr  error
 	promptGate chan struct{}
-	// cancelGate, when set, holds Cancel's answer the same way; one that never closes is a
-	// harness that never answers.
 	cancelGate chan struct{}
 	cancels    chan struct{}
-	// exitErr is what Err reports: why the harness exited.
-	exitErr   error
-	closeOnce sync.Once
+	exitErr    error
+	closeOnce  sync.Once
 
 	mu       sync.Mutex
-	requests []harness.Request // the requests Prompt was called with
+	requests []harness.Request
 }
 
 func newFakeConnection() *fakeConnection {
@@ -46,7 +40,6 @@ func (c *fakeConnection) Prompt(ctx context.Context, req harness.Request) error 
 	return c.promptErr
 }
 
-// prompted returns the requests Prompt was called with.
 func (c *fakeConnection) prompted() []harness.Request {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -58,7 +51,6 @@ func (c *fakeConnection) Cancel(ctx context.Context) error {
 	return gate(ctx, c.cancelGate)
 }
 
-// gate waits for g to close, or for ctx to end. A nil g doesn't wait.
 func gate(ctx context.Context, g chan struct{}) error {
 	if g == nil {
 		return nil
@@ -71,8 +63,6 @@ func gate(ctx context.Context, g chan struct{}) error {
 	}
 }
 
-// never checks that ch receives nothing for a while, for a thing that must not happen and
-// would happen on another goroutine if it did.
 func never[T any](t *testing.T, ch <-chan T, what string) {
 	t.Helper()
 	select {
@@ -105,7 +95,6 @@ func (c *fakeConnection) finish(stop, text string) {
 	c.events <- harness.Event{Kind: harness.EventEnded}
 }
 
-// drain collects an exchange's events until its channel closes.
 func drain(t *testing.T, x *harness.Exchange) []harness.Event {
 	t.Helper()
 	var events []harness.Event
@@ -123,7 +112,6 @@ func drain(t *testing.T, x *harness.Exchange) []harness.Event {
 	}
 }
 
-// collect drains x in the background, so the test can emit events without blocking on it.
 func collect(t *testing.T, x *harness.Exchange) <-chan []harness.Event {
 	out := make(chan []harness.Event, 1)
 	go func() { out <- drain(t, x) }()
@@ -143,7 +131,6 @@ func checkScoped(t *testing.T, s *harness.Session, x *harness.Exchange, events [
 	}
 }
 
-// newSession starts a session over c, recording in store, which may be nil.
 func newSession(t *testing.T, c harness.Connection, store harness.Store) *harness.Session {
 	t.Helper()
 	s, err := harness.NewSession(t.Context(), "s1", c, store)
@@ -201,7 +188,7 @@ func TestSendWhileOpenIsBusy(t *testing.T) {
 	events := collect(t, x)
 	c.finish("stop", "")
 	<-events
-	send(t, s, t.Context()) // the session accepts a prompt once the exchange ends
+	send(t, s, t.Context())
 }
 
 func TestCancel(t *testing.T) {
@@ -249,8 +236,6 @@ func TestCancelAfterEndDoesNothing(t *testing.T) {
 	c.finish("stop", "")
 	<-events
 	send(t, s, t.Context())
-	// x has ended and another exchange is open; cancelling x must not reach the Connection, or
-	// it would stop the open exchange.
 	x.Cancel()
 	never(t, c.cancels, "cancelling an ended exchange cancelled the Connection")
 }
@@ -286,8 +271,6 @@ func TestConnExitEndsTheExchange(t *testing.T) {
 	}
 }
 
-// A run that ends in an error is the run's error; the harness's exit later is the
-// Connection's to report, not the last error event's.
 func TestARunsErrorIsNotTheExitError(t *testing.T) {
 	c := newFakeConnection()
 	s := newSession(t, c, nil)
@@ -304,7 +287,6 @@ func TestARunsErrorIsNotTheExitError(t *testing.T) {
 		t.Fatalf("Wait error = %v, want the run's error", err)
 	}
 
-	// The harness exits during the next exchange, which ends in the exit error alone.
 	exited := errors.New("harness exited")
 	x = send(t, s, t.Context())
 	c.exitErr = exited
@@ -318,8 +300,6 @@ func TestARunsErrorIsNotTheExitError(t *testing.T) {
 	}
 }
 
-// structured runs one exchange with schema, emitting the structured response when there is
-// one, and ending the run with stop. It returns the exchange and its events.
 func structured(t *testing.T, c *fakeConnection, s *harness.Session, schema, response, stop string) (*harness.Exchange, []harness.Event) {
 	t.Helper()
 	x, err := s.Send(t.Context(), harness.Request{Text: "hi", Schema: json.RawMessage(schema)})
@@ -363,7 +343,6 @@ func TestAnUnansweredSchemaIsTheExchangesError(t *testing.T) {
 		t.Fatalf("records = %+v", recs)
 	}
 
-	// A cancelled exchange owes no structured response, and neither does one without a schema.
 	for _, tc := range []struct{ name, schema, stop string }{
 		{"cancelled", `{"type":"object"}`, "aborted"},
 		{"no schema", "", "stop"},
@@ -406,7 +385,6 @@ func TestUsageSumsOverTheExchange(t *testing.T) {
 
 	x := send(t, s, t.Context())
 	events := collect(t, x)
-	// A tool round trip: the first message calls a tool, and the second answers.
 	c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: "toolUse",
 		Usage: &harness.Usage{Input: 10, Output: 4, CacheRead: 100}}
 	c.events <- harness.Event{Kind: harness.EventMessageEnd, StopReason: "stop", Text: "done",
@@ -449,7 +427,7 @@ func TestPromptFailure(t *testing.T) {
 		t.Fatal("Send succeeded although the prompt was rejected")
 	}
 	c.promptErr = nil
-	send(t, s, t.Context()) // a rejected prompt leaves no exchange open
+	send(t, s, t.Context())
 }
 
 func TestClose(t *testing.T) {
@@ -458,7 +436,6 @@ func TestClose(t *testing.T) {
 
 	x := send(t, s, t.Context())
 	c.emit(harness.EventStarted, harness.EventTextDelta, harness.EventTextDelta)
-	// Nothing has read x's events; Close must still release them.
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +447,7 @@ func TestClose(t *testing.T) {
 
 func TestCloseStopsACancellationInFlight(t *testing.T) {
 	c := newFakeConnection()
-	c.cancelGate = make(chan struct{}) // never answers
+	c.cancelGate = make(chan struct{})
 	s := newSession(t, c, nil)
 
 	x := send(t, s, t.Context())
@@ -483,16 +460,11 @@ func TestCloseStopsACancellationInFlight(t *testing.T) {
 	if d := time.Since(begin); d > time.Second {
 		t.Fatalf("Close waited %s on the cancellation", d)
 	}
-	// The exchange ends because the session closed, not because its cancellation was cut
-	// short.
 	if _, err := x.Wait(); !errors.Is(err, harness.ErrClosed) {
 		t.Fatalf("Wait error = %v, want ErrClosed", err)
 	}
 }
 
-// TestContextEndsBeforePromptIsAccepted covers Send's ctx ending while the harness has the
-// prompt but hasn't answered. Send still waits for the answer, then cancels the run it started,
-// so no run is left without an exchange.
 func TestContextEndsBeforePromptIsAccepted(t *testing.T) {
 	c := newFakeConnection()
 	c.promptGate = make(chan struct{})
@@ -522,9 +494,6 @@ func TestContextEndsBeforePromptIsAccepted(t *testing.T) {
 	checkScoped(t, s, x, <-events)
 }
 
-// TestSendWaitsForACancellationInFlight covers an exchange that ends while its cancellation is
-// still in flight. The next Send waits for the cancellation, which would otherwise reach the
-// next exchange's run.
 func TestSendWaitsForACancellationInFlight(t *testing.T) {
 	c := newFakeConnection()
 	c.cancelGate = make(chan struct{})
@@ -535,7 +504,7 @@ func TestSendWaitsForACancellationInFlight(t *testing.T) {
 	events := collect(t, x)
 	x.Cancel()
 	<-c.cancels
-	c.finish("aborted", "") // x ends before the harness answers the cancellation
+	c.finish("aborted", "")
 	<-events
 
 	short, stop := context.WithTimeout(t.Context(), 50*time.Millisecond)
@@ -556,8 +525,6 @@ func TestSendWaitsForACancellationInFlight(t *testing.T) {
 	}
 }
 
-// A cancelled exchange owes no structured response even when the harness ends the run without
-// reporting the cancellation, as when the cancel lands during a tool call.
 func TestACancelWithoutACancelledEventOwesNoResponse(t *testing.T) {
 	c := newFakeConnection()
 	s := newSession(t, c, nil)
@@ -586,7 +553,6 @@ func TestSendRefusesAnInvalidSchema(t *testing.T) {
 			t.Errorf("schema %s: Send = %v, want ErrInvalidSchema", schema, err)
 		}
 	}
-	// A refused request opens no exchange.
 	send(t, s, t.Context())
 }
 
@@ -606,7 +572,6 @@ func TestSendRefusesAnInvalidImage(t *testing.T) {
 	if n := len(c.prompted()); n != 0 {
 		t.Fatalf("the harness was prompted %d times, want none", n)
 	}
-	// A refused request opens no exchange.
 	send(t, s, t.Context())
 }
 
@@ -640,7 +605,6 @@ func TestImagesReachTheHarnessButNotTheRecord(t *testing.T) {
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("records = %+v, %v", recs, err)
 	}
-	// The Store itself receives no image data, whatever it does with a Record.
 	if imgs := recs[0].Request.Images; len(imgs) != 1 || imgs[0].MediaType != "image/png" || imgs[0].Data != nil {
 		t.Fatalf("the stored record's images = %+v, want the media type alone", imgs)
 	}

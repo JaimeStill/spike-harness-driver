@@ -45,12 +45,8 @@ type Store interface {
 	Runs(ctx context.Context) ([]string, error)
 }
 
-// limitRetry is how long a run pauses for a usage limit whose reset time the harness doesn't
-// give.
 const limitRetry = time.Minute
 
-// logTimeout bounds appending one event to the Store. A run's events are logged under a context
-// of their own, so a cancelled run still logs how it ended.
 const logTimeout = 30 * time.Second
 
 // Runner runs workflows. Each run has a goroutine of its own, and its steps run concurrently
@@ -58,14 +54,11 @@ const logTimeout = 30 * time.Second
 type Runner struct {
 	open  Opener
 	store Store
-	// slots holds a token per exchange in flight; nil means no limit.
 	slots chan struct{}
 
 	ctx      context.Context
 	shutdown context.CancelCauseFunc
-	// wg counts the runs' loops. Each is added under mu while closed is false, so no Add races
-	// Shutdown's Wait.
-	wg sync.WaitGroup
+	wg       sync.WaitGroup
 
 	mu     sync.Mutex
 	runs   map[string]*run
@@ -168,8 +161,6 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 	r.mu.Unlock()
 	if rn != nil {
 		rn.cancel(ErrCancelled)
-		// A run already stopping for another reason, a Shutdown, isn't cancelled by this: the
-		// next runner resumes it.
 		if cause := context.Cause(rn.ctx); !errors.Is(cause, ErrCancelled) {
 			return cause
 		}
@@ -234,7 +225,7 @@ func (r *Runner) Wait(ctx context.Context, id string) (State, error) {
 		}
 		rn.mu.Lock()
 		defer rn.mu.Unlock()
-		return rn.state, rn.err
+		return rn.state, rn.interruption
 	}
 	return r.fold(ctx, id)
 }
@@ -251,8 +242,6 @@ func (r *Runner) Subscribe(ctx context.Context, id string, after int) (<-chan Ev
 		rn.mu.Lock()
 		defer rn.mu.Unlock()
 		if !rn.finished {
-			// Read and registered under the run's lock, which every logged event takes, so no
-			// event falls between the replay and the live stream.
 			events, err := r.store.Events(ctx, id, after)
 			if err != nil {
 				return nil, err
@@ -299,7 +288,6 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 	}
 }
 
-// fold reads and folds a run's log.
 func (r *Runner) fold(ctx context.Context, id string) (State, error) {
 	events, err := r.store.Events(ctx, id, 0)
 	if err != nil {
@@ -311,9 +299,6 @@ func (r *Runner) fold(ctx context.Context, id string) (State, error) {
 	return Fold(events)
 }
 
-// tryAcquire takes a slot for an exchange if one is free. A run's loop takes the slot before it
-// launches a step, so its steps start in declaration order and none opens a session while it
-// would only wait for a slot.
 func (r *Runner) tryAcquire() bool {
 	if r.slots == nil {
 		return true
@@ -326,7 +311,6 @@ func (r *Runner) tryAcquire() bool {
 	}
 }
 
-// release frees a slot and wakes every run, since any of them may have a step waiting for one.
 func (r *Runner) release() {
 	if r.slots == nil {
 		return
@@ -351,8 +335,6 @@ func (r *Runner) newRun(id string, s State) (*run, error) {
 		wake:     make(chan struct{}, 1),
 		done:     make(chan struct{}),
 	}
-	// Checked and registered under one hold of mu, so two Resumes of one run can't both pass,
-	// and counted in wg before Shutdown can Wait.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {
@@ -375,7 +357,6 @@ func (r *Runner) launch(rn *run) {
 	}()
 }
 
-// drop forgets a run that never launched, closing any subscriber that attached meanwhile.
 func (r *Runner) drop(rn *run) {
 	rn.cancel(nil)
 	rn.mu.Lock()
@@ -392,45 +373,34 @@ func (r *Runner) drop(rn *run) {
 	r.wg.Done()
 }
 
-// run is one run the Runner is running.
 type run struct {
-	r  *Runner
-	id string
-	// ctx is the run's lifetime, which Cancel and Shutdown end with their causes.
+	r      *Runner
+	id     string
 	ctx    context.Context
 	cancel context.CancelCauseFunc
-	// steps is the context the steps run under. A failed step ends it, which cancels the
-	// others still in flight while the run goes on to log its failure.
-	steps context.Context
-	stop  context.CancelFunc
+	steps  context.Context
+	stop   context.CancelFunc
 
-	mu    sync.Mutex
-	state State
-	subs  []*queue
-	// sessions are the open harness sessions, by the workflow's session name. busy marks the
-	// sessions a step holds, and inflight the steps with a goroutine.
-	sessions map[string]*harness.Session
-	busy     map[string]bool
-	inflight map[string]bool
-	// failure is the first step failure, which ends the run.
-	failure error
-	// err is why the run stopped without logging an end: a Shutdown or a log that failed.
-	err      error
-	finished bool
+	mu           sync.Mutex
+	state        State
+	subs         []*queue
+	sessions     map[string]*harness.Session
+	busy         map[string]bool
+	inflight     map[string]bool
+	failure      error
+	interruption error
+	finished     bool
 
 	wake chan struct{}
 	done chan struct{}
 }
 
-// log numbers e, appends it to the Store, folds it into the state, and delivers it to the
-// subscribers. A failure to append interrupts the run, since its log no longer holds it.
 func (rn *run) log(e Event) error {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 	e.RunID, e.Seq, e.Time = rn.id, rn.state.Seq+1, time.Now()
 	next := rn.state
 	if next.Seq > 0 {
-		// Apply writes into the maps, so a failed append must not leave them changed.
 		next.Sessions = cloneMap(next.Sessions)
 		next.Steps = cloneMap(next.Steps)
 	}
@@ -445,7 +415,6 @@ func (rn *run) log(e Event) error {
 		return err
 	}
 	rn.state = next
-	// A subscriber that went away leaves its queue behind; this is where it is dropped.
 	rn.subs = slices.DeleteFunc(rn.subs, (*queue).gone)
 	for _, q := range rn.subs {
 		q.push(e)
@@ -461,7 +430,6 @@ func cloneMap[V any](m map[string]V) map[string]V {
 	return c
 }
 
-// live delivers an event that isn't logged to the subscribers.
 func (rn *run) live(e Event) {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
@@ -471,14 +439,10 @@ func (rn *run) live(e Event) {
 	}
 }
 
-// interrupted reports whether the run stopped for a reason that logs no end: a Shutdown, or a
-// log that failed.
 func (rn *run) interrupted() bool {
 	return rn.ctx.Err() != nil && !errors.Is(context.Cause(rn.ctx), ErrCancelled)
 }
 
-// settle takes the outcome a resumed run's log already decided: a failed step fails the run,
-// and a cancelled step cancels it, once its steps in flight have ended.
 func (rn *run) settle() {
 	for _, st := range rn.state.Workflow.Steps {
 		switch s := rn.state.Steps[st.ID]; s.Status {
@@ -495,7 +459,6 @@ func (rn *run) settle() {
 	}
 }
 
-// signal wakes the loop.
 func (rn *run) signal() {
 	select {
 	case rn.wake <- struct{}{}:
@@ -503,14 +466,11 @@ func (rn *run) signal() {
 	}
 }
 
-// loop schedules the run's steps until every step is done, or the run is cancelled, fails, or
-// is interrupted, and then ends it.
 func (rn *run) loop() {
 	defer rn.finish()
 	var timer *time.Timer
 	for {
 		var wait <-chan time.Time
-		// Once the run stops, the loop waits only for its steps to release.
 		done := rn.ctx.Done()
 		rn.mu.Lock()
 		stopping := rn.ctx.Err() != nil || rn.failure != nil
@@ -536,8 +496,6 @@ func (rn *run) loop() {
 		} else {
 			ready := rn.ready()
 			if len(ready) == 0 && len(rn.inflight) == 0 {
-				// Nothing runs and nothing can start, yet the run isn't done: without this, the
-				// loop would wait for a wake that never comes.
 				rn.failure = errors.New("workflow: no step can start")
 				rn.mu.Unlock()
 				continue
@@ -562,8 +520,6 @@ func (rn *run) loop() {
 	rn.mu.Unlock()
 	switch {
 	case failure != nil:
-		// The failure was decided before any Shutdown, so the run ends even when interrupted;
-		// only a log that can't be appended to keeps it from ending.
 		_ = rn.log(Event{Kind: KindRunEnded, Status: StatusFailed, Err: failure.Error()})
 	case rn.interrupted():
 	default:
@@ -579,9 +535,6 @@ func resetTimer(t *time.Timer, d time.Duration) *time.Timer {
 	return t
 }
 
-// ready returns the steps that can start now, in declaration order: not done, without a
-// goroutine, every step they come after done, and their session free. A step the log has as
-// running but that has no goroutine is one a resume or a usage limit left to run again.
 func (rn *run) ready() []Step {
 	var steps []Step
 	busy := cloneMap(rn.busy)
@@ -598,7 +551,6 @@ func (rn *run) ready() []Step {
 	return steps
 }
 
-// finish closes the run's sessions and subscribers, and forgets the run.
 func (rn *run) finish() {
 	rn.stop()
 	rn.mu.Lock()
@@ -606,7 +558,7 @@ func (rn *run) finish() {
 	rn.sessions = nil
 	rn.finished = true
 	if rn.interrupted() {
-		rn.err = context.Cause(rn.ctx)
+		rn.interruption = context.Cause(rn.ctx)
 	}
 	for _, q := range rn.subs {
 		q.close()
@@ -623,9 +575,6 @@ func (rn *run) finish() {
 	close(rn.done)
 }
 
-// step runs one step in the slot the loop took for it: it opens the step's session if it isn't
-// open, and either adopts the step's exchange from the session's records or sends its prompt
-// and follows the exchange to its end.
 func (rn *run) step(st Step) {
 	ctx := rn.steps
 	defer rn.release(st)
@@ -667,17 +616,12 @@ func (rn *run) step(st Step) {
 	rn.end(ctx, st, x.ID(), &res, err)
 }
 
-// adopt looks the step's exchange up in the session's records, for a step whose exchange the
-// log has as started but not ended. An exchange that ended, neither cancelled nor in an error,
-// before the runner last stopped becomes the step's result, and the step is logged as done.
 func (rn *run) adopt(ctx context.Context, sess *harness.Session, st Step, id uuid.UUID) (bool, error) {
 	recs, err := sess.Exchanges(ctx)
 	if err != nil {
 		return false, err
 	}
 	i := slices.IndexFunc(recs, func(rec harness.Record) bool { return rec.ExchangeID == id })
-	// A stop reason is what tells a finished run from one that ended without a final message,
-	// as a cancellation can, so an exchange without one runs again.
 	if i < 0 || recs[i].Err != "" || recs[i].Result.StopReason == "" || recs[i].Result.StopReason == "aborted" {
 		return false, nil
 	}
@@ -686,8 +630,6 @@ func (rn *run) adopt(ctx context.Context, sess *harness.Session, st Step, id uui
 	return err == nil, err
 }
 
-// session returns the step's session, opening it if it isn't open. The caller holds the
-// session as busy, so no other step opens it meanwhile.
 func (rn *run) session(ctx context.Context, name string) (*harness.Session, error) {
 	rn.mu.Lock()
 	sess, recorded := rn.sessions[name], rn.state.Sessions[name]
@@ -711,9 +653,6 @@ func (rn *run) session(ctx context.Context, name string) (*harness.Session, erro
 	return sess, nil
 }
 
-// end logs how a step ended. A step ends cancelled when the steps' context ended first, waits
-// out a usage limit by pausing the run and leaving the step to run again, and fails the run on
-// any other error. An interrupted run logs nothing, so a resume takes the step up.
 func (rn *run) end(ctx context.Context, st Step, id uuid.UUID, res *harness.Result, err error) {
 	e := Event{Kind: KindStepEnded, Step: st.ID, Session: st.Session, ExchangeID: id, Result: res}
 	var limit *harness.LimitError
@@ -750,10 +689,6 @@ func (rn *run) end(ctx context.Context, st Step, id uuid.UUID, res *harness.Resu
 	rn.stop()
 }
 
-// release frees the step's session and wakes the loop. A session none of whose steps is left
-// to run closes, which ends its harness process, before the step leaves inflight: the loop
-// finishes only once inflight is empty, so Shutdown and Wait never return ahead of a closing
-// harness.
 func (rn *run) release(st Step) {
 	rn.mu.Lock()
 	var idle *harness.Session

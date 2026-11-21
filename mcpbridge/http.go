@@ -67,8 +67,6 @@ func (s *Server) Listen(ctx context.Context) (*Endpoint, error) {
 func (e *Endpoint) Close() error {
 	e.once.Do(func() {
 		e.stop()
-		// Ending the sessions first closes their GET streams, which would otherwise hold
-		// their connections open.
 		var errs []error
 		for ss := range e.srv.Sessions() {
 			errs = append(errs, ss.Close())
@@ -80,8 +78,6 @@ func (e *Endpoint) Close() error {
 	return e.err
 }
 
-// requireToken passes on only the requests that carry token as a bearer token, and refuses
-// the rest with 401 Unauthorized.
 func requireToken(token string, next http.Handler) http.Handler {
 	want := []byte("Bearer " + token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,8 +91,6 @@ func requireToken(token string, next http.Handler) http.Handler {
 	})
 }
 
-// newToken returns 32 random bytes, hex-encoded. crypto/rand.Read never fails: the program
-// crashes instead.
 func newToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)

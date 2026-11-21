@@ -14,21 +14,16 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/harness"
 )
 
-// memStore is a Store in memory. putErr, when set, fails every Put. putGate, when set, holds
-// each Put until it closes.
 type memStore struct {
 	mu      sync.Mutex
 	records map[string][]harness.Record
 	putErr  error
 	putGate chan struct{}
-	puts    atomic.Int32 // Puts begun
+	puts    atomic.Int32
 }
 
-// putsWaiting reports how many Puts have begun.
 func (m *memStore) putsWaiting() int32 { return m.puts.Load() }
 
-// holdPuts holds every Put until the returned release is called. The test defers release
-// before the session's Close, so a failing assertion can't leave Close waiting on a Put.
 func (m *memStore) holdPuts() (release func()) {
 	m.putGate = make(chan struct{})
 	var once sync.Once
@@ -57,9 +52,6 @@ func (m *memStore) Records(_ context.Context, id string) ([]harness.Record, erro
 	return slices.Clone(m.records[id]), nil
 }
 
-// journalConnection is a fakeConnection that keeps a Journal the test appends to by hand.
-// sinceErr, when set, fails the next Since; sinceGate, when set, holds Since until it closes
-// or its context ends.
 type journalConnection struct {
 	*fakeConnection
 	mu         sync.Mutex
@@ -70,7 +62,6 @@ type journalConnection struct {
 	sinceBegun atomic.Int32
 }
 
-// sinceCallsWaiting reports how many Since calls have begun.
 func (c *journalConnection) sinceCallsWaiting() int32 { return c.sinceBegun.Load() }
 
 func newJournalConnection(entries ...string) *journalConnection {
@@ -114,8 +105,6 @@ func (c *journalConnection) Since(ctx context.Context, id string) ([]string, err
 	return slices.Clone(c.entries[i+1:]), nil
 }
 
-// run sends one exchange, appends ids to the journal as the harness would during the run,
-// ends the run with stop, and waits for the exchange.
 func run(t *testing.T, s *harness.Session, c *journalConnection, stop string, ids ...string) *harness.Exchange {
 	t.Helper()
 	x := send(t, s, t.Context())
@@ -177,7 +166,6 @@ func TestAFailedBindingIsRecordedAndTheCursorResyncs(t *testing.T) {
 	if recs[0].ExchangeID != x1.ID() || recs[0].Entries != nil || !strings.Contains(recs[0].Err, "journal unreachable") {
 		t.Errorf("first record = %+v, want no entries and the binding error", recs[0])
 	}
-	// The second exchange claims only its own entry, not the first's unbound ones.
 	if recs[1].ExchangeID != x2.ID() || !slices.Equal(recs[1].Entries, []string{"e3"}) {
 		t.Errorf("second record = %+v, want entries [e3]", recs[1])
 	}
@@ -185,7 +173,7 @@ func TestAFailedBindingIsRecordedAndTheCursorResyncs(t *testing.T) {
 
 func TestCloseDuringRecordingStillStoresTheRecord(t *testing.T) {
 	c := newJournalConnection()
-	c.sinceGate = make(chan struct{}) // never opens: the journal call waits until Close
+	c.sinceGate = make(chan struct{})
 	store := newMemStore()
 	s := newSession(t, c, store)
 
@@ -220,7 +208,6 @@ func TestACancelAfterTheRunEndsReachesNoHarness(t *testing.T) {
 	events := collect(t, x)
 	c.emit(harness.EventStarted)
 	c.finish("stop", "answer")
-	// EventEnded has arrived and the record is held: the run is over, but x is still open.
 	for store.putsWaiting() == 0 {
 		runtime.Gosched()
 	}
@@ -240,7 +227,6 @@ func TestExchangesAreRecordedWithTheirEntries(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	x1 := run(t, s, c, "stop", "e1", "e2")
-	// Wait returns only once the record exists.
 	if _, err := x1.Wait(); err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +349,6 @@ func TestAStoreFailureIsTheExchangesError(t *testing.T) {
 	if _, err := x.Wait(); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("Wait = %v, want the store's error", err)
 	}
-	// The session carries on: the next exchange can be sent.
 	store.mu.Lock()
 	store.putErr = nil
 	store.mu.Unlock()

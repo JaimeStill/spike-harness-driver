@@ -16,19 +16,14 @@ import (
 // response by id, answers the harness's requests through a Handler, and streams everything
 // else as normalized events.
 type Client struct {
-	p      *Process
-	codec  Codec
-	handle Handler
-	calls  *calls
-	// answering counts the requests being answered, which shutdown waits for once it has
-	// ended their context, answers.
+	p         *Process
+	codec     Codec
+	handle    Handler
+	calls     *calls
 	answering sync.WaitGroup
 	answers   context.Context
 	stop      context.CancelFunc
-	// Events queue without bound, so a harness that emits events while no one is reading
-	// them, as during a start-up handshake, can't stall the responses behind them. The queue
-	// lives as long as the process: Close discards what no one read.
-	events *harness.EventQueue
+	events    *harness.EventQueue
 
 	nextID atomic.Int64
 }
@@ -79,8 +74,6 @@ func (c *Client) Send(ctx context.Context, cmd any) (<-chan Response, error) {
 	return ch, err
 }
 
-// send registers a call for cmd, writes it, and returns its id and the channel its response
-// arrives on.
 func (c *Client) send(ctx context.Context, cmd any) (string, <-chan Response, error) {
 	if err := ctx.Err(); err != nil {
 		return "", nil, err
@@ -136,8 +129,6 @@ func (c *Client) Err() error {
 // Close ends the harness.
 func (c *Client) Close() error { return c.p.Close() }
 
-// read dispatches each line the harness writes, then shuts the client down once the harness
-// has exited.
 func (c *Client) read() {
 	for line := range c.p.Lines() {
 		c.dispatch(line)
@@ -145,7 +136,6 @@ func (c *Client) read() {
 	c.shutdown()
 }
 
-// dispatch decodes one line, resolving the call it answers or queueing the events it carries.
 func (c *Client) dispatch(line []byte) {
 	f, err := c.codec.Decode(line)
 	if err != nil {
@@ -161,8 +151,6 @@ func (c *Client) dispatch(line []byte) {
 	c.events.Push(f.Events...)
 }
 
-// answer has the handler answer req on a goroutine of its own, and writes the answer back. An
-// answer the harness can no longer take, because it has exited, is dropped.
 func (c *Client) answer(req Request) {
 	if c.handle == nil {
 		c.events.Push(harness.Event{
@@ -184,8 +172,6 @@ func (c *Client) answer(req Request) {
 	})
 }
 
-// shutdown fails the open calls with the exit error, waits a bounded time for the answers in
-// progress, and closes Events. Err reports the exit to whoever reads Events.
 func (c *Client) shutdown() {
 	err := c.p.Err()
 	if err == nil {
@@ -193,8 +179,6 @@ func (c *Client) shutdown() {
 	}
 	c.calls.fail(err)
 	c.stop()
-	// A handler should return once its context ends. One that doesn't is abandoned after the
-	// process's wait delay, so it can't hold the Client open; its late answer goes nowhere.
 	answered := make(chan struct{})
 	go func() {
 		c.answering.Wait()

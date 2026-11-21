@@ -69,8 +69,6 @@ type ChatResponse struct {
 	Usage        Usage
 }
 
-// chatBody is the request body. It never carries max_tokens or temperature, which reasoning
-// models reject, nor stream, which this client doesn't read.
 type chatBody struct {
 	Model               string        `json:"model"`
 	Messages            []wireMessage `json:"messages"`
@@ -78,9 +76,6 @@ type chatBody struct {
 	ReasoningEffort     string        `json:"reasoning_effort,omitempty"`
 }
 
-// wireMessage is a message on the wire. Its content is a string for a message that is a
-// single Text, the form every endpoint and chat template takes, and an array of parts
-// otherwise.
 type wireMessage struct {
 	Role    Role `json:"role"`
 	Content any  `json:"content"`
@@ -137,7 +132,6 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	return resp, nil
 }
 
-// chatWire checks req and builds its request body.
 func chatWire(req ChatRequest) (chatBody, error) {
 	if req.Model == "" {
 		return chatBody{}, errors.New("the request names no model")
@@ -164,7 +158,6 @@ func chatWire(req ChatRequest) (chatBody, error) {
 	return body, nil
 }
 
-// contentWire is a message's content on the wire.
 func contentWire(parts []Part) (any, error) {
 	if len(parts) == 0 {
 		return nil, errors.New("no parts")

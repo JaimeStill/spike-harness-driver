@@ -19,7 +19,6 @@ func event(run string, seq int, kind workflow.Kind) workflow.Event {
 	return workflow.Event{RunID: run, Seq: seq, Kind: kind, Time: time.Now().UTC().Truncate(time.Millisecond)}
 }
 
-// events is a run's log: started with a workflow, a step started, a step ended with a result.
 func events(run string) []workflow.Event {
 	started := event(run, 1, workflow.KindRunStarted)
 	started.Workflow = &workflow.Workflow{
@@ -111,7 +110,6 @@ func TestInvalidRunIDs(t *testing.T) {
 		if err := s.Append(t.Context(), event(id, 1, workflow.KindRunStarted)); err == nil {
 			t.Errorf("Append(%q) succeeded", id)
 		}
-		// A run ID that can't name a file names no run.
 		if got, err := s.Events(t.Context(), id, 0); got != nil || err != nil {
 			t.Errorf("Events(%q) = %v, %v", id, got, err)
 		}
@@ -202,7 +200,6 @@ func TestACorruptMiddleLineIsAnError(t *testing.T) {
 	if _, err := s.Events(t.Context(), "r1", 0); err == nil {
 		t.Error("Events with a corrupt final line that ends in a newline succeeded")
 	}
-	// Append reads the last event's Seq, so it refuses to append after a corrupt one.
 	if err := s.Append(t.Context(), evs[1]); err == nil {
 		t.Error("Append after a corrupt line succeeded")
 	}
@@ -230,7 +227,6 @@ func TestACompleteEventWithoutItsNewlineIsKept(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, evs[:2]) {
 		t.Fatalf("Events = %+v, %v; want the first two", got, err)
 	}
-	// The next Append follows that event rather than cutting it.
 	appendAll(t, s, evs[2])
 	got, err = s.Events(t.Context(), "r1", 0)
 	if err != nil || !reflect.DeepEqual(got, evs) {
@@ -242,8 +238,6 @@ func TestAnEventOutOfSequenceIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	evs := events("r1")
 	appendAll(t, filestore.New(dir), evs[:2]...)
-	// A second process, folded from the same two events, appends event 3; the first, which
-	// also holds two, then tries its own event 3.
 	appendAll(t, filestore.New(dir), evs[2])
 	err := filestore.New(dir).Append(t.Context(), evs[2])
 	if !errors.Is(err, filestore.ErrSequence) {

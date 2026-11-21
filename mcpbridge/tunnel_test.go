@@ -21,11 +21,8 @@ import (
 	"github.com/JaimeStill/spike-harness-driver/mcpbridge"
 )
 
-// wait bounds every wait in these tests.
 const wait = 5 * time.Second
 
-// rawClient speaks JSON-RPC over a tunnel as a harness does: a message at a time, with the
-// server's own messages arriving on outbound.
 type rawClient struct {
 	t        *testing.T
 	tunnel   *mcpbridge.Tunnel
@@ -51,7 +48,6 @@ func newRawClient(t *testing.T, s *mcpbridge.Server) *rawClient {
 	return c
 }
 
-// call sends a request and returns its result, failing the test on a protocol error.
 func (c *rawClient) call(method string, params any) json.RawMessage {
 	c.t.Helper()
 	resp, err := c.request(method, params)
@@ -61,7 +57,6 @@ func (c *rawClient) call(method string, params any) json.RawMessage {
 	return resp
 }
 
-// request sends a request and returns its result or its protocol error.
 func (c *rawClient) request(method string, params any) (json.RawMessage, error) {
 	c.t.Helper()
 	id := c.nextID.Add(1)
@@ -94,7 +89,6 @@ func (c *rawClient) request(method string, params any) (json.RawMessage, error) 
 	return resp.Result, nil
 }
 
-// notify sends a notification, which Deliver must answer with nil.
 func (c *rawClient) notify(method string) {
 	c.t.Helper()
 	msg := fmt.Appendf(nil, `{"jsonrpc":"2.0","method":%q}`, method)
@@ -104,8 +98,6 @@ func (c *rawClient) notify(method string) {
 	}
 }
 
-// initialize runs the handshake at protocol version 2025-11-25, before the subscriptions of
-// 2026-07-28, as a harness of that version does.
 func (c *rawClient) initialize() {
 	c.t.Helper()
 	c.call("initialize", map[string]any{
@@ -135,7 +127,6 @@ func (c *rawClient) tools() map[string]listedTool {
 	return m
 }
 
-// toolResult is a tools/call result: its text and whether it failed.
 type toolResult struct {
 	text    string
 	isError bool
@@ -158,7 +149,6 @@ func (c *rawClient) callTool(name string, args any) toolResult {
 	return toolResult{strings.Join(text, ""), res.IsError}
 }
 
-// awaitListChanged waits for notifications/tools/list_changed on outbound.
 func (c *rawClient) awaitListChanged() {
 	c.t.Helper()
 	timeout := time.After(wait)
@@ -250,8 +240,6 @@ func TestTunnelRespond(t *testing.T) {
 	}
 	rec.mu.Unlock()
 
-	// A new schema renames respond, and a call to the old name is a failed call that names
-	// the new one.
 	if err := s.SetSchema(answerSchema2); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +278,6 @@ func TestTunnelRespond(t *testing.T) {
 	}
 }
 
-// TestTunnelLateSchema checks that a tunnel opened after SetSchema lists respond.
 func TestTunnelLateSchema(t *testing.T) {
 	s, err := mcpbridge.New(nil, mcpbridge.Options{})
 	if err != nil {
@@ -326,7 +313,6 @@ func TestTunnelDeliver(t *testing.T) {
 		t.Error("Deliver took a message that isn't JSON")
 	}
 
-	// A request whose context ends returns, and its handler is cancelled.
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
@@ -361,8 +347,6 @@ func TestTunnelDeliver(t *testing.T) {
 	}
 }
 
-// TestTunnelClient runs go-sdk's own client over a tunnel, at the latest protocol version and
-// at 2025-11-25, and checks that each learns of a tool list change.
 func TestTunnelClient(t *testing.T) {
 	for _, version := range []string{"", "2025-11-25"} {
 		t.Run("version="+version, func(t *testing.T) {
@@ -385,8 +369,6 @@ func TestTunnelClient(t *testing.T) {
 	}
 }
 
-// exerciseClient lists and calls the tools of testTools through cs, then sets a schema and
-// waits for changed and for respond to be listed.
 func exerciseClient(t *testing.T, s *mcpbridge.Server, cs *mcp.ClientSession, changed <-chan struct{}) {
 	t.Helper()
 	ctx := t.Context()
@@ -422,8 +404,6 @@ func exerciseClient(t *testing.T, s *mcpbridge.Server, cs *mcp.ClientSession, ch
 	}
 }
 
-// tunnelTransport is a go-sdk client Transport over a Tunnel, relaying each message as a
-// harness would.
 type tunnelTransport struct {
 	tunnel *mcpbridge.Tunnel
 	in     chan json.RawMessage
@@ -468,8 +448,6 @@ func (tt *tunnelTransport) Write(ctx context.Context, m jsonrpc.Message) error {
 		return err
 	}
 	if req, ok := m.(*jsonrpc.Request); ok && req.IsCall() {
-		// A request may stay open, as subscriptions/listen does, so it waits on its own
-		// goroutine, until the tunnel closes.
 		go func() {
 			resp, err := tt.tunnel.Deliver(context.Background(), raw)
 			if err == nil {
@@ -516,7 +494,6 @@ func TestWaitListed(t *testing.T) {
 		return time.Since(start)
 	}
 
-	// Before any harness has listed the tools, a change needs no wait.
 	if err := s.SetSchema(json.RawMessage(`{"type":"object"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +508,6 @@ func TestWaitListed(t *testing.T) {
 		t.Fatalf("waited %s after a current listing", d)
 	}
 
-	// A change waits for the next listing, and gives up at max without one.
 	if err := s.SetSchema(json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)); err != nil {
 		t.Fatal(err)
 	}

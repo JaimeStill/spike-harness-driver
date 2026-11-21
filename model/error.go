@@ -8,12 +8,8 @@ import (
 	"net/http"
 )
 
-// maxErrorBody bounds how much of an error response is read. It is a safety bound against an
-// endpoint that streams an unbounded error body, not a tuning choice: an error message fits
-// many times over.
 const maxErrorBody = 64 << 10
 
-// maxErrorText bounds how much of an unparsed error body Error prints.
 const maxErrorText = 512
 
 // APIError is a non-2xx response from the endpoint. Requests return it wrapped, so callers
@@ -49,10 +45,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%s: %s", s, body)
 }
 
-// newAPIError reads resp's body, up to maxErrorBody, into an APIError.
 func newAPIError(resp *http.Response) *APIError {
-	// A failed read leaves the part of the body that was read, which is still the best
-	// account of the error there is.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	e := &APIError{Status: resp.StatusCode, Body: body}
 	var wire struct {
@@ -68,7 +61,6 @@ func newAPIError(resp *http.Response) *APIError {
 	return e
 }
 
-// code is an error code as text. Endpoints differ in sending a string or a number.
 func code(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
